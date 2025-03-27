@@ -1,0 +1,12 @@
+[package]
+name = "router-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = { workspace = true }
+env_logger  = { workspace = true }
+redis       = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+pingora     = { git = "https://github.com/zonblade/pingora.git", branch = "zonblade/sfv-temporal-fix", features = ["proxy", "lb", "cache", "openssl"] }
