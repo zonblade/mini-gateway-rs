@@ -2,6 +2,17 @@
 
 run and gun dynamically configurable minimalistic proxy router, based on pingora
 
+## Architecture
+
+![img](assets/architecture.png)
+
+The architecture of the mini-router is currently simple and straightforward, with support for Dragonfly and Redis. Looking ahead, there are plans to expand its capabilities to include support for:​
+- Kafka
+- RabbitMQ
+- Custom Message Queues
+
+This planned expansion aims to enhance the mini-router's versatility and effectiveness in diverse messaging environments.
+
 ## Sub-repositories
 
 Each sub-repository within this project is designed to be standalone. This means that they are independent modules and should be run separately. Ensure that you configure and execute each sub-repo according to its specific requirements and purpose. Refer to the documentation within each sub-repo for detailed setup and usage instructions.
