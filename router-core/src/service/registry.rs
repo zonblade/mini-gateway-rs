@@ -1,26 +1,21 @@
 use redis::Client;
 use std::collections::HashMap;
-use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-#[derive(Debug, PartialEq)]
-pub enum RedisMessage {
-    TriggerRestart,
-}
+use crate::system;
 
-pub fn run_redis_client() -> Receiver<RedisMessage> {
-    let (tx, rx) = mpsc::channel::<RedisMessage>();
 
-    tracing::debug!("Starting Redis client thread...");
+pub fn client() {
+    log::info!("Starting Watcher client thread...");
 
     thread::spawn(move || {
-        tracing::info!("Stream Thread Starting...");
+        log::info!("Stream Thread Starting...");
 
         // Connect to Redis
         let client = match Client::open("redis://127.0.0.1:6379") {
             Ok(client) => client,
             Err(e) => {
-                tracing::error!("Failed to connect to Redis: {:?}", e);
+                log::error!("Failed to connect to Redis: {:?}", e);
                 return;
             }
         };
@@ -29,12 +24,12 @@ pub fn run_redis_client() -> Receiver<RedisMessage> {
         let mut con = match client.get_connection() {
             Ok(con) => con,
             Err(e) => {
-                tracing::error!("Failed to get Redis connection: {:?}", e);
+                log::error!("Failed to get Redis connection: {:?}", e);
                 return;
             }
         };
 
-        tracing::info!("Connected to Database");
+        log::info!("Connected to Database");
 
         // Create a stream key if it doesn't exist
         let stream_key = "updates_stream";
@@ -55,7 +50,7 @@ pub fn run_redis_client() -> Receiver<RedisMessage> {
             let result = match result {
                 Ok(response) => response,
                 Err(e) => {
-                    tracing::error!("Redis error: {:?}", e);
+                    log::error!("Redis error: {:?}", e);
                     // Sleep briefly before reconnecting
                     thread::sleep(std::time::Duration::from_secs(1));
                     continue;
@@ -69,12 +64,12 @@ pub fn run_redis_client() -> Receiver<RedisMessage> {
                     last_id = id;
 
                     // Process the data
-                    tracing::debug!("Redis stream data: {:?}", data);
+                    log::debug!("Redis stream data: {:?}", data);
 
                     // If the data indicates we need a restart
                     if let Some(value) = data.get("action") {
                         if value == "restart" {
-                            tx.send(RedisMessage::TriggerRestart).ok();
+                            system::terminator::service::init();
                         }
 
                         // other action in the future
@@ -83,8 +78,6 @@ pub fn run_redis_client() -> Receiver<RedisMessage> {
             }
         }
     });
-
-    rx
 }
 
 // Helper function to parse Redis stream response
@@ -95,38 +88,38 @@ fn process_stream_response(
     if response.is_empty() {
         return None;
     }
-    
+
     // Convert the first element of the response into our expected structure:
     // (stream_name, messages)
     // where messages is Vec<(message_id, Vec<field_and_value_strings>)>
-    let stream_info: (String, Vec<(String, Vec<String>)>) = match redis::from_redis_value(&response[0]) {
-        Ok(info) => info,
-        Err(_) => return None,
-    };
-    
+    let stream_info: (String, Vec<(String, Vec<String>)>) =
+        match redis::from_redis_value(&response[0]) {
+            Ok(info) => info,
+            Err(_) => return None,
+        };
+
     let messages = stream_info.1;
     let mut result = Vec::new();
-    
+
     // Iterate over each message.
     for (msg_id, flat_fields) in messages {
         let mut data = HashMap::new();
         let mut iter = flat_fields.into_iter();
-        
+
         // The flat vector contains alternating field and value.
         while let (Some(field), Some(value)) = (iter.next(), iter.next()) {
             data.insert(field, value);
         }
-        
+
         result.push((msg_id, data));
     }
-    
+
     if result.is_empty() {
         None
     } else {
         Some(result)
     }
 }
-
 
 // To publish to the stream from elsewhere in your code:
 // redis::cmd("XADD").arg("updates_stream").arg("*").arg("action").arg("restart").arg("value").arg("some_value").execute(&mut con);

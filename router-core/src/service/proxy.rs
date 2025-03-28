@@ -46,7 +46,7 @@ pub fn proxy_service_tls(
     // set SNI to enable TLS
     proxy_to.sni = proxy_sni.into();
     
-    tracing::debug!("Proxying to {} with SNI {}", proxy_addr, proxy_sni);
+    log::debug!("Proxying to {} with SNI {}", proxy_addr, proxy_sni);
 
     Service::with_listeners(
         "Proxy Service TLS".to_string(),

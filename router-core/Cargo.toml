@@ -8,5 +8,8 @@ async-trait = { workspace = true }
 env_logger  = { workspace = true }
 redis       = { workspace = true }
 tokio       = { workspace = true }
-tracing     = { workspace = true }
+log         = { workspace = true }
+mini-config = { workspace = true }
+crossterm   = { workspace = true }
 pingora     = { git = "https://github.com/zonblade/pingora.git", branch = "zonblade/sfv-temporal-fix", features = ["proxy", "lb", "cache", "openssl"] }
+ctrlc = "3.4.5"
