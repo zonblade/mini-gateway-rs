@@ -238,14 +238,73 @@ impl ServerApp for ProxyApp {
             }
         };
 
-        log::info!("Read {} bytes from client", n);
-        let request = String::from_utf8_lossy(&buf[..n]);
-        log::info!("Request: {}", request);
+        // if n == 0 {
+        //     log::info!("Empty request received (0 bytes)");
+        //     return None;
+        // }
 
+        // Attempt to determine the connection type
+        let preview = String::from_utf8_lossy(&buf[..std::cmp::min(n, 200)]);
+        let first_line = preview.lines().next().unwrap_or("Empty request");
+
+        // Log the first line of the request
+        log::info!("Request preview: {}", first_line);
+
+        // Detect connection type
+        let connection_type = if first_line.starts_with("GET ")
+            || first_line.starts_with("POST ")
+            || first_line.starts_with("PUT ")
+            || first_line.starts_with("DELETE ")
+            || first_line.starts_with("HEAD ")
+            || first_line.starts_with("OPTIONS ")
+        {
+            // Check for WebSocket upgrade
+            if preview.contains("Upgrade: websocket") && preview.contains("Connection: Upgrade") {
+                "WebSocket"
+            } else {
+                "HTTP"
+            }
+        } else if preview.contains("\0") {
+            // Simple binary data check
+            "Binary/TCP"
+        } else {
+            "Unknown"
+        };
+
+        log::info!("Connection type detected: {}", connection_type);
+
+        // Process according to connection type
+        match connection_type {
+            "WebSocket" => {
+                // For WebSockets, you might want to handle differently or just pass through
+                log::info!("WebSocket connection detected");
+                // Continue with your normal processing as WebSockets start as HTTP
+            }
+            "HTTP" => {
+                // This is your standard HTTP flow
+                log::info!("Standard HTTP connection detected");
+                // Continue with standard HTTP processing
+            }
+            "Binary/TCP" => {
+                log::info!("Binary/TCP data detected, not HTTP");
+                // You could either reject these connections or implement special handling
+                // For now, continue trying to process as HTTP, which will likely fail gracefully
+            }
+            _ => {
+                log::info!("Unknown protocol data");
+                // Similar to binary/TCP case
+            }
+        }
+
+        // Continue with your existing HTTP parsing logic
+        let request = String::from_utf8_lossy(&buf[..n]);
         // Parse the request to extract the path
         let first_line = match request.lines().next() {
             Some(line) => line,
-            None => return None, // Early return if no first line
+            None => {
+                log::error!("No lines in request");
+                return None;
+            }
         };
 
         let (_, rest) = match first_line.split_once(' ') {
@@ -272,18 +331,18 @@ impl ServerApp for ProxyApp {
                     }
                 }
 
-                log::info!("Matched rule: {:?} -> {}", rule.pattern, target_path);
+                // log::info!("Matched rule: {:?} -> {}", rule.pattern, target_path);
 
                 // Update proxy target if alternate is provided
                 if let Some(alt_target) = &rule.alt_target {
                     proxy_to = alt_target.clone();
-                    log::info!("Redirecting to alternate target: {:?}", proxy_to);
+                    // log::info!("Redirecting to alternate target: {:?}", proxy_to);
                 }
 
                 // Rewrite the first line with the new path
                 let new_first_line = first_line.replacen(path, &target_path, 1);
-                log::info!("Rewriting path: {} -> {}", path, target_path);
-                log::info!("Rewritten first line: {}", new_first_line);
+                // log::info!("Rewriting path: {} -> {}", path, target_path);
+                // log::info!("Rewritten first line: {}", new_first_line);
 
                 // Rebuild the HTTP request with the modified path
                 let new_request = request.replacen(first_line, &new_first_line, 1);
@@ -317,7 +376,7 @@ impl ServerApp for ProxyApp {
         .await
         {
             Ok(Ok(client_session)) => {
-                log::info!("Connected to upstream peer {}", target_addr);
+                // log::info!("Connected to upstream peer {}", target_addr);
                 client_session
             }
             Ok(Err(e)) => {
@@ -333,7 +392,7 @@ impl ServerApp for ProxyApp {
         // Forward the initial data we captured
         match client_session.write_all(&buf[0..n]).await {
             Ok(_) => {
-                log::info!("Forwarded {} bytes to upstream peer", n);
+                // log::info!("Forwarded {} bytes to upstream peer", n);
             }
             Err(e) => {
                 log::error!("Failed to write to upstream peer: {}", e);
@@ -342,7 +401,7 @@ impl ServerApp for ProxyApp {
         };
         match client_session.flush().await {
             Ok(_) => {
-                log::info!("Flushed data to upstream peer");
+                // log::info!("Flushed data to upstream peer");
             }
             Err(e) => {
                 log::error!("Failed to flush data to upstream peer: {}", e);
