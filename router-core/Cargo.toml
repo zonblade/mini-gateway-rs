@@ -11,7 +11,7 @@ tokio       = { workspace = true }
 log         = { workspace = true }
 mini-config = { workspace = true }
 crossterm   = { workspace = true }
-pingora     = { git = "https://github.com/zonblade/pingora.git", rev = "33838607e4d3bb25034c1f390c5264975c712a06", features = ["proxy", "lb", "cache", "openssl"] }
+pingora     = { git = "https://github.com/zonblade/pingora.git", rev = "92274500c6c722eee962f30b0b779c62a515dbea", features = ["proxy", "lb", "cache", "openssl"] }
 ctrlc = "3.4.5"
 regex = "1.11.1"
 http = "1.3.1"
