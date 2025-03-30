@@ -17,7 +17,7 @@ pub fn proxy_service(addr: &str, proxy_addr: &str) -> Service<ProxyApp> {
     Service::with_listeners(
         "Proxy Service".to_string(),
         Listeners::tcp(addr),
-        ProxyApp::new(proxy_to),
+        ProxyApp::new(addr),
     )
 }
 
@@ -51,6 +51,6 @@ pub fn proxy_service_tls(
     Service::with_listeners(
         "Proxy Service TLS".to_string(),
         Listeners::tls(addr, cert_path, key_path).unwrap(),
-        ProxyApp::new(proxy_to),
+        ProxyApp::new(addr),
     )
 }

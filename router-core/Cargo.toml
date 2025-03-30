@@ -13,3 +13,5 @@ mini-config = { workspace = true }
 crossterm   = { workspace = true }
 pingora     = { git = "https://github.com/zonblade/pingora.git", branch = "zonblade/sfv-temporal-fix", features = ["proxy", "lb", "cache", "openssl"] }
 ctrlc = "3.4.5"
+regex = "1.11.1"
+http = "1.3.1"

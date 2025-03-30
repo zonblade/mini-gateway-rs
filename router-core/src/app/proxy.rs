@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use log::debug;
+use regex::Regex;
 
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -11,53 +12,152 @@ use pingora::protocols::Stream;
 use pingora::server::ShutdownWatch;
 use pingora::upstreams::peer::BasicPeer;
 
-/// `ProxyApp` is an application that facilitates proxying data between a downstream
-/// server session and an upstream client session. It uses a `TransportConnector`
-/// to establish connections to the upstream peer and handles bidirectional data
-/// transfer between the two streams.
+/// Rule defining how to match and transform HTTP requests.
+///
+/// `RedirectRule` determines how incoming requests should be routed based on their path.
+/// Each rule includes a regex pattern to match the path, a target path template for rewriting,
+/// and information about which backend server should handle the request.
+pub struct RedirectRule {
+    /// Regular expression pattern to match against request paths
+    pattern: Regex,
+
+    /// Target path template (may include capture group references like $1, $2)
+    target: String,
+
+    /// The listening address this rule applies to
+    alt_listen: String,
+
+    /// Optional alternate backend server to route matching requests to
+    alt_target: Option<BasicPeer>,
+
+    /// Priority of this rule (higher values = higher priority)
+    /// Rules are sorted by priority when matching, so higher priority rules are checked first.
+    priority: usize,
+}
+
+/// Proxy application that routes HTTP requests to backend servers.
+///
+/// `ProxyApp` handles incoming HTTP connections, applies routing rules to determine
+/// the appropriate backend server, and manages the bidirectional data transfer between
+/// the client and the backend server.
 pub struct ProxyApp {
-    /// Connector used to establish connections to the upstream peer.
-    client_connector: TransportConnector,
-    /// The upstream peer to which the proxy will forward data.
-    proxy_to: BasicPeer,
+    /// Map of target server addresses to their respective connection pools
+    client_connectors: std::collections::HashMap<String, TransportConnector>,
+
+    /// List of routing rules, sorted by priority
+    redirects: Vec<RedirectRule>,
 }
 
 /// Events representing data read from either the downstream or upstream streams.
+///
+/// Used in the duplex proxying process to handle bidirectional data transfer.
 enum DuplexEvent {
-    /// Data read from the downstream stream.
+    /// Data read from the client (downstream) connection
     DownstreamRead(usize),
-    /// Data read from the upstream stream.
+
+    /// Data read from the server (upstream) connection
     UpstreamRead(usize),
 }
 
 impl ProxyApp {
-    /// Creates a new instance of `ProxyApp` with the specified upstream peer.
+    /// Creates a new proxy application that handles requests on the specified listening address.
     ///
     /// # Arguments
     ///
-    /// * `proxy_to` - The upstream peer to which the proxy will forward data.
+    /// * `alt_source` - The listening address to match rules against (e.g., "127.0.0.1:9010")
     ///
     /// # Returns
     ///
-    /// A new `ProxyApp` instance.
-    pub fn new(proxy_to: BasicPeer) -> Self {
+    /// A configured `ProxyApp` instance with rules matching the specified listening address.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let proxy = ProxyApp::new("127.0.0.1:9010");
+    /// ```
+    pub fn new(alt_source: &str) -> Self {
+        let mut redirects = vec![
+            // RedirectRule {
+            //     pattern: Regex::new("^/sometimes\\.ico$").unwrap(),
+            //     target: "/favicon.ico".to_string(),
+            //     alt_target: None,
+            //     priority: 4,
+            // },
+            RedirectRule {
+                pattern: Regex::new("^/favicon\\.ico$").unwrap(),
+                target: "/favicon.ico".to_string(),
+                alt_target: Some(BasicPeer::new("127.0.0.1:3000")),
+                alt_listen: "127.0.0.1:9010".to_string(),
+                priority: 0,
+            },
+            // RedirectRule {
+            //     pattern: Regex::new("^/videos/([^/]+)/play$").unwrap(),
+            //     target: "/watch/$1".to_string(),
+            //     alt_target: None,
+            //     priority: 2,
+            // },
+            RedirectRule {
+                pattern: Regex::new("^/api/(.*)$").unwrap(),
+                target: "/v2/api/$1".to_string(),
+                alt_target: Some(BasicPeer::new("127.0.0.1:8080")),
+                alt_listen: "127.0.0.1:9010".to_string(),
+                priority: 1,
+            },
+            RedirectRule {
+                pattern: Regex::new(r"^/(.*)$").unwrap(),
+                target: "/$1".to_string(),
+                alt_target: Some(BasicPeer::new("127.0.0.1:3002")),
+                alt_listen: "127.0.0.1:9010".to_string(),
+                priority: 0,
+            },
+            RedirectRule {
+                pattern: Regex::new(r"^/(.*)$").unwrap(),
+                target: "/$1".to_string(),
+                alt_target: Some(BasicPeer::new("127.0.0.1:8080")),
+                alt_listen: "127.0.0.1:9011".to_string(),
+                priority: 0,
+            },
+        ];
+        redirects.retain(|rule| rule.alt_listen == alt_source);
+        redirects.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+        // Create a map of connectors
+        let mut client_connectors = std::collections::HashMap::new();
+
+        // Add connectors for each unique target
+        for rule in &redirects {
+            if let Some(target) = &rule.alt_target {
+                let addr = format!("{}", target);
+                if !client_connectors.contains_key(&addr) {
+                    client_connectors.insert(addr, TransportConnector::new(None));
+                }
+            }
+        }
+
+        // Add default connector
+        client_connectors.insert("default".to_string(), TransportConnector::new(None));
+
         ProxyApp {
-            client_connector: TransportConnector::new(None),
-            proxy_to,
+            client_connectors,
+            redirects,
         }
     }
 
-    /// Handles bidirectional data transfer between the downstream server session
-    /// and the upstream client session.
+    /// Handles bidirectional data transfer between client and server connections.
     ///
-    /// This method reads data from one stream and writes it to the other, ensuring
-    /// that data flows seamlessly between the two endpoints. It terminates when
-    /// either stream is closed.
+    /// This is the core proxying functionality that:
+    /// 1. Concurrently reads from both client and server connections
+    /// 2. Forwards data in both directions
+    /// 3. Handles termination when either connection closes
     ///
     /// # Arguments
     ///
-    /// * `server_session` - The downstream server session.
-    /// * `client_session` - The upstream client session.
+    /// * `server_session` - The client-facing connection
+    /// * `client_session` - The backend server connection
+    ///
+    /// # Note
+    ///
+    /// This method will run until either connection is closed.
     async fn duplex(&self, mut server_session: Stream, mut client_session: Stream) {
         // Buffers for reading data from the streams.
         let mut upstream_buf = [0; 1024];
@@ -102,40 +202,156 @@ impl ProxyApp {
 
 #[async_trait]
 impl ServerApp for ProxyApp {
-    /// Processes a new incoming connection from the downstream server.
+    /// Processes a new incoming HTTP connection.
     ///
-    /// This method establishes a connection to the upstream peer and starts
-    /// the bidirectional data transfer between the downstream and upstream
-    /// streams. If the connection to the upstream peer fails, it logs the
-    /// error and terminates the session.
+    /// This method:
+    /// 1. Reads and parses the initial HTTP request
+    /// 2. Extracts the request path
+    /// 3. Applies matching redirect rules based on the path
+    /// 4. Rewrites the request path according to the matching rule
+    /// 5. Establishes a connection to the appropriate backend server
+    /// 6. Forwards the (possibly rewritten) request
+    /// 7. Sets up bidirectional proxying between client and server
     ///
     /// # Arguments
     ///
-    /// * `io` - The downstream server stream.
-    /// * `_shutdown` - A shutdown watcher to monitor for server shutdown signals.
+    /// * `io` - The client connection stream
+    /// * `_shutdown` - A shutdown watcher for graceful server termination
     ///
     /// # Returns
     ///
-    /// Always returns `None` as the proxy does not reuse the downstream stream.
+    /// Always returns `None` as the connection is fully consumed by the proxy.
     async fn process_new(
         self: &Arc<Self>,
-        io: Stream,
+        mut io: Stream,
         _shutdown: &ShutdownWatch,
     ) -> Option<Stream> {
-        // Attempt to establish a connection to the upstream peer.
-        let client_session = self.client_connector.new_stream(&self.proxy_to).await;
+        log::info!("\n\n\nIncoming Request");
 
-        match client_session {
-            Ok(client_session) => {
-                // Start bidirectional data transfer.
-                self.duplex(io, client_session).await;
-                None
-            }
+        // Read the initial data
+        let mut buf = [0; 4098];
+        let mut n = match io.read(&mut buf).await {
+            Ok(n) => n,
             Err(e) => {
-                // Log the error if the connection fails.
-                debug!("Failed to create client session: {}", e);
-                None
+                log::error!("Failed to read from client: {}", e);
+                return None;
+            }
+        };
+
+        log::info!("Read {} bytes from client", n);
+        let request = String::from_utf8_lossy(&buf[..n]);
+        log::info!("Request: {}", request);
+
+        // Parse the request to extract the path
+        let first_line = match request.lines().next() {
+            Some(line) => line,
+            None => return None, // Early return if no first line
+        };
+
+        let (_, rest) = match first_line.split_once(' ') {
+            Some(parts) => parts,
+            None => return None, // Early return if the first line does not contain a space
+        };
+
+        let (path, _) = match rest.split_once(' ') {
+            Some(parts) => parts,
+            None => return None, // Early return if the rest does not contain a space
+        };
+
+        log::info!("Request path: {}", path);
+
+        // Determine the proxy target based on the path
+        let mut proxy_to = BasicPeer::new("127.0.0.1:8080"); // Default fallback
+        for rule in &self.redirects {
+            if let Some(captures) = rule.pattern.captures(path) {
+                // Generate the target path by replacing capture groups
+                let mut target_path = rule.target.clone();
+                for (i, capture) in captures.iter().enumerate().skip(1) {
+                    if let Some(capture) = capture {
+                        target_path = target_path.replace(&format!("${}", i), capture.as_str());
+                    }
+                }
+
+                log::info!("Matched rule: {:?} -> {}", rule.pattern, target_path);
+
+                // Update proxy target if alternate is provided
+                if let Some(alt_target) = &rule.alt_target {
+                    proxy_to = alt_target.clone();
+                    log::info!("Redirecting to alternate target: {:?}", proxy_to);
+                }
+
+                // Rewrite the first line with the new path
+                let new_first_line = first_line.replacen(path, &target_path, 1);
+                log::info!("Rewriting path: {} -> {}", path, target_path);
+                log::info!("Rewritten first line: {}", new_first_line);
+
+                // Rebuild the HTTP request with the modified path
+                let new_request = request.replacen(first_line, &new_first_line, 1);
+                let new_buf = new_request.as_bytes();
+
+                if new_buf.len() <= buf.len() {
+                    buf[..new_buf.len()].copy_from_slice(new_buf);
+                    n = new_buf.len();
+                } else {
+                    log::warn!("Modified request is larger than buffer, keeping original");
+                }
+
+                break; // Exit the loop after processing the first matching rule
             }
         }
+
+        // Get the appropriate connector
+        let target_addr = format!("{}", proxy_to);
+        let connector = self.client_connectors.get(&target_addr).unwrap_or_else(|| {
+            // Fallback to default connector if no specific one exists
+            self.client_connectors
+                .get("default")
+                .expect("Default connector should exist")
+        });
+
+        // Use a timeout for connection establishment
+        let mut client_session = match tokio::time::timeout(
+            std::time::Duration::from_millis(120),
+            connector.new_stream(&proxy_to),
+        )
+        .await
+        {
+            Ok(Ok(client_session)) => {
+                log::info!("Connected to upstream peer {}", target_addr);
+                client_session
+            }
+            Ok(Err(e)) => {
+                log::error!("Failed to connect to upstream peer {}: {}", target_addr, e);
+                return None;
+            }
+            Err(_) => {
+                log::error!("Connection to {} timed out", target_addr);
+                return None;
+            }
+        };
+
+        // Forward the initial data we captured
+        match client_session.write_all(&buf[0..n]).await {
+            Ok(_) => {
+                log::info!("Forwarded {} bytes to upstream peer", n);
+            }
+            Err(e) => {
+                log::error!("Failed to write to upstream peer: {}", e);
+                return None;
+            }
+        };
+        match client_session.flush().await {
+            Ok(_) => {
+                log::info!("Flushed data to upstream peer");
+            }
+            Err(e) => {
+                log::error!("Failed to flush data to upstream peer: {}", e);
+                return None;
+            }
+        };
+
+        // Begin regular duplex proxying
+        self.duplex(io, client_session).await;
+        None
     }
 }

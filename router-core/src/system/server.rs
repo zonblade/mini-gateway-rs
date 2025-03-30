@@ -11,13 +11,13 @@ use super::terminator;
 pub fn init() {
     let mut server_threads = Vec::new();
 
-    // sample of 10 second termination.
-    {
-        thread::spawn(|| {
-            std::thread::sleep(std::time::Duration::from_secs(10));
-            terminator::service::init();
-        });
-    }
+    // // sample of 10 second termination.
+    // {
+    //     thread::spawn(|| {
+    //         std::thread::sleep(std::time::Duration::from_secs(10));
+    //         terminator::service::init();
+    //     });
+    // }
 
     // Non-TLS server thread
     {
