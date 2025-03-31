@@ -1,30 +1,14 @@
+use super::default_page;
 use crate::{app::gateway::GatewayApp, service};
 use pingora::{
     prelude::Opt,
     server::{RunArgs, Server},
 };
 use std::thread;
-use super::{default_page, protocol};
 
 pub fn init() {
-    // Initialize protocol configuration
-    protocol::init_config();
-    
     let mut server_threads = Vec::new();
-    
-    // Protocol Server Thread
-    {
-        let handle = thread::spawn(|| {
-            let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            runtime.block_on(async {
-                if let Err(e) = protocol::init().await {
-                    log::error!("Protocol server failed to start: {}", e);
-                }
-            });
-        });
-        server_threads.push(handle);
-    }
-    
+
     // Gateway Service Thread
     {
         let handle = thread::spawn(|| {
@@ -46,7 +30,7 @@ pub fn init() {
         });
         server_threads.push(handle);
     }
-    
+
     // non-TLS Proxy server thread
     {
         let handle = thread::spawn(|| {
@@ -60,7 +44,7 @@ pub fn init() {
         });
         server_threads.push(handle);
     }
-    
+
     // TLS Proxy server thread
     {
         let handle = thread::spawn(|| {
@@ -74,7 +58,7 @@ pub fn init() {
         });
         server_threads.push(handle);
     }
-    
+
     // Default Page
     {
         let handle404: thread::JoinHandle<()> = thread::spawn(|| {
@@ -93,7 +77,7 @@ pub fn init() {
         server_threads.push(handle500);
         server_threads.push(handle_tls);
     }
-    
+
     for handle in server_threads {
         log::debug!("Waiting for server thread to finish...");
         if let Err(e) = handle.join() {

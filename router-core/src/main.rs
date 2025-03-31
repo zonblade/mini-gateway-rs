@@ -21,6 +21,11 @@ async fn main() {
     log::info!("Starting proxy server...");
     let active_state = Arc::new(AtomicBool::new(false)); // Removed extra semicolon and 'mut'
 
+    // custom protocol server
+    {
+        system::protocol::start_interface();
+    }
+    // interruptor
     {
         let running_clone = Arc::clone(&active_state);
         ctrlc::set_handler(move || {

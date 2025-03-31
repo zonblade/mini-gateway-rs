@@ -28,6 +28,7 @@
 /// - `server`: Server initialization and TCP connection acceptance
 /// - `connection`: Connection handling and protocol message processing
 /// - `parsing`: Utilities for parsing protocol messages and parameters
+/// - `services`: Trait-based service system for dynamic service handling
 ///
 /// ## Usage
 ///
@@ -72,10 +73,52 @@ mod types;
 mod server;
 mod connection;
 mod parsing;
+pub mod services;
+
+use std::thread;
 
 // Re-export public items
-pub use config::{ProtocolConfig, init_config};
-pub use server::{init, run_server, shutdown};
-pub use connection::handle_connection;
-pub use parsing::parse_connection_params;
-pub use types::ConnectionParams;
+use config::{ProtocolConfig, init_config};
+use server::{init, shutdown};
+use connection::handle_connection;
+use parsing::parse_connection_params;
+use services::ServiceProtocol;
+use types::ConnectionParams;
+
+pub fn start_interface(){
+    init_config();
+    thread::spawn(|| {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+        runtime.block_on(async {
+            // Initialize the service handler
+            let service_handler = services::init();
+            
+            // Register example services
+            let mut handler = service_handler.write().await;
+            
+            // Example of registering services
+            let example_service = services::ExampleService::new();
+            let example_service_2 = services::ExampleService::with_name("echo".to_string());
+            
+            // Create the services list
+            let services = vec![
+                services::register_service("example", example_service),
+                services::register_service("echo", example_service_2),
+            ];
+            
+            // Add services to the handler
+            handler.add_services(services);
+            
+            // Run the service handler
+            handler.join();
+            
+            // Release the write lock before starting the server
+            drop(handler);
+            
+            // Start the protocol server
+            if let Err(e) = init().await {
+                log::error!("Protocol server failed to start: {}", e);
+            }
+        });
+    });
+}

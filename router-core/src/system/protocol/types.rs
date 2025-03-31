@@ -39,7 +39,7 @@ use std::collections::HashMap;
 /// * action = "authenticate"
 /// * parameters = {"username": "johndoe", "session": "abc123"}
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConnectionParams {
     /// The target service name to connect to
     pub service: String,
