@@ -1,10 +1,9 @@
 use pingora::{
-    prelude::Opt,
-    server::{RunArgs, Server},
+    listeners::tls::TlsSettings, prelude::Opt, proxy::HttpProxy, server::{RunArgs, Server}, services::Service
 };
 use std::{io::Write, thread};
 
-use crate::{app::proxy::ProxyApp, service};
+use crate::{app::{gateway::GatewayApp, proxy::ProxyApp}, service};
 
 use super::terminator;
 
@@ -19,29 +18,51 @@ pub fn init() {
     //     });
     // }
 
-    // Non-TLS server thread
+    // Gateway Service Thread
     {
         let handle = thread::spawn(|| {
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
             my_server.bootstrap();
 
-            // let proxy = service::proxy::proxy_service("127.0.0.1:9010", "127.0.0.1:9000");
+            let addr = vec![
+                "127.0.0.1:30001",
+                "127.0.0.1:30003"
+            ];
+            let mut my_gateway:Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
+            for addr in addr.iter() {
+                let mut my_gateway_service = pingora::proxy::http_proxy_service(
+                    &my_server.configuration,
+                    GatewayApp::new(addr),
+                );
+                my_gateway_service.add_tcp(addr);
+                my_gateway.push(Box::new(my_gateway_service));
+            };
 
-            let mut my_proxy = pingora::proxy::http_proxy_service(
-                &my_server.configuration,
-                ProxyApp::new("127.0.0.1:9010"),
-            );
-            my_proxy.add_tcp("127.0.0.1:9010");
-            my_server.add_service(my_proxy);
-            // This call blocks until the process receives SIGINT (or another interrupt)
-            my_server.run_forever();
+            my_server.add_services(my_gateway);
+            my_server.run(RunArgs::default());
             log::warn!("Non-TLS server shutting down.");
         });
         server_threads.push(handle);
     }
 
-    // // TLS server thread
+    // Proxy server thread
+    {
+        let handle = thread::spawn(|| {
+            let opt = Some(Opt::default());
+            let mut my_server = Server::new(opt).expect("Failed to create server");
+            let proxy = service::proxy::proxy_service("0.0.0.0:2000");
+            my_server.bootstrap();
+            my_server.add_service(proxy);
+            // This call blocks until the process receives SIGINT (or another interrupt)
+            my_server.run(RunArgs::default());
+            log::warn!("TLS server shutting down.");
+        });
+        server_threads.push(handle);
+    }
+
+
+    // // TLS Proxy server thread
     // {
     //     let handle = thread::spawn(|| {
     //         let opt = Some(Opt::default());

@@ -1,6 +1,10 @@
-# mini-router
+# Mini Gateway
 
-run and gun dynamically configurable minimalistic proxy router, based on pingora
+<p align="center">
+<img style="height:100%; width: 512px;" src="https://raw.githubusercontent.com/zonblade/cerberus/main/assets/logo.png"/></br>
+<span style="font-size:32px;">mini gateway</span>
+<span style="font-size:16px;">A very fast yet easy to control Gatway!</span>
+</p>
 
 ## Architecture
 
@@ -12,6 +16,12 @@ The architecture of the mini-router is currently simple and straightforward, wit
 - Custom Message Queues
 
 This planned expansion aims to enhance the mini-router's versatility and effectiveness in diverse messaging environments.
+
+## Architecture ROUTER CORE
+
+![img](assets/architecture-internal.png)
+
+> Incoming traffic enters from the internet and is first secured by the TLS/WSS proxy, which decrypts the data and passes it as TCP/HTTP/WS traffic (while you can disable the TLS if not needed). This standardized traffic is then processed by the Gateway, which dynamically determines whether to pass the request through a scripting plugin or directly to backend services. In parallel, a background mechanism constantly monitors for configuration changes. When updates are detected—via the Gateway API and an external update service—these are reloaded in memory to ensure the Gateway operates with the latest settings, all without interrupting the flow.
 
 ## Sub-repositories
 
@@ -31,10 +41,3 @@ Each sub-repository within this project is designed to be standalone. This means
 - All of the applications are interconnected using Redis or DragonflyDB as the communication backbone. Ensure that a compatible instance of Redis or DragonflyDB is properly configured and accessible to all sub-repositories.
 - The system must operate within a private and secure network. Exposing the applications or the database to public networks is not recommended and could lead to security vulnerabilities.
 - The API or GUI provided by the system is intended strictly for internal use and is not designed for external consumption. Ensure that access is restricted to authorized users within the secure network.
-
-
-## Architecture ROUTER CORE
-
-![img](assets/architecture-internal.png)
-
-> Incoming traffic enters from the internet and is first secured by the TLS/WSS proxy, which decrypts the data and passes it as TCP/HTTP/WS traffic (while you can disable the TLS if not needed). This standardized traffic is then processed by the Gateway, which dynamically determines whether to pass the request through a scripting plugin or directly to backend services. In parallel, a background mechanism constantly monitors for configuration changes. When updates are detected—via the Gateway API and an external update service—these are reloaded in memory to ensure the Gateway operates with the latest settings, all without interrupting the flow.

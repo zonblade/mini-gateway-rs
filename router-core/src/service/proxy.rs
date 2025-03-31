@@ -11,8 +11,7 @@ use pingora::upstreams::peer::BasicPeer;
 ///
 /// # Returns
 /// A `Service<ProxyApp>` instance configured to forward traffic to the specified proxy address.
-pub fn proxy_service(addr: &str, proxy_addr: &str) -> Service<ProxyApp> {
-    let proxy_to = BasicPeer::new(proxy_addr);
+pub fn proxy_service(addr: &str) -> Service<ProxyApp> {
 
     Service::with_listeners(
         "Proxy Service".to_string(),
