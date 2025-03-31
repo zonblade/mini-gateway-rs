@@ -9,6 +9,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 
+use crate::config::DEFAULT_PORT;
+
 pub struct RedirectRule {
     host: Option<String>,
     alt_listen: String,
@@ -227,10 +229,10 @@ impl ServerApp for ProxyApp {
         .map(|rule| {
             rule.alt_target
                 .as_ref()
-                .unwrap_or(&BasicPeer::new("127.0.0.1:12871"))
+                .unwrap_or(&BasicPeer::new(DEFAULT_PORT.p404))
                 .clone()
         })
-        .unwrap_or_else(|| BasicPeer::new("127.0.0.1:12871"));
+        .unwrap_or_else(|| BasicPeer::new(DEFAULT_PORT.p500));
 
         let target_addr = format!("{}", proxy_to._address);
         log::info!("Proxying to     : {} (TLS: {})", target_addr, is_tls);

@@ -6,6 +6,8 @@ use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::BasicPeer;
 use regex::Regex;
 
+use crate::config::DEFAULT_PORT;
+
 pub struct RedirectRule {
     pattern: Regex,
     target: String,
@@ -126,7 +128,9 @@ impl ProxyHttp for GatewayApp {
         }
 
         // Default fallback if no rules match or if matched rule has no alt_target
-        let addr = ("127.0.0.1", 12871);
+        let port_str = DEFAULT_PORT.p404;
+        let parts: Vec<&str> = port_str.split(':').collect();
+        let addr = (parts[0], parts[1].parse::<u16>().unwrap_or(80));
         info!("No matching rules, connecting to default {addr:?}");
         let peer = Box::new(HttpPeer::new(addr, false, "".to_string()));
         Ok(peer)
