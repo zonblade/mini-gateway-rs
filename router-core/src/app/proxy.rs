@@ -77,16 +77,16 @@ impl ProxyApp {
     pub fn new(alt_source: &str) -> Self {
         let mut redirects = vec![
             RedirectRule {
-                host: Some("localhost:2000".to_string()),
+                host: Some("localhost:2001".to_string()),
                 alt_target: Some(BasicPeer::new("127.0.0.1:30001")),
-                alt_listen: "0.0.0.0:2000".to_string(),
+                alt_listen: "0.0.0.0:2001".to_string(),
                 alt_tls: false,
                 priority: 0,
             },
             RedirectRule {
                 host: None,
                 alt_target: Some(BasicPeer::new("127.0.0.1:30003")),
-                alt_listen: "0.0.0.0:2000".to_string(),
+                alt_listen: "0.0.0.0:2001".to_string(),
                 alt_tls: false,
                 priority: 1,
             },

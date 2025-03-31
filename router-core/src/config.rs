@@ -1,5 +1,5 @@
 use mini_config::Configure;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub struct DefaultPort {
     pub p404: &'static str,
@@ -26,7 +26,7 @@ pub enum GeneralConfig {
     RedisURI
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProxyNode {
     pub tls: bool,
     pub sni: Option<String>,
@@ -37,7 +37,7 @@ pub struct ProxyNode {
     pub priority: i8,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNode {
     pub priority: i8,
     pub addr_listen: String,
@@ -54,5 +54,11 @@ where
 }
 
 pub fn init(){
-    RoutingData::GatewayRouting.xset::<String>("hello".to_string());
+    // initiate the routing id
+    RoutingData::ProxyID.set("-");
+    RoutingData::GatewayID.set("-");
+
+    // initiate the routing data
+    RoutingData::GatewayRouting.xset::<Vec<GatewayNode>>(vec![]);
+    RoutingData::ProxyRouting.xset::<Vec<ProxyNode>>(vec![]);
 }
