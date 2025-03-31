@@ -41,7 +41,7 @@ impl ProxyApp {
                 host: None,
                 alt_target: Some(BasicPeer::new("127.0.0.1:30003")),
                 alt_listen: "0.0.0.0:2000".to_string(),
-                alt_tls: true,
+                alt_tls: false,
                 priority: 1,
             },
             // RedirectRule {
@@ -129,7 +129,10 @@ impl ServerApp for ProxyApp {
         mut io: Stream,
         _shutdown: &ShutdownWatch,
     ) -> Option<Stream> {
-        log::info!("\n\n\nIncoming Request");
+        log::info!("");
+        log::info!("#-------------------------------------#");
+        log::info!("#           Incoming Request          #");
+        log::info!("#-------------------------------------#");
         let mut buf = [0; 8192]; // Increased buffer size for larger headers
         let n = match io.read(&mut buf).await {
             Ok(n) => n,
@@ -146,13 +149,13 @@ impl ServerApp for ProxyApp {
 
         let preview = String::from_utf8_lossy(&buf[..std::cmp::min(n, 200)]);
         let first_line = preview.lines().next().unwrap_or("Empty request");
-        log::info!("Request preview: {}", first_line);
+        log::info!("Request preview : {}", first_line);
 
+        // In your process_new implementation, modify the host extraction:
         // Determine if this is a TLS connection based on the first byte
-        // TLS handshakes typically start with byte 0x16 (22 decimal)
         let is_tls = n > 0 && buf[0] == 0x16;
         log::info!(
-            "Connection type: {}",
+            "Connection type : {}",
             if is_tls { "TLS" } else { "Plain HTTP" }
         );
 
@@ -169,7 +172,7 @@ impl ServerApp for ProxyApp {
             None
         };
 
-        log::info!("Host header: {:?}", host_header);
+        log::info!("Host header     : {:?}", host_header);
 
         // Check for WebSocket upgrade
         let is_websocket = !is_tls
@@ -177,16 +180,8 @@ impl ServerApp for ProxyApp {
                 .lines()
                 .any(|line| line.to_lowercase().contains("upgrade: websocket"));
         if is_websocket {
-            log::info!("WebSocket upgrade request detected");
+            log::info!("Upgrade request : WebSocket");
         }
-
-        // In your process_new implementation, modify the host extraction:
-        // Determine if this is a TLS connection based on the first byte
-        let is_tls = n > 0 && buf[0] == 0x16;
-        log::info!(
-            "Connection type: {}",
-            if is_tls { "TLS" } else { "Plain HTTP" }
-        );
 
         // Extract host information
         let host_info = if is_tls {
@@ -203,7 +198,7 @@ impl ServerApp for ProxyApp {
             })
         };
 
-        log::info!("Host info: {:?}", host_info);
+        log::info!("Host info       : {:?}", host_info);
 
         // Find matching redirect rule based on host info and TLS status
         let proxy_to = if let Some(host) = host_info {
@@ -237,8 +232,8 @@ impl ServerApp for ProxyApp {
         })
         .unwrap_or_else(|| BasicPeer::new("127.0.0.1:12871"));
 
-        let target_addr = format!("{}", proxy_to);
-        log::info!("Proxying to: {} (TLS: {})", target_addr, is_tls);
+        let target_addr = format!("{}", proxy_to._address);
+        log::info!("Proxying to     : {} (TLS: {})", target_addr, is_tls);
 
         // Get the appropriate connector
         let connector = self.client_connectors.get(&target_addr).unwrap_or_else(|| {
