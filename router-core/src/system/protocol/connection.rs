@@ -1,4 +1,5 @@
 // Connection handling for protocol server
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use std::io;
@@ -11,14 +12,47 @@ use super::types::ConnectionParams;
 use super::parsing::parse_connection_params;
 use super::services::SharedServiceHandler;
 
-/// Process a gate connection after a successful handshake
+/// # Process Gate Connection
 ///
 /// This function handles the main communication loop with the client
 /// using the appropriate service based on the connection parameters.
 ///
-/// If a service handler is provided and contains a service matching the
-/// requested service name, that service will process the connection.
-/// Otherwise, a simple echo response is used as a fallback.
+/// ## Flow
+///
+/// 1. Allocates a message buffer of the configured size
+/// 2. Enters a read loop to process messages from the client
+/// 3. For each message:
+///    - If a service handler is provided and a matching service exists:
+///      - Delegates processing to the service's `upstream_peer` method
+///      - Asynchronously logs the result using the service's `logging` method
+///    - Otherwise, falls back to a simple echo response
+/// 4. Continues until the connection is closed or an error occurs
+///
+/// ## Service Handling
+///
+/// When a service handler is available, this function:
+/// - Looks up the requested service by name
+/// - Uses the service's `upstream_peer` method for message processing
+/// - Collects metrics such as bytes received
+/// - Spawns a separate task for asynchronous logging to avoid blocking the response
+///
+/// ## Fallback
+///
+/// If no service is found or no handler is available, a simple echo response is sent back
+/// that includes the requested service name and action in the format:
+/// `Service: {name} | Action: {action} | Echo: {message}`
+///
+/// ## Parameters
+///
+/// * `socket` - The TCP socket connected to the client
+/// * `buffer_size` - Size of the buffer to use for reading data
+/// * `params` - Connection parameters parsed from the handshake
+/// * `service_handler` - Optional service handler containing registered services
+///
+/// ## Returns
+///
+/// * `io::Result<()>` - Ok if the connection was handled successfully until graceful termination,
+///   or Err if an I/O error occurred during communication.
 async fn process_gate_connection(
     mut socket: TcpStream, 
     buffer_size: usize,
@@ -106,10 +140,54 @@ async fn process_gate_connection(
     Ok(())
 }
 
-/// Main entry point for processing a new client connection
+/// # Handle Connection
 ///
-/// Handles the protocol handshake and passes the connection to the
-/// appropriate handler based on the connection parameters.
+/// Main entry point for processing a new client connection to the protocol server.
+///
+/// This function orchestrates the protocol handshake and subsequent message processing.
+/// It acts as the primary interface between the TCP socket accepting code and 
+/// the protocol-specific message handling logic.
+///
+/// ## Connection Lifecycle
+///
+/// 1. Accept initial handshake data from the client
+/// 2. Validate against the expected protocol prefix
+/// 3. If valid:
+///    - Parse connection parameters from the handshake
+///    - Send a confirmation response
+///    - Pass the connection to `process_gate_connection` for message handling
+/// 4. If invalid:
+///    - Send an error message with the expected prefix
+///    - Close the connection
+///
+/// ## Protocol Validation
+///
+/// The function expects the handshake message to start with the configured protocol prefix
+/// (default: "gate://"). This ensures that only clients speaking the correct protocol
+/// are allowed to establish a connection.
+///
+/// ## Service Selection
+///
+/// The handshake message contains information about which service the client wants to use.
+/// This information is extracted into connection parameters and used for routing messages
+/// to the appropriate service handler.
+///
+/// ## Thread Safety
+///
+/// This function can be safely called from multiple threads, as it operates on a
+/// unique socket per connection. The service handler is wrapped in an Arc<RwLock<>>
+/// to allow safe concurrent access across multiple connections.
+///
+/// ## Parameters
+///
+/// * `socket` - The TCP socket connected to the client
+/// * `buffer_size` - Size of the buffer to use for reading data
+/// * `service_handler` - Optional service handler containing registered services
+///
+/// ## Returns
+///
+/// * `io::Result<()>` - Ok if the connection was handled successfully,
+///   or Err if an I/O error occurred during communication.
 pub async fn handle_connection(
     mut socket: TcpStream, 
     buffer_size: usize,

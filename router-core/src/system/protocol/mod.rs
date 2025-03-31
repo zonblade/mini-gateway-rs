@@ -67,6 +67,46 @@
 /// // Disable the protocol server
 /// ProtocolConfig::Enabled.xset::<bool>(false);
 /// ```
+///
+/// ## Service Implementation
+///
+/// The protocol module includes a trait-based service system that allows for extending
+/// functionality by implementing the `ServiceProtocol` trait:
+///
+/// ```rust
+/// use router_core::system::protocol::services::{ServiceProtocol, init, register_service};
+///
+/// // Implement your custom service
+/// struct MyService;
+///
+/// #[async_trait]
+/// impl ServiceProtocol for MyService {
+///     fn new() -> Self {
+///         Self {}
+///     }
+///     
+///     async fn upstream_peer(&self, socket: &mut TcpStream, buffer: &[u8], 
+///                           buffer_size: usize, params: &ConnectionParams) -> io::Result<()> {
+///         // Your custom processing logic
+///     }
+///     
+///     async fn logging(&self, params: &ConnectionParams, status: Option<&str>, 
+///                     metrics: Option<HashMap<String, String>>) {
+///         // Your custom logging logic
+///     }
+/// }
+///
+/// // Then register your service
+/// let service_handler = init();
+/// let mut handler = service_handler.write().await;
+/// handler.add_service("my_service".to_string(), Box::new(MyService::new()));
+/// ```
+///
+/// ## Thread Safety
+///
+/// The protocol implementation is designed to be thread-safe, using the Tokio
+/// asynchronous runtime for handling concurrent connections. Services are managed
+/// through thread-safe atomic references and read-write locks.
 
 mod config;
 mod types;
@@ -78,12 +118,12 @@ pub mod services;
 use std::thread;
 
 // Re-export public items
-use config::{ProtocolConfig, init_config};
-use server::{init, shutdown};
-use connection::handle_connection;
-use parsing::parse_connection_params;
-use services::ServiceProtocol;
-use types::ConnectionParams;
+pub use config::{ProtocolConfig, init_config};
+pub use server::{init, shutdown};
+pub use connection::handle_connection;
+pub use parsing::parse_connection_params;
+pub use services::ServiceProtocol;
+pub use types::ConnectionParams;
 
 pub fn start_interface(){
     init_config();
