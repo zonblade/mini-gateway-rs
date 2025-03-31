@@ -1,7 +1,7 @@
 # Mini Gateway
 
 <p align="center">
-<img style="height:100%; width: 512px;" src="https://raw.githubusercontent.com/zonblade/cerberus/main/assets/logo.png"/></br>
+<img style="height:100%; width: 256px;" src="https://raw.githubusercontent.com/zonblade/mini-gateway-rs/main/assets/logo.png"/></br>
 <span style="font-size:32px;">mini gateway</span>
 <span style="font-size:16px;">A very fast yet easy to control Gatway!</span>
 </p>

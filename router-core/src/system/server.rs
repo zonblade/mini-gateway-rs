@@ -80,7 +80,7 @@ pub fn init() {
 
     // Default Page
     {
-        let handle = thread::spawn(|| {// Create a TCP listener for the default 404 page
+        let handle: thread::JoinHandle<()> = thread::spawn(|| {// Create a TCP listener for the default 404 page
             let listener = std::net::TcpListener::bind("127.0.0.1:12871").expect("Failed to bind default page server");
             log::info!("Default 404 page server listening on 127.0.0.1:12871"); // Fixed port in log
             
