@@ -58,9 +58,6 @@ use crate::system;
 pub fn client() {
     log::info!("Starting Watcher client thread...");
 
-    thread::spawn(move || {
-        log::info!("Stream Thread Starting...");
-
         // Connect to Redis
         let client = match Client::open("redis://127.0.0.1:6379") {
             Ok(client) => client,
@@ -69,6 +66,10 @@ pub fn client() {
                 return;
             }
         };
+
+    thread::spawn(move || {
+        log::info!("Stream Thread Starting...");
+
 
         // Get a connection
         let mut con = match client.get_connection() {

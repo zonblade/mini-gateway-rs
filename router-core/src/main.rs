@@ -15,8 +15,8 @@ async fn main() {
     std::env::set_var("RUST_LOG", "info");
     env_logger::init();
 
-    log::info!("Starting Router Core...");
-    // service::registry::client();
+    log::info!("Starting Router Registry...");
+    service::registry::client();
     
     log::info!("Starting proxy server...");
     let active_state = Arc::new(AtomicBool::new(false)); // Removed extra semicolon and 'mut'

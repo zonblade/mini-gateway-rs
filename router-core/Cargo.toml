@@ -1,5 +1,5 @@
 [package]
-name = "router-core"
+name    = "router-core"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,8 +11,10 @@ tokio       = { workspace = true }
 log         = { workspace = true }
 mini-config = { workspace = true }
 crossterm   = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
 pingora     = { git = "https://github.com/zonblade/pingora.git", rev = "92274500c6c722eee962f30b0b779c62a515dbea", features = ["proxy", "lb", "cache", "openssl"] }
-ctrlc = "3.4.5"
-regex = "1.11.1"
-http = "1.3.1"
-bytes = "1.10.1"
+ctrlc       = "3.4.5"
+regex       = "1.11.1"
+http        = "1.3.1"
+bytes       = "1.10.1"

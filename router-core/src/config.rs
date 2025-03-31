@@ -1,4 +1,5 @@
 use mini_config::Configure;
+use serde::{de::DeserializeOwned, Deserialize};
 
 pub struct DefaultPort {
     pub p404: &'static str,
@@ -17,6 +18,41 @@ pub enum RoutingData {
     ProxyID,
     ProxyRouting,
     GatewayID,
-    GatewayRouting
+    GatewayRouting,
 }
 
+#[derive(Debug, Clone, Configure)]
+pub enum GeneralConfig {
+    RedisURI
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProxyNode {
+    pub tls: bool,
+    pub sni: Option<String>,
+    pub tls_pem: Option<String>,
+    pub tls_key: Option<String>,
+    pub addr_listen: String,
+    pub addr_target: String,
+    pub priority: i8,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GatewayNode {
+    pub priority: i8,
+    pub addr_listen: String,
+    pub addr_target: String,
+    pub path_listen: String,
+    pub path_target: String,
+}
+
+pub fn str_to_json<T>(json_str: &str) -> T
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_str(json_str).unwrap()
+}
+
+pub fn init(){
+    RoutingData::GatewayRouting.xset::<String>("hello".to_string());
+}
