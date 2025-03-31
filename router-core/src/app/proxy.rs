@@ -1,3 +1,12 @@
+//! # Proxy Application Module
+//! 
+//! This module implements a TCP proxy that can route traffic based on host rules.
+//! It supports both plain HTTP and TLS connections, with the ability to make routing
+//! decisions based on HTTP Host headers or TLS SNI extensions.
+//!
+//! The proxy can handle regular HTTP, websockets, and TLS traffic, dynamically
+//! forwarding to appropriate backend servers based on configured rules.
+
 use async_trait::async_trait;
 use log::debug;
 use pingora::apps::ServerApp;
@@ -11,6 +20,16 @@ use tokio::select;
 
 use crate::config::DEFAULT_PORT;
 
+/// # Redirect Rule Configuration
+///
+/// Defines a rule for redirecting traffic based on host and TLS status.
+///
+/// ## Fields
+/// * `host` - Optional hostname to match (e.g. "example.com:443"). When None, acts as a catch-all rule.
+/// * `alt_listen` - The address:port this rule applies to (e.g. "0.0.0.0:443")
+/// * `alt_target` - Optional target backend server to forward traffic to
+/// * `alt_tls` - Whether this rule applies to TLS connections
+/// * `priority` - Rule priority (higher priority rules are checked first)
 pub struct RedirectRule {
     host: Option<String>,
     alt_listen: String,
@@ -19,17 +38,42 @@ pub struct RedirectRule {
     priority: usize,
 }
 
+/// # Proxy Application
+///
+/// Main application that handles incoming requests and routes them to the appropriate
+/// backend based on configured redirect rules.
+///
+/// ## Fields
+/// * `client_connectors` - Transport connectors for connecting to backend servers
+/// * `redirects` - List of redirect rules for determining where to send traffic
 pub struct ProxyApp {
     client_connectors: std::collections::HashMap<String, TransportConnector>,
     redirects: Vec<RedirectRule>,
 }
 
+/// # Duplex Communication Events
+///
+/// Events that can occur during bidirectional communication between client and server.
+///
+/// ## Variants
+/// * `DownstreamRead(usize)` - Read `usize` bytes from the downstream (client) connection
+/// * `UpstreamRead(usize)` - Read `usize` bytes from the upstream (target server) connection
 enum DuplexEvent {
     DownstreamRead(usize),
     UpstreamRead(usize),
 }
 
 impl ProxyApp {
+    /// # Create a new ProxyApp instance
+    ///
+    /// Initializes the proxy application with a set of redirect rules filtered by
+    /// the specified source address.
+    ///
+    /// ## Parameters
+    /// * `alt_source` - The address:port to listen on (e.g. "0.0.0.0:443")
+    ///
+    /// ## Returns
+    /// A new ProxyApp instance with configured redirect rules and connection handlers
     pub fn new(alt_source: &str) -> Self {
         let mut redirects = vec![
             RedirectRule {
@@ -72,6 +116,18 @@ impl ProxyApp {
         }
     }
 
+    /// # Handle bidirectional data transfer
+    ///
+    /// Manages the duplex communication between the client and target server.
+    /// This function continuously reads from both connections and forwards data
+    /// in both directions until one side closes the connection.
+    ///
+    /// ## Parameters
+    /// * `server_session` - The connection to the client
+    /// * `client_session` - The connection to the target server
+    ///
+    /// ## Note
+    /// This function runs until either connection closes or an error occurs.
     async fn duplex(&self, mut server_session: Stream, mut client_session: Stream) {
         let mut upstream_buf = [0; 8192];
         let mut downstream_buf = [0; 8192];
@@ -126,6 +182,26 @@ impl ProxyApp {
 
 #[async_trait]
 impl ServerApp for ProxyApp {
+    /// # Process a new connection
+    ///
+    /// Main connection handling function. Reads the initial data from the client,
+    /// determines the appropriate backend server based on the request characteristics,
+    /// establishes a connection to the backend, and sets up bidirectional communication.
+    ///
+    /// ## Process flow:
+    /// 1. Read initial data from client
+    /// 2. Analyze if it's HTTP, WebSocket or TLS
+    /// 3. Extract hostname from Host header or SNI
+    /// 4. Find matching redirect rule
+    /// 5. Connect to target backend
+    /// 6. Forward initial data and establish duplex communication
+    ///
+    /// ## Parameters
+    /// * `io` - The client connection stream
+    /// * `_shutdown` - Shutdown watcher (unused)
+    ///
+    /// ## Returns
+    /// None - The connection is fully processed within this function
     async fn process_new(
         self: &Arc<Self>,
         mut io: Stream,
@@ -187,7 +263,7 @@ impl ServerApp for ProxyApp {
 
         // Extract host information
         let host_info = if is_tls {
-            // For TLS, try to extract SNI from the ClientHello
+            // For TLS, try to extract SNI from the Client
             extract_sni(&buf[0..n])
         } else {
             // For plain HTTP, extract Host header
@@ -283,10 +359,24 @@ impl ServerApp for ProxyApp {
     }
 }
 
-// Extract SNI from TLS handshake (simplified implementation)
+/// # Extract Server Name Indication from TLS Client
+///
+/// Attempts to extract the SNI hostname from a TLS Client message.
+/// This is a simplified implementation that may not work for all TLS variants.
+///
+/// ## Parameters
+/// * `buf` - The raw bytes from the TLS handshake
+///
+/// ## Returns
+/// * `Some(String)` - The extracted hostname if found
+/// * `None` - If this is not a valid TLS Client or SNI could not be extracted
+///
+/// ## Note
+/// This is a simplified implementation. For production use, consider using a
+/// dedicated TLS parser library.
 fn extract_sni(buf: &[u8]) -> Option<String> {
     // This is a very simplified SNI extractor
-    // In a real implementation, you would parse the ClientHello properly
+    // In a real implementation, you would parse the Client properly
     // TLS handshake format: 0x16 (handshake) + 0x03 0x01 (TLS version) + 2-byte length
     if buf.len() < 5 || buf[0] != 0x16 {
         return None;
@@ -309,10 +399,24 @@ fn extract_sni(buf: &[u8]) -> Option<String> {
     None
 }
 
-// Helper function to find SNI extension in ClientHello
+/// # Find SNI extension in TLS Client
+///
+/// Helper function that searches for the SNI extension within a TLS Client message.
+/// This is a simplified implementation that looks for certain byte patterns.
+///
+/// ## Parameters
+/// * `buf` - The raw bytes from the TLS handshake
+///
+/// ## Returns
+/// * `Some(usize)` - Position where the SNI hostname data begins
+/// * `None` - If SNI extension could not be found
+///
+/// ## Note
+/// This is a very simplified implementation and may produce false positives.
+/// For production use, consider a proper TLS parser.
 fn find_sni_extension(buf: &[u8]) -> Option<usize> {
     // This is a very simplified implementation
-    // In a real implementation, you would parse the TLS ClientHello properly
+    // In a real implementation, you would parse the TLS Client properly
     // Search for SNI extension (0x00 0x00) - SIMPLIFIED, NOT ACCURATE!
     for i in 0..buf.len() - 4 {
         if buf[i] == 0x00 && buf[i + 1] == 0x00 && buf[i + 2] == 0x00 {
