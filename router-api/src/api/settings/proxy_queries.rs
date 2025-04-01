@@ -1,9 +1,43 @@
+//! # Proxy Database Operations
+//!
+//! This module provides database operations for managing proxy configurations.
+//! It handles creating the database table, querying, inserting, updating, and
+//! deleting proxy records.
+
 use crate::module::database::{get_connection, DatabaseError};
 use super::Proxy;
 use std::net::{TcpListener, SocketAddr};
 use rand::Rng;
 
-/// Create the proxies table if it doesn't exist
+/// Creates the proxies table in the database if it doesn't already exist
+///
+/// This function ensures that the database schema is properly initialized before
+/// any operations are performed. It is automatically called by other functions
+/// in this module, so there's usually no need to call it directly.
+///
+/// # Database Schema
+///
+/// Creates a table with the following structure:
+/// - `id`: TEXT PRIMARY KEY - Unique identifier for the proxy
+/// - `title`: TEXT NOT NULL - Human-readable name for the proxy
+/// - `addr_listen`: TEXT NOT NULL - Address where the proxy listens for connections
+/// - `addr_target`: TEXT NOT NULL - Target address where requests are forwarded
+/// - `tls`: BOOLEAN NOT NULL DEFAULT 0 - Whether TLS is enabled
+/// - `tls_pem`: TEXT - PEM certificate content
+/// - `tls_key`: TEXT - Private key content
+/// - `tls_autron`: BOOLEAN NOT NULL DEFAULT 0 - Whether automatic TLS is enabled
+/// - `sni`: TEXT - Server Name Indication value
+///
+/// # Returns
+///
+/// * `Ok(())` if the table exists or was created successfully
+/// * `Err(DatabaseError)` if there was an error creating the table
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The database connection could not be established
+/// - The SQL statement to create the table could not be executed
 pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
@@ -25,7 +59,40 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     Ok(())
 }
 
-/// Get all proxies from the database
+/// Retrieves all proxy configurations from the database
+///
+/// This function fetches all proxy records from the database and converts
+/// them into `Proxy` structures. It automatically ensures the database table
+/// exists before performing the query.
+///
+/// # Returns
+///
+/// * `Ok(Vec<Proxy>)` - A vector containing all proxy configurations
+/// * `Err(DatabaseError)` - If there was an error retrieving the proxies
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The database connection could not be established
+/// - The table does not exist and could not be created
+/// - The SQL query could not be executed
+/// - There was an error mapping the database rows to `Proxy` structures
+///
+/// # Example
+///
+/// ```
+/// use router_api::api::settings::proxy_queries;
+///
+/// match proxy_queries::get_all_proxies() {
+///     Ok(proxies) => {
+///         println!("Found {} proxies", proxies.len());
+///         for proxy in proxies {
+///             println!("Proxy: {} ({})", proxy.title, proxy.addr_listen);
+///         }
+///     },
+///     Err(err) => eprintln!("Error retrieving proxies: {}", err),
+/// }
+/// ```
 pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
     let db = get_connection()?;
     
@@ -54,7 +121,42 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
     Ok(proxies)
 }
 
-/// Get a proxy by ID from the database
+/// Retrieves a specific proxy configuration by its ID
+///
+/// This function fetches a single proxy record from the database based on
+/// the provided ID. It automatically ensures the database table exists before
+/// performing the query.
+///
+/// # Parameters
+///
+/// * `id` - The unique identifier of the proxy to retrieve
+///
+/// # Returns
+///
+/// * `Ok(Some(Proxy))` - If the proxy with the specified ID was found
+/// * `Ok(None)` - If no proxy with the specified ID exists
+/// * `Err(DatabaseError)` - If there was an error retrieving the proxy
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The database connection could not be established
+/// - The table does not exist and could not be created
+/// - The SQL query could not be executed
+/// - There was an error mapping the database row to a `Proxy` structure
+///
+/// # Example
+///
+/// ```
+/// use router_api::api::settings::proxy_queries;
+///
+/// let proxy_id = "550e8400-e29b-41d4-a716-446655440000";
+/// match proxy_queries::get_proxy_by_id(proxy_id) {
+///     Ok(Some(proxy)) => println!("Found proxy: {} ({})", proxy.title, proxy.addr_listen),
+///     Ok(None) => println!("No proxy found with ID: {}", proxy_id),
+///     Err(err) => eprintln!("Error retrieving proxy: {}", err),
+/// }
+/// ```
 pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
     let db = get_connection()?;
     
@@ -83,7 +185,56 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
     Ok(proxy)
 }
 
-/// Save a proxy to the database
+/// Saves a proxy configuration to the database
+///
+/// This function inserts a new proxy record or updates an existing one if a proxy
+/// with the same ID already exists. It automatically ensures the database table
+/// exists before performing the operation.
+///
+/// # Parameters
+///
+/// * `proxy` - The proxy configuration to save
+///
+/// # Returns
+///
+/// * `Ok(())` - If the proxy was successfully saved
+/// * `Err(DatabaseError)` - If there was an error saving the proxy
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The database connection could not be established
+/// - The table does not exist and could not be created
+/// - The SQL statement could not be executed
+///
+/// # Security Notes
+///
+/// This function uses parameterized SQL queries to prevent SQL injection attacks.
+/// The `tls_pem`, `tls_key`, and `sni` fields are stored as `\u{0000}` (NULL character)
+/// when they are `None` to maintain consistent storage.
+///
+/// # Example
+///
+/// ```
+/// use router_api::api::settings::{Proxy, proxy_queries};
+///
+/// let proxy = Proxy {
+///     id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+///     title: "Web Server".to_string(),
+///     addr_listen: "0.0.0.0:80".to_string(),
+///     addr_target: "127.0.0.1:8080".to_string(),
+///     tls: false,
+///     tls_pem: None,
+///     tls_key: None,
+///     tls_autron: false,
+///     sni: None,
+/// };
+///
+/// match proxy_queries::save_proxy(&proxy) {
+///     Ok(()) => println!("Proxy saved successfully"),
+///     Err(err) => eprintln!("Error saving proxy: {}", err),
+/// }
+/// ```
 pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
@@ -110,7 +261,39 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
     Ok(())
 }
 
-/// Delete a proxy by ID from the database
+/// Deletes a proxy configuration from the database by its ID
+///
+/// This function removes a proxy record from the database based on its ID.
+/// It returns a boolean indicating whether a record was actually deleted.
+///
+/// # Parameters
+///
+/// * `id` - The unique identifier of the proxy to delete
+///
+/// # Returns
+///
+/// * `Ok(true)` - If the proxy was found and deleted
+/// * `Ok(false)` - If no proxy with the specified ID exists
+/// * `Err(DatabaseError)` - If there was an error deleting the proxy
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The database connection could not be established
+/// - The SQL statement could not be executed
+///
+/// # Example
+///
+/// ```
+/// use router_api::api::settings::proxy_queries;
+///
+/// let proxy_id = "550e8400-e29b-41d4-a716-446655440000";
+/// match proxy_queries::delete_proxy_by_id(proxy_id) {
+///     Ok(true) => println!("Proxy deleted successfully"),
+///     Ok(false) => println!("No proxy found with ID: {}", proxy_id),
+///     Err(err) => eprintln!("Error deleting proxy: {}", err),
+/// }
+/// ```
 pub fn delete_proxy_by_id(id: &str) -> Result<bool, DatabaseError> {
     let db = get_connection()?;
     
@@ -123,7 +306,40 @@ pub fn delete_proxy_by_id(id: &str) -> Result<bool, DatabaseError> {
     Ok(affected_rows > 0)
 }
 
-/// Generate a target address with a random available port between 40000 and 49000
+/// Generates a target address with a random available port
+///
+/// This function creates a localhost address (127.0.0.1) with a randomly selected
+/// port between 40000 and 49000 that is currently available on the system. It tries
+/// up to 100 different ports before giving up.
+///
+/// The generated address is typically used as the `addr_target` for new proxy configurations.
+///
+/// # Returns
+///
+/// * `Ok(String)` - A string in the format "127.0.0.1:PORT" with an available port
+/// * `Err(String)` - An error message if no available port could be found
+///
+/// # Error Conditions
+///
+/// This function will return an error if:
+/// - It fails to find an available port after 100 attempts
+///
+/// # Implementation Details
+///
+/// Port availability is determined by attempting to bind a TCP listener to the port.
+/// If binding is successful, the port is considered available. This approach ensures
+/// that the port is genuinely available at the time of checking.
+///
+/// # Example
+///
+/// ```
+/// use router_api::api::settings::proxy_queries;
+///
+/// match proxy_queries::generate_target_address() {
+///     Ok(addr) => println!("Generated target address: {}", addr),
+///     Err(err) => eprintln!("Error generating address: {}", err),
+/// }
+/// ```
 pub fn generate_target_address() -> Result<String, String> {
     let mut rng = rand::thread_rng();
     
