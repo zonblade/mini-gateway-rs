@@ -9,7 +9,6 @@
 
 use crate::module::database::{get_connection, DatabaseError};
 use super::Gateway;
-use super::gwnode_queries;
 use uuid::Uuid;
 
 /// Creates the gateways table in the database if it doesn't already exist

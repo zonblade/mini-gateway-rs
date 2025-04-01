@@ -1,5 +1,5 @@
+use super::proxy_queries;
 use actix_web::{get, web, HttpResponse, Responder};
-use super::{Proxy, proxy_queries};
 
 /// Get a proxy by ID
 ///
@@ -7,7 +7,7 @@ use super::{Proxy, proxy_queries};
 #[get("/proxy/{id}")]
 pub async fn get_proxy(path: web::Path<String>) -> impl Responder {
     let id = path.into_inner();
-    
+
     match proxy_queries::get_proxy_by_id(&id) {
         Ok(Some(proxy)) => HttpResponse::Ok().json(proxy),
         Ok(None) => HttpResponse::NotFound().body(format!("Proxy with ID {} not found", id)),

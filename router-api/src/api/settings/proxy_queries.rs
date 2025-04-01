@@ -4,10 +4,10 @@
 //! It handles creating the database table, querying, inserting, updating, and
 //! deleting proxy records.
 
-use crate::module::database::{get_connection, DatabaseError};
 use super::Proxy;
-use std::net::{TcpListener, SocketAddr};
+use crate::module::database::{get_connection, DatabaseError};
 use rand::Rng;
+use std::net::TcpListener;
 
 /// Creates the proxies table in the database if it doesn't already exist
 ///
@@ -40,7 +40,7 @@ use rand::Rng;
 /// - The SQL statement to create the table could not be executed
 pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
-    
+
     db.execute(
         "CREATE TABLE IF NOT EXISTS proxies (
             id TEXT PRIMARY KEY,
@@ -55,7 +55,7 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
         )",
         [],
     )?;
-    
+
     Ok(())
 }
 
@@ -95,10 +95,10 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
 /// ```
 pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_proxies_table()?;
-    
+
     // Query all proxies
     let proxies = db.query(
         "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni FROM proxies",
@@ -117,7 +117,7 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
             })
         },
     )?;
-    
+
     Ok(proxies)
 }
 
@@ -159,10 +159,10 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
 /// ```
 pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_proxies_table()?;
-    
+
     // Query the proxy by ID
     let proxy = db.query_one(
         "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni FROM proxies WHERE id = ?1",
@@ -181,7 +181,7 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
             })
         },
     )?;
-    
+
     Ok(proxy)
 }
 
@@ -237,10 +237,10 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
 /// ```
 pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_proxies_table()?;
-    
+
     // Insert or replace the proxy
     db.execute(
         "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni) 
@@ -257,7 +257,7 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
             &proxy.sni.clone().unwrap_or("\u{0000}".to_string()),
         ],
     )?;
-    
+
     Ok(())
 }
 
@@ -296,13 +296,10 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
 /// ```
 pub fn delete_proxy_by_id(id: &str) -> Result<bool, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Delete the proxy
-    let affected_rows = db.execute(
-        "DELETE FROM proxies WHERE id = ?1",
-        [id],
-    )?;
-    
+    let affected_rows = db.execute("DELETE FROM proxies WHERE id = ?1", [id])?;
+
     Ok(affected_rows > 0)
 }
 
@@ -342,24 +339,24 @@ pub fn delete_proxy_by_id(id: &str) -> Result<bool, DatabaseError> {
 /// ```
 pub fn generate_target_address() -> Result<String, String> {
     let mut rng = rand::thread_rng();
-    
+
     // Try up to 100 random ports to find an available one
     for _ in 0..100 {
         let port = rng.gen_range(40000..=49000);
         let addr = format!("127.0.0.1:{}", port);
-        
+
         // Check if the port is available by trying to bind to it
         match TcpListener::bind(&addr) {
             Ok(_) => {
                 // Successfully bound to the port, so it's available
                 return Ok(addr);
-            },
+            }
             Err(_) => {
                 // Port is in use, try another one
                 continue;
             }
         }
     }
-    
+
     Err("Failed to find an available port after 100 attempts".to_string())
 }

@@ -1,5 +1,5 @@
-use actix_web::{get, web, HttpResponse, Responder};
-use super::{Proxy, proxy_queries};
+use super::proxy_queries;
+use actix_web::{get, HttpResponse, Responder};
 
 /// List all proxies in the system
 ///
