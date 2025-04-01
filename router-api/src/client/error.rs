@@ -129,6 +129,18 @@ pub enum ClientError {
     /// which action to perform on the service.
     #[error("Action not set")]
     ActionNotSet,
+    
+    /// Retry error occurred after exhausting all retries.
+    /// 
+    /// This error indicates that an operation failed and the configured number
+    /// of retry attempts were exhausted without success.
+    /// 
+    /// # Examples
+    /// 
+    /// - "Max retries (3) exceeded"
+    /// - "Max retries (5) exceeded during connection"
+    #[error("Retry error: {0}")]
+    RetryError(String),
 }
 
 /// Result type for client operations.

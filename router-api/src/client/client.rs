@@ -68,6 +68,7 @@ use std::net::ToSocketAddrs;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time::{sleep, Duration};
 
 use crate::client::error::{Result, ClientError};
 use crate::client::payload::Payload;
@@ -77,6 +78,12 @@ use crate::client::payload::Payload;
 /// This constant defines the standard protocol identifier used at the beginning
 /// of all handshake messages to identify the protocol to the server.
 const DEFAULT_PROTOCOL_PREFIX: &str = "gate://";
+
+/// Default maximum number of retry attempts for operations.
+const DEFAULT_MAX_RETRIES: u32 = 3;
+
+/// Default base delay in milliseconds between retry attempts.
+const DEFAULT_RETRY_DELAY_MS: u64 = 100;
 
 /// Protocol client for communicating with the custom TCP protocol server.
 /// 
@@ -92,6 +99,7 @@ const DEFAULT_PROTOCOL_PREFIX: &str = "gate://";
 /// - The current service name being targeted
 /// - Configuration parameters for requests
 /// - Buffer size for network operations
+/// - Retry configuration for resilient operations
 /// 
 /// # Thread Safety
 /// 
@@ -121,6 +129,18 @@ pub struct Client {
     /// These key-value pairs are included in the handshake message as query parameters,
     /// allowing for additional context or configuration to be passed to the server.
     params: HashMap<String, String>,
+    
+    /// Maximum number of retry attempts for operations that fail due to 
+    /// transient errors like connection issues.
+    max_retries: u32,
+    
+    /// Base delay in milliseconds between retry attempts.
+    /// This value doubles after each retry attempt (exponential backoff).
+    retry_delay_ms: u64,
+    
+    /// Flag to enable or disable the retry mechanism.
+    /// When set to false, operations will not be retried regardless of max_retries.
+    retry_enabled: bool,
 }
 
 impl Client {
@@ -140,6 +160,9 @@ impl Client {
             service_name: None,
             buffer_size: 1024,  // Default buffer size
             params: HashMap::new(),
+            max_retries: DEFAULT_MAX_RETRIES,
+            retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+            retry_enabled: true,
         }
     }
     
@@ -164,6 +187,9 @@ impl Client {
             service_name: None,
             buffer_size,
             params: HashMap::new(),
+            max_retries: DEFAULT_MAX_RETRIES,
+            retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+            retry_enabled: true,
         }
     }
     
@@ -406,6 +432,88 @@ impl Client {
             .map_err(|e| ClientError::SerializationError(format!("Failed to deserialize response: {}", e)))
     }
     
+    /// Execute an action with retry capability.
+    /// 
+    /// This method wraps the `action` method with retry logic, automatically
+    /// retrying failed operations up to the configured maximum retry count.
+    /// It uses exponential backoff for retry delay.
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `P` - The payload type, which must implement the `Payload` trait.
+    /// * `R` - The response type, which must be deserializable.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `action_name` - The name of the action to perform on the service.
+    /// * `payload` - The payload to send with the request.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns the deserialized response from the server.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns the last error encountered after all retry attempts have been exhausted.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// let login_payload = LoginPayload {
+    ///     username: "user123".to_string(),
+    ///     password: "password".to_string(),
+    /// };
+    /// 
+    /// let response: LoginResponse = client
+    ///     .with_service("auth")
+    ///     .with_max_retries(5)
+    ///     .action_with_retry("login", &login_payload)
+    ///     .await?;
+    /// ```
+    pub async fn action_with_retry<P: Payload + std::marker::Sync, R: DeserializeOwned>(
+        &mut self, 
+        action_name: impl Into<String> + Clone, 
+        payload: &P
+    ) -> Result<R> {
+        if !self.retry_enabled || self.max_retries == 0 {
+            return self.action(action_name, payload).await;
+        }
+        
+        let mut last_error = None;
+        let mut retry_count = 0;
+        let mut delay = self.retry_delay_ms;
+        
+        while retry_count <= self.max_retries {
+            match self.action(action_name.clone(), payload).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    // Only retry on certain error types that might be transient
+                    match &e {
+                        ClientError::IoError(_) | 
+                        ClientError::ConnectionError(_) => {
+                            last_error = Some(e);
+                            
+                            if retry_count < self.max_retries {
+                                // Wait before retrying with exponential backoff
+                                sleep(Duration::from_millis(delay)).await;
+                                delay *= 2; // Exponential backoff
+                                retry_count += 1;
+                            } else {
+                                break;
+                            }
+                        },
+                        // Don't retry on other error types
+                        _ => return Err(e),
+                    }
+                }
+            }
+        }
+        
+        Err(last_error.unwrap_or(ClientError::RetryError(
+            format!("Max retries ({}) exceeded", self.max_retries)
+        )))
+    }
+    
     /// Execute an action on the current service with the given payload, returning the raw response.
     /// 
     /// This method is similar to `action()` but returns the raw bytes of the response
@@ -486,6 +594,82 @@ impl Client {
         }
         
         Ok(buffer[..n].to_vec())
+    }
+    
+    /// Execute an action with raw response and retry capability.
+    /// 
+    /// This method wraps the `action_raw` method with retry logic, automatically
+    /// retrying failed operations up to the configured maximum retry count.
+    /// It uses exponential backoff for retry delay.
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `P` - The payload type, which must implement the `Payload` trait.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `action_name` - The name of the action to perform on the service.
+    /// * `payload` - The payload to send with the request.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns the raw bytes of the server response.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns the last error encountered after all retry attempts have been exhausted.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// let raw_response = client
+    ///     .with_service("data")
+    ///     .with_max_retries(3)
+    ///     .action_raw_with_retry("get_binary", &request)
+    ///     .await?;
+    /// ```
+    pub async fn action_raw_with_retry<P: Payload + std::marker::Sync>(
+        &mut self, 
+        action_name: impl Into<String> + Clone, 
+        payload: &P
+    ) -> Result<Vec<u8>> {
+        if !self.retry_enabled || self.max_retries == 0 {
+            return self.action_raw(action_name, payload).await;
+        }
+        
+        let mut last_error = None;
+        let mut retry_count = 0;
+        let mut delay = self.retry_delay_ms;
+        
+        while retry_count <= self.max_retries {
+            match self.action_raw(action_name.clone(), payload).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    // Only retry on certain error types that might be transient
+                    match &e {
+                        ClientError::IoError(_) | 
+                        ClientError::ConnectionError(_) => {
+                            last_error = Some(e);
+                            
+                            if retry_count < self.max_retries {
+                                // Wait before retrying with exponential backoff
+                                sleep(Duration::from_millis(delay)).await;
+                                delay *= 2; // Exponential backoff
+                                retry_count += 1;
+                            } else {
+                                break;
+                            }
+                        },
+                        // Don't retry on other error types
+                        _ => return Err(e),
+                    }
+                }
+            }
+        }
+        
+        Err(last_error.unwrap_or(ClientError::RetryError(
+            format!("Max retries ({}) exceeded", self.max_retries)
+        )))
     }
     
     /// Simple ping to check if the connection is alive.
@@ -580,6 +764,134 @@ impl Client {
     /// ```
     pub fn with_service<S: Into<String>>(mut self, service: S) -> Self {
         self.service_name = Some(service.into());
+        self
+    }
+
+    /// Connect to the protocol server with retry capability.
+    ///
+    /// This method wraps the `connect` method with retry logic, automatically
+    /// retrying failed connection attempts up to the configured maximum retry count.
+    /// It uses exponential backoff for retry delay.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address of the server to connect to.
+    ///
+    /// # Returns
+    ///
+    /// Returns a mutable reference to the client to allow for method chaining.
+    ///
+    /// # Errors
+    ///
+    /// Returns the last error encountered after all retry attempts have been exhausted.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let mut client = Client::new().with_max_retries(5);
+    /// client.connect_with_retry("127.0.0.1:8080").await?;
+    /// ```
+    pub async fn connect_with_retry<A: ToSocketAddrs + Debug + tokio::net::ToSocketAddrs + Clone>(
+        &mut self, 
+        addr: A
+    ) -> Result<&mut Self> {
+        if !self.retry_enabled || self.max_retries == 0 {
+            return self.connect(addr).await;
+        }
+        
+        let mut last_error = None;
+        let mut retry_count = 0;
+        let mut delay = self.retry_delay_ms;
+        
+        while retry_count <= self.max_retries {
+            match self.connect(addr.clone()).await {
+                Ok(_) => return Ok(self),
+                Err(e) => {
+                    last_error = Some(e);
+                    
+                    if retry_count < self.max_retries {
+                        // Wait before retrying with exponential backoff
+                        sleep(Duration::from_millis(delay)).await;
+                        delay *= 2; // Exponential backoff
+                        retry_count += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        Err(last_error.unwrap_or(ClientError::RetryError(
+            format!("Max retries ({}) exceeded during connection", self.max_retries)
+        )))
+    }
+    
+    /// Set the maximum number of retry attempts.
+    ///
+    /// This method configures how many times operations will be retried
+    /// before giving up.
+    ///
+    /// # Arguments
+    ///
+    /// * `retries` - The maximum number of retry attempts.
+    ///
+    /// # Returns
+    ///
+    /// Returns the client to allow for method chaining.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let client = Client::new().with_max_retries(5);
+    /// ```
+    pub fn with_max_retries(mut self, retries: u32) -> Self {
+        self.max_retries = retries;
+        self
+    }
+    
+    /// Set the base delay between retry attempts.
+    ///
+    /// This method configures the initial delay between retry attempts.
+    /// The actual delay will increase exponentially with each retry.
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_ms` - The base delay in milliseconds.
+    ///
+    /// # Returns
+    ///
+    /// Returns the client to allow for method chaining.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let client = Client::new().with_retry_delay(200);
+    /// ```
+    pub fn with_retry_delay(mut self, delay_ms: u64) -> Self {
+        self.retry_delay_ms = delay_ms;
+        self
+    }
+    
+    /// Enable or disable retry functionality.
+    ///
+    /// This method allows enabling or disabling the retry mechanism entirely,
+    /// regardless of the maximum retry count.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - Whether to enable retry functionality.
+    ///
+    /// # Returns
+    ///
+    /// Returns the client to allow for method chaining.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let client = Client::new().with_retry_enabled(false); // Disable retries
+    /// ```
+    pub fn with_retry_enabled(mut self, enabled: bool) -> Self {
+        self.retry_enabled = enabled;
         self
     }
 }
