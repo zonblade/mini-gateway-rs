@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-actix-web       = "4.10.2"
-actix-cors      = "0.6.5"
 thiserror       = "1.0"
 async-trait     = "0.1"
+actix-web       = { workspace = true }
+actix-cors      = { workspace = true }
 log             = { workspace = true }
 tokio           = { workspace = true }
 serde           = { workspace = true }

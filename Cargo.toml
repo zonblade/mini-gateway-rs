@@ -8,6 +8,8 @@ members = [
 ]
 
 [workspace.dependencies]
+actix-web   = "4.10.2"
+actix-cors  = "0.6.5"
 async-trait = "0.1.88"
 env_logger  = "0.11.7"
 tracing     = "0.1.41"
@@ -17,3 +19,4 @@ crossterm   = { version = "0.28.1"  , features = [ "event-stream"   ] }
 tokio       = { version = "1.44.1"  , features = [ "full"           ] }
 serde       = { version = "1.0.219" , features = [ "derive"         ] }
 mini-config = { git = "https://github.com/zonblade/mini-config-rs.git" , rev="e62f8e85107e44b1eaa1e27f6cb46d12143a37f7" , features = [ "derive" ] }
+tinytemplate= { git = "https://github.com/zonblade/tiny-templat-forked.git" , rev = "141836defdc4ffedc7f3beec9a1dd7e06e7cbf8e" }
