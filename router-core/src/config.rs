@@ -127,9 +127,6 @@ pub struct ProxyNode {
     
     /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
     pub addr_target: String,
-    
-    /// Processing priority (higher values = higher priority)
-    pub priority: i8,
 }
 
 /// Gateway node configuration.
@@ -147,7 +144,7 @@ pub struct ProxyNode {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNode {
     /// Processing priority (higher values = higher priority)
-    pub priority: i8,
+    pub priority: u8,
     
     /// Network address this gateway listens on (e.g., "0.0.0.0:80")
     pub addr_listen: String,

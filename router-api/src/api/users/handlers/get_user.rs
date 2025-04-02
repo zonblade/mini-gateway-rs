@@ -1,14 +1,11 @@
 use actix_web::{get, web, HttpResponse, Responder};
 use crate::module::database::get_connection;
 use crate::api::users::models::{User, UserResponse, Role};
-use std::sync::{Arc, Mutex};
-use crate::client::Client;
 
 // Get a specific user by ID
 #[get("/{user_id}")]
 pub async fn init(
-    path: web::Path<String>,
-    _client: web::Data<Arc<Mutex<Client>>>
+    path: web::Path<String>
 ) -> impl Responder {
     let user_id = path.into_inner();
 

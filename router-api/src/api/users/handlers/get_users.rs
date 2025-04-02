@@ -1,12 +1,10 @@
-use actix_web::{get, web, HttpResponse, Responder};
+use actix_web::{get, HttpResponse, Responder};
 use crate::module::database::get_connection;
 use crate::api::users::models::{User, UserResponse, Role};
-use std::sync::{Arc, Mutex};
-use crate::client::Client;
 
 // Get all users
 #[get("")]
-pub async fn init(_client: web::Data<Arc<Mutex<Client>>>) -> impl Responder {
+pub async fn init() -> impl Responder {
     let db = match get_connection() {
         Ok(db) => db,
         Err(_) => return HttpResponse::InternalServerError().json(

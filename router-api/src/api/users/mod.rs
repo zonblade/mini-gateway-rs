@@ -135,7 +135,7 @@ pub fn init_database() -> Result<(), crate::module::database::DatabaseError> {
             ],
         )?;
 
-        println!("Created default admin user (username: admin, password: adminpassword)");
+        log::debug!("Created default admin user (username: admin, password: adminpassword)");
     }
 
     Ok(())

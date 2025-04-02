@@ -48,6 +48,7 @@ use std::thread;
 /// The servers are bootstrapped individually and configured with appropriate
 /// services before being launched with default run arguments.
 pub fn init() {
+
     // Vector to store thread handles for later joining
     let mut server_threads = Vec::new();
     

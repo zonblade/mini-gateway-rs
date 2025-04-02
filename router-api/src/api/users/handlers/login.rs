@@ -3,8 +3,6 @@ use crate::module::database::get_connection;
 use crate::api::users::models::{User, Role};
 use crate::api::users::helper::{AuthConfig, generate_token};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
-use crate::client::Client;
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -24,8 +22,7 @@ pub struct LoginResponse {
 
 #[post("/login")]
 pub async fn init(
-    login_req: web::Json<LoginRequest>,
-    _client: web::Data<Arc<Mutex<Client>>>
+    login_req: web::Json<LoginRequest>
 ) -> impl Responder {
     let db = match get_connection() {
         Ok(db) => db,

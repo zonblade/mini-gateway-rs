@@ -2,15 +2,12 @@ use actix_web::{post, web, HttpResponse, Responder, HttpRequest};
 use crate::module::database::get_connection;
 use crate::api::users::models::{User, CreateUserRequest, UserResponse, Role};
 use crate::api::users::helper::{ClaimsFromRequest, is_admin};
-use std::sync::{Arc, Mutex};
-use crate::client::Client;
 
 // Create a new user - only admins can perform this action
 #[post("")]
 pub async fn init(
     req: HttpRequest,
-    create_req: web::Json<CreateUserRequest>,
-    _client: web::Data<Arc<Mutex<Client>>>
+    create_req: web::Json<CreateUserRequest>
 ) -> impl Responder {
     // Extract authenticated user's claims and verify admin role
     let claims = match req.get_claims() {

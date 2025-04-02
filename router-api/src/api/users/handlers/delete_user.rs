@@ -1,14 +1,11 @@
 use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use crate::module::database::get_connection;
-use std::sync::{Arc, Mutex};
-use crate::client::Client;
-use crate::api::users::helper::{Claims, ClaimsFromRequest, can_modify_user};
+use crate::api::users::helper::{ClaimsFromRequest, can_modify_user};
 
 // Delete a user
 pub async fn init(
     req: HttpRequest,
-    path: web::Path<String>,
-    _client: web::Data<Arc<Mutex<Client>>>
+    path: web::Path<String>
 ) -> impl Responder {
     let user_id = path.into_inner();
     

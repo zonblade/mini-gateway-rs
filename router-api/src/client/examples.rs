@@ -144,8 +144,6 @@ pub async fn example_usage() -> Result<()> {
     // Then we can use client.action() since we now have a reference
     let response: LoginResponse = client.action("login", &payload).await?;
     
-    println!("Login response: {:?}", response);
-    
     // Close connection
     client.close().await?;
     

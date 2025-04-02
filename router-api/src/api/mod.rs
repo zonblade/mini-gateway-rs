@@ -48,7 +48,7 @@ use users::init_database;
 pub fn configure(cfg: &mut web::ServiceConfig) {
     // Initialize the users database
     if let Err(e) = init_database() {
-        eprintln!("Error initializing users database: {}", e);
+        log::error!("Failed to initialize database: {}", e);
     }
 
     cfg.service(
@@ -57,8 +57,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // This middleware only verifies that the token is valid
             // Specific endpoints can enforce additional role requirements
             .configure(settings::configure)
-            .configure(users::configure), // Statistics and sync modules are empty now, but will be protected when implemented
-                                          // .configure(statistics::configure)
-                                          // .configure(sync::configure)
+            .configure(users::configure)
+            .configure(sync::configure)
+            // Statistics module is empty now, but will be protected when implemented
+            // .configure(statistics::configure)
     );
 }

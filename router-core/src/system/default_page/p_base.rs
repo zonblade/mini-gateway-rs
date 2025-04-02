@@ -80,8 +80,16 @@ pub fn run_error_page_server(
     status_text: &str,
     server_type: &str,
 ) {
-    let listener =
-        TcpListener::bind(bind_addr).expect(&format!("Failed to bind {} server", server_type));
+    let listener = match TcpListener::bind(bind_addr) {
+        Ok(listener) => listener,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::AddrInUse {
+                log::warn!("Failed to bind {} server, address already in use", server_type);
+                return;
+            }
+            panic!("Failed to bind {} server: {}", server_type, e);
+        }
+    };
 
     log::info!("{} server listening on {}", server_type, bind_addr);
 

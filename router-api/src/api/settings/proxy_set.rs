@@ -118,13 +118,13 @@ pub async fn set_proxy(
             match proxy_queries::save_proxy(&proxy) {
                 Ok(()) => HttpResponse::Ok().json(proxy),
                 Err(e) => {
-                    eprintln!("Error saving proxy: {}", e);
+                    log::error!("Error saving proxy {}: {}", proxy.id, e);
                     HttpResponse::InternalServerError().body("Failed to save proxy")
                 }
             }
         },
         Err(e) => {
-            eprintln!("Error generating target address: {}", e);
+            log::error!("Error generating target address: {}", e);
             HttpResponse::InternalServerError().body("Failed to generate target address")
         }
     }

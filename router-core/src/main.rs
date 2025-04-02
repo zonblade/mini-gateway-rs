@@ -51,10 +51,6 @@ async fn main() {
     std::env::set_var("RUST_LOG", "info");
     env_logger::init();
     
-    log::info!("Starting Router Registry...");
-    // Initialize client registry for service discovery and communication
-    service::registry::client();
-    
     log::info!("Starting proxy server...");
     // Create atomic flag to track server active state
     let active_state = Arc::new(AtomicBool::new(false));

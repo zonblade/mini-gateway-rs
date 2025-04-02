@@ -60,7 +60,7 @@ use crate::config::DEFAULT_PORT;
 /// * `alt_listen` - The address:port string identifying which listener this rule belongs to
 /// * `alt_target` - Destination backend service for matched requests
 /// * `priority` - Rule evaluation priority (higher values are processed first)
-pub struct RedirectRule {
+struct RedirectRule {
     pattern: Regex,
     target: String,
     alt_listen: String,

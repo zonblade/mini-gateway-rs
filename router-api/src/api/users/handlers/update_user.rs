@@ -2,14 +2,11 @@ use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use crate::module::database::get_connection;
 use crate::api::users::models::{User, UpdateUserRequest, UserResponse, Role};
 use crate::api::users::helper::{ClaimsFromRequest, is_admin, can_modify_user};
-use std::sync::{Arc, Mutex};
-use crate::client::Client;
 
 pub async fn init(
     req: HttpRequest,
     path: web::Path<String>,
-    update_req: web::Json<UpdateUserRequest>,
-    _client: web::Data<Arc<Mutex<Client>>>
+    update_req: web::Json<UpdateUserRequest>
 ) -> impl Responder {
     let user_id = path.into_inner();
     

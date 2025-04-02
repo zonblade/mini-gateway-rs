@@ -41,11 +41,15 @@ static mut SERVICE_HANDLER: Option<SharedServiceHandler> = None;
 /// variable to be shared across all connections. This allows all connections to access
 /// the same set of registered services.
 ///
+/// ## Parameters
+///
+/// * `external_handler` - An optional pre-initialized service handler to use instead of creating a new one
+///
 /// ## Returns
 ///
 /// * `io::Result<()>` - Ok if the server started successfully (or is disabled by config),
 ///   or Err if there was an error starting the server
-pub async fn init() -> io::Result<()> {
+pub async fn init(external_handler: Option<SharedServiceHandler>) -> io::Result<()> {
     // Check if protocol server is enabled
     let enabled = ProtocolConfig::Enabled
         .xget::<bool>()
@@ -64,8 +68,23 @@ pub async fn init() -> io::Result<()> {
 
     // Initialize service handler
     unsafe {
-        SERVICE_HANDLER = Some(init_services());
-        log::info!("Protocol service handler initialized");
+        if let Some(handler) = external_handler {
+            // Use the provided external handler
+            SERVICE_HANDLER = Some(handler);
+            log::info!("Protocol server using externally provided service handler");
+        } else {
+            // Create a new handler if none was provided
+            SERVICE_HANDLER = Some(init_services());
+            log::info!("Protocol server created new service handler");
+        }
+        
+        // Log service count in the handler
+        if let Some(handler) = &SERVICE_HANDLER {
+            let guard = handler.read().await;
+            let service_count = guard.get_services().len();
+            let service_names: Vec<String> = guard.get_services().keys().cloned().collect();
+            log::info!("Protocol service handler initialized with {} services: {:?}", service_count, service_names);
+        }
     }
 
     run_server(listen_addr, buffer_size).await
@@ -132,6 +151,7 @@ fn get_service_handler() -> Option<SharedServiceHandler> {
 /// * `io::Result<()>` - Ok if the server ran and shut down gracefully,
 ///   or Err if there was an error binding to the address
 async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
+    log::info!("Starting protocol server on {}", listen_addr);
     // Set up shutdown signal
     let shutdown = Arc::new(AtomicBool::new(false));
     let _shutdown_clone = Arc::clone(&shutdown);

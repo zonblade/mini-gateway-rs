@@ -12,7 +12,7 @@ log             = { workspace = true }
 tokio           = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
-mini-config     = { workspace = true }
+mini-config     = { workspace = true , features = [ "derive" ]}
 rusqlite        = { version = "0.32.0", features = ["bundled"] }
 uuid            = { version = "1.6.1", features = ["v4", "serde"] }
 rand            = "0.8.5" 

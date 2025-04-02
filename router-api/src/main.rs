@@ -28,6 +28,7 @@
 mod api;
 mod client;
 mod module;
+mod config;
 
 use actix_cors::Cors;
 use actix_web::http::header;
@@ -58,13 +59,14 @@ use std::sync::{Arc, Mutex};
 /// - If any critical runtime errors occur during server execution
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Initializing thread-safe client...");
+    config::init();
+    log::info!("Starting API server...");
     // Create a thread-safe client wrapped in Arc<Mutex<>> to safely share
     // across multiple threads and request handlers
     let client = Arc::new(Mutex::new(Client::new()));
 
     // Configure and start actix-web server
-    println!("Starting API server...");
+    log::info!("Starting HTTP server on port 24042...");
     HttpServer::new(move || {
         // Configure CORS with permissive settings for development
         // In production, this should be restricted to specific origins

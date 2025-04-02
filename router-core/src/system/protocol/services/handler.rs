@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use log::{info};
+use log::{info, warn, error};
 
 use super::service_protocol::ServiceProtocol;
 
@@ -63,7 +63,10 @@ impl ServiceHandler {
     /// * `service` - The service implementation boxed as a trait object
     pub fn add_service(&mut self, name: String, service: Box<dyn ServiceProtocol>) {
         info!("Registering service: {}", name);
-        self.services.insert(name, service);
+        let current_count = self.services.len();
+        self.services.insert(name.clone(), service);
+        let new_count = self.services.len();
+        info!("Service '{}' registered successfully. Services count: {} -> {}", name, current_count, new_count);
     }
 
     /// Register multiple services at once
@@ -76,9 +79,11 @@ impl ServiceHandler {
     ///
     /// * `services_with_names` - A vector of name-service pairs to register
     pub fn add_services(&mut self, services_with_names: Vec<(String, Box<dyn ServiceProtocol>)>) {
+        info!("Registering {} services", services_with_names.len());
         for (name, service) in services_with_names {
             self.add_service(name, service);
         }
+        info!("All services registered. Total count: {}", self.services.len());
     }
 
     /// Retrieve a service by name
@@ -95,6 +100,14 @@ impl ServiceHandler {
     /// - Some(&Box<dyn ServiceProtocol>) if the service exists
     /// - None if no service with the given name is registered
     pub fn get_service(&self, name: &str) -> Option<&Box<dyn ServiceProtocol>> {
+        let keys: Vec<_> = self.services.keys().cloned().collect();
+        if self.services.is_empty() {
+            error!("No services available in handler when looking for '{}'", name);
+        } else if !self.services.contains_key(name) {
+            warn!("Service '{}' not found. Available services: {:?}", name, keys);
+        } else {
+            info!("Service '{}' found. Total services available: {}", name, self.services.len());
+        }
         self.services.get(name)
     }
 
@@ -153,7 +166,9 @@ pub type SharedServiceHandler = Arc<RwLock<ServiceHandler>>;
 /// A SharedServiceHandler (Arc<RwLock<ServiceHandler>>) ready to register services
 pub fn init() -> SharedServiceHandler {
     info!("Initializing service handler");
-    Arc::new(RwLock::new(ServiceHandler::new()))
+    let handler = Arc::new(RwLock::new(ServiceHandler::new()));
+    info!("Service handler initialized successfully");
+    handler
 }
 
 /// # Register a Service with a Given Name

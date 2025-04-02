@@ -75,13 +75,20 @@ async fn process_gate_connection(
         // Trim buffer to actual size
         let message_buffer = &buffer[..n];
         
+        // Log incoming data before it reaches service
+        let message_str = String::from_utf8_lossy(message_buffer);
+        log::warn!("Incoming data for service '{}': {:?}", params.service, message_str);
+        
         // Try to find and use the appropriate service if service handler exists
         if let Some(handler) = &service_handler {
             // Check if the service exists
             let service_exists = {
                 let handler_guard = handler.read().await;
+                log::warn!("Checking for service '{}'", params.service);
                 handler_guard.get_service(&params.service).is_some()
             };
+
+            log::warn!("Service '{}' exists: {}", params.service, service_exists);
             
             if service_exists {
                 // Get the service again for processing

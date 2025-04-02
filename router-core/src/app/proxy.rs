@@ -30,12 +30,11 @@ use crate::config::DEFAULT_PORT;
 /// * `alt_target` - Optional target backend server to forward traffic to
 /// * `alt_tls` - Whether this rule applies to TLS connections
 /// * `priority` - Rule priority (higher priority rules are checked first)
-pub struct RedirectRule {
+struct RedirectRule {
     host: Option<String>,
     alt_listen: String,
     alt_target: Option<BasicPeer>,
     alt_tls: bool,
-    priority: usize,
 }
 
 /// # Proxy Application
@@ -81,14 +80,12 @@ impl ProxyApp {
                 alt_target: Some(BasicPeer::new("127.0.0.1:30001")),
                 alt_listen: "0.0.0.0:2001".to_string(),
                 alt_tls: false,
-                priority: 0,
             },
             RedirectRule {
                 host: None,
                 alt_target: Some(BasicPeer::new("127.0.0.1:30003")),
                 alt_listen: "0.0.0.0:2001".to_string(),
                 alt_tls: false,
-                priority: 1,
             },
             // RedirectRule {
             //     pattern: Regex::new(r"^/(.*)$").unwrap(),
@@ -98,8 +95,7 @@ impl ProxyApp {
             //     priority: 0,
             // },
         ];
-        redirects.retain(|rule| rule.alt_listen == alt_source);
-        redirects.sort_by(|a, b| b.priority.cmp(&a.priority));
+        
         let mut client_connectors = std::collections::HashMap::new();
         for rule in &redirects {
             if let Some(target) = &rule.alt_target {

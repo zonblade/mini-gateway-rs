@@ -108,6 +108,7 @@
 /// asynchronous runtime for handling concurrent connections. Services are managed
 /// through thread-safe atomic references and read-write locks.
 
+mod app;
 mod config;
 mod types;
 mod server;
@@ -115,7 +116,7 @@ mod connection;
 mod parsing;
 pub mod services;
 
-use std::thread;
+use std::{sync::Arc, thread};
 
 // Re-export public items
 pub use config::{ProtocolConfig, init_config};
@@ -130,6 +131,7 @@ pub fn start_interface(){
     thread::spawn(|| {
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         runtime.block_on(async {
+            log::info!("Starting protocol server...");
             // Initialize the service handler
             let service_handler = services::init();
             
@@ -137,26 +139,39 @@ pub fn start_interface(){
             let mut handler = service_handler.write().await;
             
             // Example of registering services
-            let example_service = services::ExampleService::new();
-            let example_service_2 = services::ExampleService::with_name("echo".to_string());
+            let registry = app::registry::DataRegistry::new();
             
             // Create the services list
             let services = vec![
-                services::register_service("example", example_service),
-                services::register_service("echo", example_service_2),
+                services::register_service("registry", registry),
             ];
             
             // Add services to the handler
             handler.add_services(services);
             
-            // Run the service handler
+            // Log registered services details
+            let service_count = handler.get_services().len();
+            log::info!("Services registered successfully: {} service(s)", service_count);
+            for name in handler.get_services().keys() {
+                log::info!("Registered service: {}", name);
+            }
             handler.join();
             
             // Release the write lock before starting the server
             drop(handler);
             
-            // Start the protocol server
-            if let Err(e) = init().await {
+            // Verify services are registered by getting a read lock
+            let verification = service_handler.read().await;
+            let verified_count = verification.get_services().len();
+            log::info!("Verification before server start: {} service(s) available", verified_count);
+            drop(verification);
+            
+            // Clone the service handler to pass to the server
+            let server_handler = Arc::clone(&service_handler);
+            
+            // Start the protocol server with our pre-initialized service handler
+            log::info!("Starting protocol server after service registration");
+            if let Err(e) = init(Some(server_handler)).await {
                 log::error!("Protocol server failed to start: {}", e);
             }
         });

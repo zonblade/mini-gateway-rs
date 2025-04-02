@@ -9,7 +9,7 @@ pub async fn list_proxies() -> impl Responder {
     match proxy_queries::get_all_proxies() {
         Ok(proxies) => HttpResponse::Ok().json(proxies),
         Err(e) => {
-            eprintln!("Error fetching proxies: {}", e);
+            log::error!("Failed to list proxies: {}", e);
             HttpResponse::InternalServerError().body("Failed to fetch proxies")
         }
     }
