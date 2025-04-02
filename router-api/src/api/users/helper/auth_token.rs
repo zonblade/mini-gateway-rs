@@ -2,6 +2,7 @@ use crate::api::users::models::{Role, User};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm, errors::Error as JwtError};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use rand::{distributions::Alphanumeric, Rng};
 
 /// JWT claims structure for our tokens
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -29,8 +30,9 @@ pub struct AuthConfig {
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
-            // In production, this would be loaded from environment or secure storage
-            secret_key: "your_jwt_secret_key_should_be_long_and_secure".to_string(),
+            // Generate a random secret key on each service startup
+            // This ensures users must relogin after a service restart for security
+            secret_key: Self::generate_random_key(),
             // Default token validity: 60 minutes (1 hour)
             token_validity: 60,
         }
@@ -44,6 +46,16 @@ impl AuthConfig {
             secret_key,
             token_validity: token_validity_minutes,
         }
+    }
+
+    /// Generate a cryptographically secure random key
+    fn generate_random_key() -> String {
+        // Generate a 64-character random string
+        rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect()
     }
 }
 
