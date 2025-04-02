@@ -24,6 +24,11 @@ pub mod gateway_queries;
 
 use serde::{Deserialize, Serialize};
 
+// Import actix-web components for the configure function
+use actix_web::web;
+// Import authentication middleware
+use crate::api::users::RoleAuth;
+
 /// Represents a proxy configuration in the system
 ///
 /// A proxy is the most basic routing component that listens on a specific address and
@@ -203,6 +208,9 @@ pub struct Gateway {
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/settings")
+            // Apply staff role authentication middleware to all settings endpoints
+            // This allows both staff and admin users to access the settings (staff_or_admin)
+            .wrap(RoleAuth::staff())
             .service(proxy_list::list_proxies)
             .service(proxy_get::get_proxy)
             .service(proxy_set::set_proxy)
@@ -219,6 +227,3 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(gateway_set::delete_gateway),
     );
 }
-
-// Import actix-web components for the configure function
-use actix_web::web;

@@ -1,11 +1,60 @@
+//! # User Management API Module
+//!
+//! This module provides a comprehensive set of endpoints and utilities for user management, including:
+//!
+//! - User authentication via JWT (JSON Web Tokens)
+//! - Role-based access control (admin, staff, user)
+//! - User profile management (create, read, update, delete)
+//! - Self-service user management with appropriate permissions
+//!
+//! ## Authentication Flow
+//!
+//! 1. Users authenticate via the `/login` endpoint with username/password
+//! 2. The system validates credentials and issues a JWT token
+//! 3. Subsequent requests include this token in the `Authorization` header
+//! 4. Middleware validates the token and extracts user information
+//!
+//! ## Authorization System
+//!
+//! The module implements a hierarchical role system:
+//!
+//! - **Admin**: Full system access, can manage all users and settings
+//! - **Staff**: Extended privileges for managing regular users and some settings
+//! - **User**: Basic access to own profile and public resources
+//!
+//! ## Security Features
+//!
+//! - Token-based authentication with configurable expiration
+//! - Password hashing (simulated in this version)
+//! - Role-based middleware for securing endpoints
+//! - Self-check middleware to ensure users can only modify their own data
+//!
+//! ## Default Administrator Account
+//!
+//! The module automatically creates a default administrator account if no users
+//! exist in the database. This ensures that there's always an admin user for
+//! initial system setup.
+
 mod handlers;
 mod models;
 pub mod helper;
 
 use actix_web::web;
 // Re-export auth helpers for use in other modules
-pub use helper::{RoleAuth, UserSelfCheck, ClaimsFromRequest, Claims};
+pub use helper::{RoleAuth, UserSelfCheck, ClaimsFromRequest, Claims, JwtAuth};
 
+/// Configures user management routes and middleware
+///
+/// This function sets up the endpoints and middleware for user management:
+///
+/// - `/login` - Public endpoint for authentication
+/// - `/admin/*` - Admin-only endpoints protected by role middleware
+/// - `/{user_id}` - User-specific endpoints with self-check middleware
+///
+/// The routing structure enforces proper authorization:
+/// - Only admins can list all users or create new users
+/// - Users can view their own profiles
+/// - Users can only update/delete their own profiles, with admin override
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/users")
@@ -31,7 +80,26 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     );
 }
 
-// Initialize users table in the database
+/// Initializes the users database table and creates a default admin user if needed
+///
+/// This function:
+/// 1. Creates the users table if it doesn't exist
+/// 2. Checks if any users exist in the database
+/// 3. If no users exist, creates a default administrator account
+///
+/// The default admin account has these credentials:
+/// - Username: admin
+/// - Password: adminpassword
+/// - Email: admin@example.com
+/// - Role: admin
+///
+/// # Returns
+///
+/// A result indicating success or a database error
+///
+/// # Errors
+///
+/// Returns an error if database connection fails or any database operations fail
 pub fn init_database() -> Result<(), crate::module::database::DatabaseError> {
     let db = crate::module::database::get_connection()?;
     
