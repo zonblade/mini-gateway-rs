@@ -49,6 +49,7 @@ static mut SERVICE_HANDLER: Option<SharedServiceHandler> = None;
 ///
 /// * `io::Result<()>` - Ok if the server started successfully (or is disabled by config),
 ///   or Err if there was an error starting the server
+#[allow(static_mut_refs)]
 pub async fn init(external_handler: Option<SharedServiceHandler>) -> io::Result<()> {
     // Check if protocol server is enabled
     let enabled = ProtocolConfig::Enabled
@@ -109,6 +110,7 @@ pub async fn init(external_handler: Option<SharedServiceHandler>) -> io::Result<
 ///
 /// * `Option<SharedServiceHandler>` - Some(handler) if the service handler is initialized,
 ///   or None if it hasn't been initialized yet
+#[allow(static_mut_refs)]
 fn get_service_handler() -> Option<SharedServiceHandler> {
     unsafe { SERVICE_HANDLER.as_ref().map(|handler| Arc::clone(handler)) }
 }
