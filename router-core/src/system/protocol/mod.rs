@@ -85,12 +85,12 @@
 ///         Self {}
 ///     }
 ///     
-///     async fn upstream_peer(&self, socket: &mut TcpStream, buffer: &[u8], 
+///     async fn upstream_peer(&self, socket: &mut TcpStream, buffer: &[u8],
 ///                           buffer_size: usize, params: &ConnectionParams) -> io::Result<()> {
 ///         // Your custom processing logic
 ///     }
 ///     
-///     async fn logging(&self, params: &ConnectionParams, status: Option<&str>, 
+///     async fn logging(&self, params: &ConnectionParams, status: Option<&str>,
 ///                     metrics: Option<HashMap<String, String>>) {
 ///         // Your custom logging logic
 ///     }
@@ -107,26 +107,22 @@
 /// The protocol implementation is designed to be thread-safe, using the Tokio
 /// asynchronous runtime for handling concurrent connections. Services are managed
 /// through thread-safe atomic references and read-write locks.
-
 mod app;
 mod config;
-mod types;
-mod server;
 mod connection;
 mod parsing;
+mod server;
 pub mod services;
+mod types;
 
 use std::{sync::Arc, thread};
 
 // Re-export public items
-pub use config::{ProtocolConfig, init_config};
-pub use server::{init, shutdown};
-pub use connection::handle_connection;
-pub use parsing::parse_connection_params;
+pub use config::init_config;
+pub use server::init;
 pub use services::ServiceProtocol;
-pub use types::ConnectionParams;
 
-pub fn start_interface(){
+pub fn start_interface() {
     init_config();
     thread::spawn(|| {
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -134,41 +130,45 @@ pub fn start_interface(){
             log::info!("Starting protocol server...");
             // Initialize the service handler
             let service_handler = services::init();
-            
+
             // Register example services
             let mut handler = service_handler.write().await;
-            
+
             // Example of registering services
             let registry = app::registry::DataRegistry::new();
-            
+
             // Create the services list
-            let services = vec![
-                services::register_service("registry", registry),
-            ];
-            
+            let services = vec![services::register_service("registry", registry)];
+
             // Add services to the handler
             handler.add_services(services);
-            
+
             // Log registered services details
             let service_count = handler.get_services().len();
-            log::info!("Services registered successfully: {} service(s)", service_count);
+            log::info!(
+                "Services registered successfully: {} service(s)",
+                service_count
+            );
             for name in handler.get_services().keys() {
                 log::info!("Registered service: {}", name);
             }
             handler.join();
-            
+
             // Release the write lock before starting the server
             drop(handler);
-            
+
             // Verify services are registered by getting a read lock
             let verification = service_handler.read().await;
             let verified_count = verification.get_services().len();
-            log::info!("Verification before server start: {} service(s) available", verified_count);
+            log::info!(
+                "Verification before server start: {} service(s) available",
+                verified_count
+            );
             drop(verification);
-            
+
             // Clone the service handler to pass to the server
             let server_handler = Arc::clone(&service_handler);
-            
+
             // Start the protocol server with our pre-initialized service handler
             log::info!("Starting protocol server after service registration");
             if let Err(e) = init(Some(server_handler)).await {

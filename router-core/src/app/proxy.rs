@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 
-use crate::config::DEFAULT_PORT;
+use crate::config::{self, ProxyNode, DEFAULT_PORT};
 
 /// # Redirect Rule Configuration
 ///
@@ -32,7 +32,7 @@ use crate::config::DEFAULT_PORT;
 /// * `priority` - Rule priority (higher priority rules are checked first)
 struct RedirectRule {
     host: Option<String>,
-    alt_listen: String,
+    // alt_listen: String,
     alt_target: Option<BasicPeer>,
     alt_tls: bool,
 }
@@ -74,27 +74,39 @@ impl ProxyApp {
     /// ## Returns
     /// A new ProxyApp instance with configured redirect rules and connection handlers
     pub fn new(alt_source: &str) -> Self {
-        let mut redirects = vec![
-            RedirectRule {
-                host: Some("localhost:2001".to_string()),
-                alt_target: Some(BasicPeer::new("127.0.0.1:30001")),
-                alt_listen: "0.0.0.0:2001".to_string(),
-                alt_tls: false,
-            },
-            RedirectRule {
-                host: None,
-                alt_target: Some(BasicPeer::new("127.0.0.1:30003")),
-                alt_listen: "0.0.0.0:2001".to_string(),
-                alt_tls: false,
-            },
-            // RedirectRule {
-            //     pattern: Regex::new(r"^/(.*)$").unwrap(),
-            //     target: "/$1".to_string(),
-            //     alt_target: Some(BasicPeer::new("127.0.0.1:3002")),
-            //     alt_listen: "127.0.0.1:9010".to_string(),
-            //     priority: 0,
-            // },
-        ];
+        let node = config::RoutingData::ProxyRouting.xget::<Vec<ProxyNode>>();
+        let mut redirects = vec![];
+
+        if let Some(node) = node {
+            for rule in node {
+                if rule.addr_listen == alt_source {
+                    let mut peer = BasicPeer::new(&rule.addr_target);
+                    if rule.tls {
+                        peer.sni = match rule.sni.clone() {
+                            Some(sni) => sni,
+                            None => {
+                                log::error!("SNI is required for TLS connections, skipping rule for {}", alt_source);
+                                continue;
+                            }
+                        };
+                    }
+
+                    let redirect_rule = RedirectRule {
+                        host: rule.sni,
+                        alt_target: Some(peer),
+                        alt_tls: rule.tls,
+                    };
+                    redirects.push(redirect_rule);
+                }
+            }
+        } else {
+            log::error!("No routing data found for {}", alt_source);
+            return ProxyApp {
+                client_connectors: std::collections::HashMap::new(),
+                redirects: vec![],
+            };
+        }
+
         
         let mut client_connectors = std::collections::HashMap::new();
         for rule in &redirects {

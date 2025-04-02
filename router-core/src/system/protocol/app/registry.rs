@@ -1,11 +1,10 @@
 use async_trait::async_trait;
-use log::{debug, info};
+use log::info;
 use serde_json::json;
 use std::collections::HashMap;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::app::gateway;
 use crate::config::{self, GatewayNode, ProxyNode};
 use crate::system::protocol::types::ConnectionParams;
 use crate::system::protocol::ServiceProtocol;
@@ -16,16 +15,77 @@ pub struct DataRegistry {
 }
 
 impl DataRegistry {
+    // path for (pem, key)
+    fn save_tls(data: ProxyNode, pem: String, key: String) -> (String, String) {
+        let data_str = match serde_json::to_string(&data) {
+            Ok(data) => data,
+            Err(e) => {
+                log::error!("Failed to serialize proxy data: {}", e);
+                return (String::new(), String::new());
+            }
+        };
+        let checksum = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(data_str.as_bytes());
+            format!("{:x}", hasher.finalize())
+        };
+        // save to folder /tmp/gwrs/cert
+        // if folder not exist, create it
+        // if file not exist, create it
+        let path = format!("/tmp/gwrs/cert/{}", checksum);
+        let pem_path = format!("{}/{}.pem", path, checksum);
+        let key_path = format!("{}/{}.key", path, checksum);
+
+        // save pem and key to file
+        match std::fs::create_dir_all(&path) {
+            Ok(_) => {
+                match std::fs::write(&pem_path, pem) {
+                    Ok(_) => log::info!("PEM file saved to {}", pem_path),
+                    Err(e) => log::error!("Failed to save PEM file: {}", e),
+                }
+                match std::fs::write(&key_path, key) {
+                    Ok(_) => log::info!("Key file saved to {}", key_path),
+                    Err(e) => log::error!("Failed to save Key file: {}", e),
+                }
+            }
+            Err(e) => log::error!("Failed to create directory {}: {}", path, e),
+        }
+
+        (pem_path, key_path)
+    }
+
     fn proxy_data(payload: String) -> Result<(), serde_json::Error> {
         let checksum = {
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(payload.as_bytes());
             format!("{:x}", hasher.finalize())
         };
         let proxy_data = serde_json::from_str::<Vec<ProxyNode>>(&payload);
         let proxy_data = match proxy_data {
-            Ok(data) => data,
+            Ok(data) => {
+                let mut data_node = Vec::new();
+                for node in data {
+                    let mut tls_key = None;
+                    let mut tls_pem = None;
+                    if node.tls {
+                        let (pem_path, key_path) = Self::save_tls(
+                            node.clone(),
+                            node.tls_pem.unwrap_or_default(),
+                            node.tls_key.unwrap_or_default(),
+                        );
+                        tls_key = Some(key_path);
+                        tls_pem = Some(pem_path);
+                    }
+                    data_node.push(ProxyNode {
+                        tls_pem,
+                        tls_key,
+                        ..node
+                    });
+                }
+                data_node
+            }
             Err(e) => {
                 log::error!("Failed to parse proxy data: {}", e);
                 return Err(e);
@@ -40,7 +100,7 @@ impl DataRegistry {
 
     fn gateway_data(payload: String) -> Result<(), serde_json::Error> {
         let checksum = {
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(payload.as_bytes());
             format!("{:x}", hasher.finalize())
@@ -50,7 +110,7 @@ impl DataRegistry {
             Ok(data) => {
                 log::warn!("Parsed gateway data: {:?}", data);
                 data
-            },
+            }
             Err(e) => {
                 log::error!("Failed to parse gateway data: {}", e);
                 return Err(e);

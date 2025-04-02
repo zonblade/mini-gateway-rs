@@ -36,17 +36,9 @@ pub fn proxy_service(addr: &str) -> Service<ProxyApp> {
 /// This function will panic if the TLS listener cannot be created (e.g., due to invalid certificate or key paths).
 pub fn proxy_service_tls(
     addr: &str,
-    proxy_addr: &str,
-    proxy_sni: &str,
     cert_path: &str,
     key_path: &str,
 ) -> Service<ProxyApp> {
-    let mut proxy_to = BasicPeer::new(proxy_addr);
-    // set SNI to enable TLS
-    proxy_to.sni = proxy_sni.into();
-    
-    log::debug!("Proxying to {} with SNI {}", proxy_addr, proxy_sni);
-
     Service::with_listeners(
         "Proxy Service TLS".to_string(),
         Listeners::tls(addr, cert_path, key_path).unwrap(),
