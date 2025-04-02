@@ -1,4 +1,7 @@
+use actix_web::{post, HttpResponse};
 use serde::{Deserialize, Serialize};
+
+use super::proxy_node_tcp::sync_proxy_nodes_to_registry;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProxyNode {
@@ -19,4 +22,18 @@ pub struct ProxyNode {
     
     /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
     pub addr_target: String,
+}
+
+#[post("/node")]
+pub async fn gateway() -> HttpResponse {
+    
+    let result = sync_proxy_nodes_to_registry().await;
+
+    match result {
+        Ok(data)=> HttpResponse::Ok().json(data),
+        Err(e) => {
+            log::error!("Failed to sync gateway nodes: {}", e);
+            HttpResponse::BadRequest().body("Failed to sync gateway nodes")
+        }
+    }
 }

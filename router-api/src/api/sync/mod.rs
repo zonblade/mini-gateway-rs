@@ -47,6 +47,8 @@ pub mod proxy_node_tcp;
 use actix_web::web;
 use serde::{Deserialize, Serialize};
 
+use super::users::{JwtAuth, RoleAuth};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TCPDefaultResponse {
     pub status: String,
@@ -61,15 +63,12 @@ pub struct TCPDefaultResponse {
 /// # Arguments
 ///
 /// * `cfg` - A mutable reference to the service configuration
-pub fn configure(_cfg: &mut web::ServiceConfig) {
-    // Synchronization endpoints will be implemented here in the future
-    // Example route configuration:
-    // cfg.service(
-    //     web::scope("/sync")
-    //         .route("/register", web::post().to(register_node))
-    //         .route("/config/{node_id}", web::get().to(get_node_config))
-    //         .route("/heartbeat", web::post().to(process_heartbeat))
-    //         .route("/nodes", web::get().to(list_nodes))
-    //         .route("/commands/{node_id}", web::post().to(send_command))
-    // );
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/sync")
+            .wrap(JwtAuth::new())
+            .wrap(RoleAuth::staff())
+            .service(gateway_node::gateway)
+            .service(proxy_node::gateway),
+    );
 }

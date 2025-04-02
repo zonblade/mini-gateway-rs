@@ -10,6 +10,9 @@ The Router API provides a RESTful interface for managing and configuring the min
   - [Proxy Management](#proxy-management)
   - [Gateway Node Management](#gateway-node-management)
   - [Gateway Management](#gateway-management)
+- [Synchronization](#synchronization)
+  - [Proxy Node Sync](#proxy-node-sync)
+  - [Gateway Node Sync](#gateway-node-sync)
 
 ## Authentication
 
@@ -604,6 +607,56 @@ Deletes a gateway routing rule.
 ```json
 {
   "message": "Gateway deleted successfully"
+}
+```
+
+## Synchronization
+
+The synchronization endpoints allow you to sync the configured proxy and gateway nodes with the registry service. These operations ensure that all components of the mini-gateway-rs system are using consistent configuration data.
+
+### Proxy Node Sync
+
+Synchronizes all configured proxy nodes to the registry service.
+
+**Endpoint:** `POST /api/v1/sync/node`
+
+**Request:** No parameters required.
+
+**Response:** Returns the result of the synchronization.
+
+| Field   | Type    | Description                            |
+|---------|---------|----------------------------------------|
+| status  | string  | Status of the operation ("success" or "error") |
+| message | string  | Descriptive message about the operation |
+
+**Example Response:**
+```json
+{
+  "status": "success",
+  "message": "Successfully synchronized 2 proxy nodes"
+}
+```
+
+### Gateway Node Sync
+
+Synchronizes all configured gateway nodes to the registry service.
+
+**Endpoint:** `POST /api/v1/sync/gateway`
+
+**Request:** No parameters required.
+
+**Response:** Returns the result of the synchronization.
+
+| Field   | Type    | Description                            |
+|---------|---------|----------------------------------------|
+| status  | string  | Status of the operation ("success" or "error") |
+| message | string  | Descriptive message about the operation |
+
+**Example Response:**
+```json
+{
+  "status": "success",
+  "message": "Successfully synchronized 2 gateway nodes"
 }
 ```
 

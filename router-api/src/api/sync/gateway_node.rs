@@ -1,5 +1,7 @@
-use actix_web::HttpResponse;
+use actix_web::{post, HttpResponse};
 use serde::{Deserialize, Serialize};
+
+use crate::api::sync::gateway_node_tcp::sync_gateway_nodes_to_registry;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNode {
@@ -17,4 +19,18 @@ pub struct GatewayNode {
     
     /// Target path to rewrite matched paths to (e.g., "/")
     pub path_target: String,
+}
+
+#[post("/gateway")]
+pub async fn gateway() -> HttpResponse {
+    
+    let result = sync_gateway_nodes_to_registry().await;
+
+    match result {
+        Ok(data)=> HttpResponse::Ok().json(data),
+        Err(e) => {
+            log::error!("Failed to sync gateway nodes: {}", e);
+            HttpResponse::BadRequest().body("Failed to sync gateway nodes")
+        }
+    }
 }
