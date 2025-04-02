@@ -4,10 +4,11 @@
 //! Proxies are the foundation of the gateway system, listening on specific addresses and forwarding
 //! traffic to target destinations.
 
-use actix_web::{delete, post, web, HttpResponse, Responder};
+use actix_web::{delete, post, web, HttpResponse, Responder, HttpRequest};
 use super::{Proxy, proxy_queries};
 use super::gwnode_queries;
 use uuid::Uuid;
+use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 
 /// Creates or updates a proxy configuration
 ///
@@ -81,7 +82,27 @@ use uuid::Uuid;
 /// }
 /// ```
 #[post("/proxy")]
-pub async fn set_proxy(proxy: web::Json<Proxy>) -> impl Responder {
+pub async fn set_proxy(
+    req: HttpRequest,
+    proxy: web::Json<Proxy>
+) -> impl Responder {
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Verify user has admin or staff role
+    if !is_staff_or_admin(&claims.role) {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "Only administrators and staff can modify proxy settings"})
+        );
+    }
+    
     let mut proxy = proxy.into_inner();
     
     // Generate an ID if none was provided
@@ -152,7 +173,27 @@ pub async fn set_proxy(proxy: web::Json<Proxy>) -> impl Responder {
 /// DELETE /settings/proxy/550e8400-e29b-41d4-a716-446655440000
 /// ```
 #[delete("/proxy/{id}")]
-pub async fn delete_proxy(path: web::Path<String>) -> impl Responder {
+pub async fn delete_proxy(
+    req: HttpRequest,
+    path: web::Path<String>
+) -> impl Responder {
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Verify user has admin or staff role
+    if !is_staff_or_admin(&claims.role) {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "Only administrators and staff can delete proxy settings"})
+        );
+    }
+    
     let id = path.into_inner();
     
     // First unbind any gateway nodes associated with this proxy

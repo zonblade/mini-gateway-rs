@@ -4,8 +4,9 @@
 //! Gateways are the actual routing rules that define how incoming requests are matched and forwarded
 //! based on patterns and priorities.
 
-use actix_web::{post, web, HttpResponse, Responder};
+use actix_web::{post, web, HttpResponse, Responder, HttpRequest};
 use super::{Gateway, gateway_queries, gwnode_queries};
+use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 
 /// Creates or updates a gateway routing rule
 ///
@@ -80,7 +81,27 @@ use super::{Gateway, gateway_queries, gwnode_queries};
 /// }
 /// ```
 #[post("/gateway/set")]
-pub async fn set_gateway(req_body: web::Json<Gateway>) -> impl Responder {
+pub async fn set_gateway(
+    req: HttpRequest,
+    req_body: web::Json<Gateway>
+) -> impl Responder {
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Verify user has admin or staff role
+    if !is_staff_or_admin(&claims.role) {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "Only administrators and staff can modify gateway settings"})
+        );
+    }
+    
     let mut gateway = req_body.into_inner();
     
     // If no ID provided, generate a new one
@@ -149,7 +170,27 @@ pub async fn set_gateway(req_body: web::Json<Gateway>) -> impl Responder {
 /// }
 /// ```
 #[post("/gateway/delete")]
-pub async fn delete_gateway(req_body: web::Json<DeleteRequest>) -> impl Responder {
+pub async fn delete_gateway(
+    req: HttpRequest,
+    req_body: web::Json<DeleteRequest>
+) -> impl Responder {
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Verify user has admin or staff role
+    if !is_staff_or_admin(&claims.role) {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "Only administrators and staff can delete gateway settings"})
+        );
+    }
+    
     let id = &req_body.id;
     
     match gateway_queries::delete_gateway_by_id(id) {

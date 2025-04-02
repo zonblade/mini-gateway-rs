@@ -1,15 +1,37 @@
-use actix_web::{delete, web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use crate::module::database::get_connection;
 use std::sync::{Arc, Mutex};
 use crate::client::Client;
+use crate::api::users::helper::{Claims, ClaimsFromRequest, is_admin};
 
 // Delete a user
-#[delete("/{user_id}")]
 pub async fn init(
+    req: HttpRequest,
     path: web::Path<String>,
     _client: web::Data<Arc<Mutex<Client>>>
 ) -> impl Responder {
     let user_id = path.into_inner();
+    
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Check if the user is allowed to delete this user
+    // Users can only delete themselves, admins can delete any user
+    let is_self = claims.sub == user_id;
+    let is_admin_user = is_admin(&claims.role);
+    
+    if !is_self && !is_admin_user {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "You are not authorized to delete this user"})
+        );
+    }
 
     let db = match get_connection() {
         Ok(db) => db,

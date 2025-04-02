@@ -1,19 +1,57 @@
-use actix_web::{put, web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use crate::module::database::get_connection;
 use crate::api::users::models::{User, UpdateUserRequest, UserResponse, Role};
+use crate::api::users::helper::{ClaimsFromRequest, is_admin};
 use std::sync::{Arc, Mutex};
 use crate::client::Client;
 
-#[put("/{user_id}")]
 pub async fn init(
+    req: HttpRequest,
     path: web::Path<String>,
     update_req: web::Json<UpdateUserRequest>,
     _client: web::Data<Arc<Mutex<Client>>>
 ) -> impl Responder {
     let user_id = path.into_inner();
+    
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Check if user is updating their own account or is an admin
+    let is_self = claims.sub == user_id;
+    let is_admin_user = is_admin(&claims.role);
+    
+    if !is_self && !is_admin_user {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "You can only update your own account"})
+        );
+    }
+    
     // Create a vector to hold any dynamically created strings
     let mut constructed_values: Vec<String> = Vec::new();
     
+    // Check if this is a role update attempt and if the user has permissions
+    if update_req.role.is_some() {
+        // Prevent users from upgrading their own role
+        if is_self {
+            return HttpResponse::Forbidden().json(
+                serde_json::json!({"error": "Cannot update your own role"})
+            );
+        }
+        
+        // Only admins can update roles
+        if !is_admin_user {
+            return HttpResponse::Forbidden().json(
+                serde_json::json!({"error": "Only administrators can update user roles"})
+            );
+        }
+    }
 
     let db = match get_connection() {
         Ok(db) => db,
@@ -126,10 +164,6 @@ pub async fn init(
     for (i, part) in query_parts.iter().enumerate() {
         if part.contains("password_hash") || part.contains("role") {
             params.push(&constructed_values[i - (query_parts.len() - constructed_values.len())] as &dyn rusqlite::ToSql);
-        } else if part.contains("username") {
-            params.push(update_req.username.as_ref().unwrap() as &dyn rusqlite::ToSql);
-        } else if part.contains("email") {
-            params.push(update_req.email.as_ref().unwrap() as &dyn rusqlite::ToSql);
         }
     }
 

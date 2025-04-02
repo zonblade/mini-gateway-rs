@@ -3,9 +3,10 @@
 //! This module provides HTTP endpoints for creating, updating, and deleting gateway node configurations.
 //! It handles validating input data, checking dependencies, and performing cascading operations when needed.
 
-use actix_web::{post, web, HttpResponse, Responder};
+use actix_web::{post, web, HttpResponse, Responder, HttpRequest};
 use super::{GatewayNode, gwnode_queries};
 use super::{proxy_queries, gateway_queries};
+use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 
 /// Creates or updates a gateway node configuration
 ///
@@ -60,7 +61,27 @@ use super::{proxy_queries, gateway_queries};
 /// }
 /// ```
 #[post("/gwnode/set")]
-pub async fn set_gateway_node(req_body: web::Json<GatewayNode>) -> impl Responder {
+pub async fn set_gateway_node(
+    req: HttpRequest,
+    req_body: web::Json<GatewayNode>
+) -> impl Responder {
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Verify user has admin or staff role
+    if !is_staff_or_admin(&claims.role) {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "Only administrators and staff can modify gateway nodes"})
+        );
+    }
+    
     let mut node = req_body.into_inner();
     
     // If no ID provided, generate a new one
@@ -140,7 +161,27 @@ pub async fn set_gateway_node(req_body: web::Json<GatewayNode>) -> impl Responde
 /// }
 /// ```
 #[post("/gwnode/delete")]
-pub async fn delete_gateway_node(req_body: web::Json<DeleteRequest>) -> impl Responder {
+pub async fn delete_gateway_node(
+    req: HttpRequest,
+    req_body: web::Json<DeleteRequest>
+) -> impl Responder {
+    // Extract authenticated user's claims
+    let claims = match req.get_claims() {
+        Some(claims) => claims,
+        None => {
+            return HttpResponse::InternalServerError().json(
+                serde_json::json!({"error": "Failed to get user authentication"})
+            )
+        }
+    };
+    
+    // Verify user has admin or staff role
+    if !is_staff_or_admin(&claims.role) {
+        return HttpResponse::Forbidden().json(
+            serde_json::json!({"error": "Only administrators and staff can delete gateway nodes"})
+        );
+    }
+    
     let id = &req_body.id;
     
     // First, get all gateways associated with this gateway node
