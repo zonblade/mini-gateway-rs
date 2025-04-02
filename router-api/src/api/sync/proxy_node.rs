@@ -24,7 +24,7 @@ pub struct ProxyNode {
     pub addr_target: String,
 }
 
-#[post("/node")]
+#[post("/proxy")]
 pub async fn gateway() -> HttpResponse {
     
     let result = sync_proxy_nodes_to_registry().await;

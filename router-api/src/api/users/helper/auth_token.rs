@@ -37,6 +37,16 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation,
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rand::{distributions::Alphanumeric, Rng};
+use std::sync::LazyLock;
+
+static GLOBAL_SECRET: LazyLock<String> = LazyLock::new(|| {
+    // Generate a 64-character random secret key when first accessed
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect()
+});
 
 /// JWT claims structure for our tokens
 ///
@@ -98,7 +108,7 @@ impl Default for AuthConfig {
         Self {
             // Generate a random secret key on each service startup
             // This ensures users must relogin after a service restart for security
-            secret_key: Self::generate_random_key(),
+            secret_key: GLOBAL_SECRET.clone(),
             // Default token validity: 60 minutes (1 hour)
             token_validity: 60,
         }
@@ -126,23 +136,6 @@ impl AuthConfig {
             secret_key,
             token_validity: token_validity_minutes,
         }
-    }
-
-    /// Generate a cryptographically secure random key
-    ///
-    /// Creates a 64-character random string suitable for use as a JWT signing key.
-    /// Uses the system's secure random number generator.
-    ///
-    /// # Returns
-    ///
-    /// A 64-character random string
-    fn generate_random_key() -> String {
-        // Generate a 64-character random string
-        rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect()
     }
 }
 
