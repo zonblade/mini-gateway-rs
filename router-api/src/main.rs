@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Enable logger middleware
             .wrap(middleware::Logger::default())
             // Enable CORS
-            .wrap(cors)
+            // .wrap(cors)
             // Configure routes
             .configure(api::configure)
     })

@@ -17,7 +17,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // Apply JWT authentication to all API routes
             // This middleware only verifies that the token is valid
             // Specific endpoints can enforce additional role requirements
-            .wrap(JwtAuth::new())
             .configure(settings::configure)
             .configure(users::configure)
             // Statistics and sync modules are empty now, but will be protected when implemented

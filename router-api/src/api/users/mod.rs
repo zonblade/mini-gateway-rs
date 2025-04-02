@@ -36,12 +36,12 @@
 //! initial system setup.
 
 mod handlers;
-mod models;
 pub mod helper;
+mod models;
 
 use actix_web::web;
 // Re-export auth helpers for use in other modules
-pub use helper::{RoleAuth, UserSelfCheck, ClaimsFromRequest, Claims, JwtAuth};
+pub use helper::{Claims, ClaimsFromRequest, JwtAuth, RoleAuth, UserSelfCheck};
 
 /// Configures user management routes and middleware
 ///
@@ -60,23 +60,23 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::scope("/users")
             // Public endpoint (no auth required)
             .service(handlers::login::init)
-            
             // Admin-only endpoints
             .service(
                 web::scope("/admin")
+                    .wrap(JwtAuth::new())
                     .wrap(RoleAuth::admin())
                     .service(handlers::get_users::init)
-                    .service(handlers::create_user::init)
+                    .service(handlers::create_user::init),
             )
-            
             // User-specific endpoints with self-check or admin override
             .service(handlers::get_user::init)
             .service(
                 web::resource("/{user_id}")
+                    .wrap(JwtAuth::new())
                     .wrap(UserSelfCheck::self_and_admin())
                     .route(web::put().to(handlers::update_user::init))
-                    .route(web::delete().to(handlers::delete_user::init))
-            )
+                    .route(web::delete().to(handlers::delete_user::init)),
+            ),
     );
 }
 
@@ -102,7 +102,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 /// Returns an error if database connection fails or any database operations fail
 pub fn init_database() -> Result<(), crate::module::database::DatabaseError> {
     let db = crate::module::database::get_connection()?;
-    
+
     // Create users table if not exists with role field
     db.execute(
         "CREATE TABLE IF NOT EXISTS users (
@@ -116,14 +116,12 @@ pub fn init_database() -> Result<(), crate::module::database::DatabaseError> {
         )",
         [],
     )?;
-    
+
     // Create a default admin user if no users exist
-    let user_count: i64 = db.query_one(
-        "SELECT COUNT(*) FROM users",
-        [],
-        |row| row.get::<_, i64>(0)
-    )?.unwrap_or(0);
-    
+    let user_count: i64 = db
+        .query_one("SELECT COUNT(*) FROM users", [], |row| row.get::<_, i64>(0))?
+        .unwrap_or(0);
+
     if user_count == 0 {
         // Create a default admin user
         db.execute(
@@ -133,12 +131,12 @@ pub fn init_database() -> Result<(), crate::module::database::DatabaseError> {
                 "admin",
                 "admin@example.com",
                 "hashed_adminpassword", // In a real app, use proper password hashing
-                "admin"
+                "admin",
             ],
         )?;
-        
+
         println!("Created default admin user (username: admin, password: adminpassword)");
     }
-    
+
     Ok(())
 }

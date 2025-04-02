@@ -1,7 +1,7 @@
 //! # Settings API Module
 //!
 //! This module provides a comprehensive API for managing gateway configuration settings, including:
-//! 
+//!
 //! - **Proxies**: Basic forwarding configurations that listen on specific addresses and forward traffic
 //! - **Gateway Nodes**: Extensions to proxies that provide alternative target paths
 //! - **Gateways**: Routing rules tied to gateway nodes with pattern matching and prioritization
@@ -9,18 +9,18 @@
 //! The module is structured with a clear separation between data models, database queries, and HTTP endpoints.
 //! Each component has dedicated submodules for listing, retrieving, creating, updating, and deleting resources.
 
-pub mod proxy_get;
-pub mod proxy_list;
-pub mod proxy_set;
-pub mod proxy_queries;
-pub mod gwnode_get;
-pub mod gwnode_list;
-pub mod gwnode_set;
-pub mod gwnode_queries;
 pub mod gateway_get;
 pub mod gateway_list;
-pub mod gateway_set;
 pub mod gateway_queries;
+pub mod gateway_set;
+pub mod gwnode_get;
+pub mod gwnode_list;
+pub mod gwnode_queries;
+pub mod gwnode_set;
+pub mod proxy_get;
+pub mod proxy_list;
+pub mod proxy_queries;
+pub mod proxy_set;
 
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use actix_web::web;
 // Import authentication middleware
 use crate::api::users::RoleAuth;
+
+use super::users::JwtAuth;
 
 /// Represents a proxy configuration in the system
 ///
@@ -208,6 +210,7 @@ pub struct Gateway {
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/settings")
+            .wrap(JwtAuth::new())
             // Apply staff role authentication middleware to all settings endpoints
             // This allows both staff and admin users to access the settings (staff_or_admin)
             .wrap(RoleAuth::staff())
