@@ -1,6 +1,6 @@
 //! # Gateway Application Module
 //!
-//! This module implements a configurable HTTP gateway/router that directs incoming 
+//! This module implements a configurable HTTP gateway/router that directs incoming
 //! HTTP requests to appropriate backend services based on path patterns.
 //!
 //! ## Features
@@ -28,17 +28,18 @@
 
 use async_trait::async_trait;
 use log::info;
-use pingora::connectors::TransportConnector;
 use pingora::prelude::HttpPeer;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::BasicPeer;
 use regex::Regex;
+use std::collections::HashMap;
+use std::sync::{LazyLock, RwLock};
 
-use crate::config::DEFAULT_PORT;
+use crate::config::{self, GatewayNode, DEFAULT_PORT};
 
 /// # Redirect Rule
 ///
-/// Defines a single routing rule that determines how requests matching specific 
+/// Defines a single routing rule that determines how requests matching specific
 /// path patterns should be handled and redirected to backend services.
 ///
 /// ## Pattern Matching and Transformation
@@ -60,6 +61,7 @@ use crate::config::DEFAULT_PORT;
 /// * `alt_listen` - The address:port string identifying which listener this rule belongs to
 /// * `alt_target` - Destination backend service for matched requests
 /// * `priority` - Rule evaluation priority (higher values are processed first)
+#[derive(Clone)]
 struct RedirectRule {
     pattern: Regex,
     target: String,
@@ -67,6 +69,14 @@ struct RedirectRule {
     alt_target: Option<BasicPeer>,
     priority: usize,
 }
+
+// Static map to hold redirect rules for different sources
+static REDIRECT_RULES: LazyLock<RwLock<HashMap<String, Vec<RedirectRule>>>> = 
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+// Static to hold the saved ID for config versioning
+static SAVED_CONFIG_ID: LazyLock<RwLock<String>> = 
+    LazyLock::new(|| RwLock::new(String::new()));
 
 /// # Gateway Application
 ///
@@ -96,9 +106,9 @@ struct RedirectRule {
 ///
 /// ## Fields
 ///
-/// * `redirects` - Vector of redirect rules, filtered by listener and sorted by priority
+/// * `source` - The listener address this gateway instance is bound to
 pub struct GatewayApp {
-    redirects: Vec<RedirectRule>,
+    source: String,
 }
 
 impl GatewayApp {
@@ -130,50 +140,87 @@ impl GatewayApp {
     ///
     /// A new `GatewayApp` instance with configured and prioritized redirect rules
     pub fn new(alt_source: &str) -> Self {
-        let mut redirects = vec![
-            RedirectRule {
-                pattern: Regex::new("^/favicon\\.ico$").unwrap(),
-                target: "/favicon.ico".to_string(),
-                alt_target: Some(BasicPeer::new("127.0.0.1:3000")),
-                alt_listen: "127.0.0.1:30001".to_string(),
-                priority: 0,
-            },
-            RedirectRule {
-                pattern: Regex::new("^/api/(.*)$").unwrap(),
-                target: "/v2/api/$1".to_string(),
-                alt_target: Some(BasicPeer::new("127.0.0.1:3002")),
-                alt_listen: "127.0.0.1:30003".to_string(),
-                priority: 1,
-            },
-            RedirectRule {
-                pattern: Regex::new(r"^/ws(.*)$").unwrap(),
-                target: "/$1".to_string(),
-                alt_target: Some(BasicPeer::new("127.0.0.1:3004")),
-                alt_listen: "127.0.0.1:30003".to_string(),
-                priority: 1,
-            },
-            // RedirectRule {
-            //     pattern: Regex::new(r"^/(.*)$").unwrap(),
-            //     target: "/$1".to_string(),
-            //     alt_target: Some(BasicPeer::new("127.0.0.1:3002")),
-            //     alt_listen: "127.0.0.1:9010".to_string(),
-            //     priority: 0,
-            // },
-        ];
-        redirects.retain(|rule| rule.alt_listen == alt_source);
-        redirects.sort_by(|a, b| b.priority.cmp(&a.priority));
-        let mut client_connectors = std::collections::HashMap::new();
-        for rule in &redirects {
-            if let Some(target) = &rule.alt_target {
-                let addr = format!("{}", target);
-                if !client_connectors.contains_key(&addr) {
-                    client_connectors.insert(addr, TransportConnector::new(None));
-                }
+        let app = GatewayApp {
+            source: alt_source.to_string(),
+        };
+        app.populate();
+        app
+    }
+
+    fn populate(&self) {
+        // Get read access to check if we need to update
+        let config_id = config::RoutingData::GatewayID.get();
+        
+        {
+            // First use a read lock to check if update is needed
+            let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
+            if *saved_id_guard == config_id {
+                info!("No changes in routing rules, skipping population");
+                return;
             }
         }
-        GatewayApp {
-            redirects,
+
+        let node = config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
+        let mut redirects: Vec<RedirectRule> = vec![];
+
+        while let Some(node) = node.clone() {
+            if node.is_empty() {
+                break;
+            }
+
+            for rule in node {
+                let pattern = Regex::new(&rule.path_listen).unwrap();
+                let target = rule.path_target.clone();
+                let alt_listen = rule.addr_listen.clone();
+                let alt_target = rule.addr_target.clone();
+                let priority = rule.priority as usize;
+                redirects.push(RedirectRule {
+                    pattern,
+                    target,
+                    alt_listen,
+                    alt_target: Some(BasicPeer::new(&alt_target)),
+                    priority,
+                });
+            }
         }
+
+        if redirects.is_empty() {
+            info!("No redirect rules found");
+            return;
+        }
+
+        // Process and store rules for each source
+        let mut source_rules: Vec<RedirectRule> = redirects
+            .into_iter()
+            .filter(|rule| rule.alt_listen == self.source)
+            .collect();
+
+        // Sort by priority
+        source_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        
+        // Now acquire write locks to update the data
+        {
+            // Lock the REDIRECT_RULES for writing
+            let mut rules_map = REDIRECT_RULES.write().unwrap();
+            // Store rules for this source
+            rules_map.insert(self.source.clone(), source_rules);
+        }
+        
+        {
+            // Lock the SAVED_CONFIG_ID for writing
+            let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
+            // Update saved ID to indicate we've processed this configuration
+            *saved_id_guard = config_id;
+        }
+    }
+
+    // Helper to get the rules for this instance's source
+    fn get_rules(&self) -> Vec<RedirectRule> {
+        // Only need read access here
+        let rules_map = REDIRECT_RULES.read().unwrap();
+        rules_map.get(&self.source)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -234,9 +281,15 @@ impl ProxyHttp for GatewayApp {
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
         let path = session.req_header().uri.path();
+        
+        // Check for configuration changes and update if needed
+        self.populate();
+        
+        // Get the rules for this source
+        let rules = self.get_rules();
 
         // Try to match path against our redirect rules
-        for rule in &self.redirects {
+        for rule in &rules {
             if let Some(captures) = rule.pattern.captures(path) {
                 if let Some(alt_target) = &rule.alt_target {
                     // Transform the path based on the rule's target pattern

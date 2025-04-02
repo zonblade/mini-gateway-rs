@@ -2,28 +2,46 @@
 //! 
 //! This module provides a RESTful API service for managing the mini-gateway-rs routing system.
 //! The API allows for comprehensive management of users, proxies, gateway nodes, and configuration
-//! settings, as well as monitoring service statistics.
-//! 
-//! The server uses Actix Web framework with CORS support and JWT-based authentication to secure
-//! endpoints based on user roles (admin, staff, user).
+//! settings, as well as monitoring service statistics and health.
 //! 
 //! ## Architecture
 //! 
 //! The API server is built with the following components:
-//! - Actix Web HTTP server for handling REST requests
-//! - SQLite database for storing configuration and user data
-//! - Thread-safe client for managing shared state between requests
-//! - CORS support for cross-origin requests
-//! - JWT-based authentication and authorization
+//! - **Actix Web**: High-performance HTTP server framework for handling REST requests
+//! - **SQLite Database**: Persistent storage for configuration, user data, and routing rules
+//! - **Thread-safe Client**: Arc<Mutex<Client>> for managing shared state between requests
+//! - **CORS Support**: Configurable cross-origin request security
+//! - **JWT Authentication**: Role-based access control (admin, staff, user)
+//! - **Registry Synchronization**: Automatic sync of proxy and gateway nodes with central registry
 //! 
-//! ## Usage
+//! ## API Endpoints
 //! 
-//! The server listens on port 24042 and provides endpoints for:
-//! - User management (CRUD operations)
-//! - Proxy configuration
-//! - Gateway node management
-//! - Routing rules and settings
-//! - Service statistics
+//! The server provides the following endpoint categories:
+//! - `/api/v1/users` - User management (create, read, update, delete)
+//! - `/api/v1/proxies` - Proxy configuration and status
+//! - `/api/v1/gateways` - Gateway node management
+//! - `/api/v1/routes` - Routing rules and policies
+//! - `/api/v1/stats` - Service performance and usage metrics
+//! - `/api/v1/health` - Health checks and system status
+//! 
+//! ## Authentication
+//! 
+//! The API uses JWT tokens for authentication with the following roles:
+//! - **Admin**: Full access to all endpoints and operations
+//! - **Staff**: Access to monitoring and limited configuration
+//! - **User**: Access only to assigned resources and read operations
+//! 
+//! ## Configuration
+//! 
+//! Server configuration is loaded from:
+//! - Environment variables
+//! - Configuration files in the working directory
+//! - Default values for development environments
+//! 
+//! ## Network
+//! 
+//! By default, the service listens on port 24042 on all network interfaces (0.0.0.0).
+//! This can be configured through environment variables or config files.
 
 mod api;
 mod client;
@@ -33,30 +51,48 @@ mod config;
 use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpServer};
+use api::sync;
 use client::Client;
 use std::sync::{Arc, Mutex};
 
 /// Main entry point for the Router API server.
 ///
 /// This function initializes the application by:
-/// 1. Creating a thread-safe client instance that is shared across requests
-/// 2. Configuring CORS settings for cross-origin requests
-/// 3. Setting up middleware for logging and request processing
-/// 4. Configuring API routes
-/// 5. Starting the HTTP server with two worker threads
+/// 1. Loading configuration from environment variables and config files
+/// 2. Creating a thread-safe client instance that is shared across requests
+/// 3. Synchronizing proxy and gateway nodes with the central registry
+/// 4. Configuring CORS settings for cross-origin requests
+/// 5. Setting up middleware for logging, authentication and request processing
+/// 6. Configuring API routes for all endpoint categories
+/// 7. Starting the HTTP server with worker threads for concurrent request handling
+///
+/// # Network Configuration
+///
+/// The server binds to 0.0.0.0:24042 by default, making it accessible from any network interface.
+/// This can be customized through the ROUTER_API_HOST and ROUTER_API_PORT environment variables.
+///
+/// # Performance
+///
+/// The server uses 2 worker threads by default to handle concurrent requests efficiently.
+/// This value can be adjusted based on available system resources and expected load.
+///
+/// # Synchronization
+///
+/// During startup, the server synchronizes proxy and gateway node configurations with
+/// the central registry to ensure consistency across the routing system.
 ///
 /// # Returns
 ///
 /// Returns a Result that resolves to () if the server runs successfully,
-/// or an error boxed as a trait object if any issues occur during startup
-/// or execution.
+/// or an error boxed as a trait object if any issues occur.
 ///
 /// # Errors
 ///
 /// This function may return errors in the following situations:
-/// - If the server fails to bind to the specified address/port
-/// - If there are issues during server initialization
-/// - If any critical runtime errors occur during server execution
+/// - Configuration loading failures
+/// - Registry synchronization issues
+/// - Network binding failures (e.g., port already in use)
+/// - Critical runtime errors during server execution
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config::init();
@@ -64,6 +100,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a thread-safe client wrapped in Arc<Mutex<>> to safely share
     // across multiple threads and request handlers
     let client = Arc::new(Mutex::new(Client::new()));
+
+    log::info!("Initializing sync...");
+    {
+        sync::proxy_node_tcp::sync_proxy_nodes_to_registry().await?;
+        sync::gateway_node_tcp::sync_gateway_nodes_to_registry().await?;
+    }
 
     // Configure and start actix-web server
     log::info!("Starting HTTP server on port 24042...");
