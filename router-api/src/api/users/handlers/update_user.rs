@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use crate::module::database::get_connection;
 use crate::api::users::models::{User, UpdateUserRequest, UserResponse, Role};
-use crate::api::users::helper::{ClaimsFromRequest, is_admin};
+use crate::api::users::helper::{ClaimsFromRequest, is_admin, can_modify_user};
 use std::sync::{Arc, Mutex};
 use crate::client::Client;
 
@@ -23,13 +23,10 @@ pub async fn init(
         }
     };
     
-    // Check if user is updating their own account or is an admin
-    let is_self = claims.sub == user_id;
-    let is_admin_user = is_admin(&claims.role);
-    
-    if !is_self && !is_admin_user {
+    // Check if user is authorized to update this user
+    if !can_modify_user(&claims.sub, &claims.role, &user_id) {
         return HttpResponse::Forbidden().json(
-            serde_json::json!({"error": "You can only update your own account"})
+            serde_json::json!({"error": "You are not authorized to update this user"})
         );
     }
     
@@ -39,14 +36,14 @@ pub async fn init(
     // Check if this is a role update attempt and if the user has permissions
     if update_req.role.is_some() {
         // Prevent users from upgrading their own role
-        if is_self {
+        if claims.sub == user_id {
             return HttpResponse::Forbidden().json(
                 serde_json::json!({"error": "Cannot update your own role"})
             );
         }
         
         // Only admins can update roles
-        if !is_admin_user {
+        if !is_admin(&claims.role) {
             return HttpResponse::Forbidden().json(
                 serde_json::json!({"error": "Only administrators can update user roles"})
             );

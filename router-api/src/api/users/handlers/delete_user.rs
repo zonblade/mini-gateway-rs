@@ -2,7 +2,7 @@ use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use crate::module::database::get_connection;
 use std::sync::{Arc, Mutex};
 use crate::client::Client;
-use crate::api::users::helper::{Claims, ClaimsFromRequest, is_admin};
+use crate::api::users::helper::{Claims, ClaimsFromRequest, can_modify_user};
 
 // Delete a user
 pub async fn init(
@@ -22,12 +22,8 @@ pub async fn init(
         }
     };
     
-    // Check if the user is allowed to delete this user
-    // Users can only delete themselves, admins can delete any user
-    let is_self = claims.sub == user_id;
-    let is_admin_user = is_admin(&claims.role);
-    
-    if !is_self && !is_admin_user {
+    // Check if the user is allowed to delete this user using the can_modify_user helper
+    if !can_modify_user(&claims.sub, &claims.role, &user_id) {
         return HttpResponse::Forbidden().json(
             serde_json::json!({"error": "You are not authorized to delete this user"})
         );
