@@ -32,7 +32,7 @@
 
 {#if showModal}
     <div 
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+        class="fixed inset-0 bg-black/30 backdrop-blur-md bg-opacity-50 flex items-center justify-center z-50" 
         transition:fade={{ duration: 200 }}
         on:keydown={handleKeydown}
         role="presentation"

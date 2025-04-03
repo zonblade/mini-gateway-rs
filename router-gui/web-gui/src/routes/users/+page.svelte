@@ -148,8 +148,8 @@
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
     </div>
 {:else if isLoggedIn}
-    <div class="p-6 max-w-6xl mx-auto">
-        <div class="bg-white dark:bg-[#161b22] shadow-sm rounded-lg p-6">
+    <div class="p-6 mx-auto w-full flex flex-col items-center">
+        <div class="bg-white dark:bg-[#161b22] shadow-sm rounded-lg p-6 w-full max-w-[900px]">
             <div class="flex justify-between items-center mb-6">
                 <h1 class="text-2xl font-bold">Users Management</h1>
                 <button 

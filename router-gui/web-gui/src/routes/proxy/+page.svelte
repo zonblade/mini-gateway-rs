@@ -46,16 +46,11 @@
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
     </div>
 {:else if isLoggedIn}
-    <div class="p-6 max-w-6xl mx-auto">
-        <div class="bg-white dark:bg-[#161b22] shadow-sm rounded-lg p-6 w-full max-w-[1200px] flex flex-col">
-            <!-- Search component -->
-            <SearchBar bind:searchTerm={searchTerm} />
-            
+    <div class="flex flex-col items-center">
+        <div class="shadow-sm rounded-lg py-8 w-full max-w-[900px]">
             <!-- Proxy Manager component -->
             <ProxyManager 
                 {searchTerm}
-                {currentPage}
-                {handlePageChange}
             />
             
             <!-- Pagination is now handled inside ProxyManager -->

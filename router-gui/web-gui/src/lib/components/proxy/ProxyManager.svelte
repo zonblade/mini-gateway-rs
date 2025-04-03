@@ -1,7 +1,6 @@
 <script lang="ts">
-    import ProxyTable from "./ProxyTable.svelte";
+    import ProxyCard from "./ProxyCard.svelte";
     import ProxyModal from "./ProxyModal.svelte";
-    import Pagination from "$lib/components/users/Pagination.svelte";
     
     // Define Proxy interface for type safety
     interface Proxy {
@@ -14,7 +13,6 @@
         certKey: string;
         domain: string; // Added SNI domain field
     }
-
     // Mock proxy data for demonstration
     let proxies: Proxy[] = [
         { id: 1, title: "Main Proxy", listen: "0.0.0.0:8080", useTls: false, autoTls: false, certPem: "", certKey: "", domain: "" },
@@ -23,7 +21,6 @@
         { id: 4, title: "Legacy App", listen: "192.168.1.10:8000", useTls: false, autoTls: false, certPem: "", certKey: "", domain: "" },
         { id: 5, title: "Custom SSL", listen: "0.0.0.0:8443", useTls: true, autoTls: false, certPem: "/path/to/cert.pem", certKey: "/path/to/key.pem", domain: "secure.example.com" },
     ];
-
     // For add/edit proxy popup
     let showProxyModal = false;
     let isEditMode = false;
@@ -46,18 +43,18 @@
         proxy.domain.toLowerCase().includes(searchTerm.toLowerCase())
     );
     
-    // Pagination
-    export let currentPage = 1;
-    export let itemsPerPage = 5;
-    $: totalPages = Math.ceil(filteredProxies.length / itemsPerPage);
-    $: paginatedProxies = filteredProxies.slice(
-        (currentPage - 1) * itemsPerPage,
-        currentPage * itemsPerPage
-    );
+    // For "load more" functionality
+    let visibleCount = 6;
+    $: hasMoreToLoad = filteredProxies.length > visibleCount;
+    $: visibleProxies = filteredProxies.slice(0, visibleCount);
     
-    // Reset to first page when search term changes
+    function loadMore(): void {
+        visibleCount += 6;
+    }
+    
+    // Reset visible count when search term changes
     $: if (searchTerm) {
-        currentPage = 1;
+        visibleCount = 6;
     }
     
     // Function to open modal for adding a new proxy
@@ -105,17 +102,7 @@
     function deleteProxy(id: number): void {
         if (confirm("Are you sure you want to delete this proxy?")) {
             proxies = proxies.filter(proxy => proxy.id !== id);
-            
-            // If we're on a page that no longer has items, go to the previous page
-            if (paginatedProxies.length === 1 && currentPage > 1) {
-                currentPage--;
-            }
         }
-    }
-    
-    // Handle page change
-    export function handlePageChange(page: number): void {
-        currentPage = page;
     }
     
     // Close modal
@@ -123,8 +110,7 @@
         showProxyModal = false;
     }
 </script>
-
-<div>
+<div class="w-full max-w-[900px]">
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-2xl font-bold">Proxy Management</h1>
         <button 
@@ -135,21 +121,40 @@
         </button>
     </div>
     
-    <!-- Proxies Table component -->
-    <ProxyTable 
-        proxies={paginatedProxies} 
-        onEdit={editProxy} 
-        onDelete={deleteProxy} 
-    />
+    <!-- Search input -->
+    <div class="mb-6">
+        <input 
+            type="text" 
+            bind:value={searchTerm}
+            placeholder="Search by title, listen address, or domain..." 
+            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+        />
+    </div>
     
-    <!-- Pagination component -->
-    <Pagination 
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={filteredProxies.length}
-        itemsPerPage={itemsPerPage}
-        onPageChange={handlePageChange}
-    />
+    <!-- Card grid layout -->
+    {#if visibleProxies.length === 0}
+        <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+            No proxies found
+        </div>
+    {:else}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {#each visibleProxies as proxy (proxy.id)}
+                <ProxyCard {proxy} onEdit={editProxy} onDelete={deleteProxy} />
+            {/each}
+        </div>
+        
+        <!-- Load more button -->
+        {#if hasMoreToLoad}
+            <div class="mt-6 text-center">
+                <button 
+                    on:click={loadMore}
+                    class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md text-sm font-medium"
+                >
+                    Load more...
+                </button>
+            </div>
+        {/if}
+    {/if}
     
     <!-- Proxy Modal component -->
     <ProxyModal 

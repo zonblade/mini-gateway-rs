@@ -57,13 +57,13 @@
 
 {#if showModal}
     <div 
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+        class="fixed inset-0 bg-black/30 backdrop-blur-md bg-opacity-50 flex items-center justify-center z-50" 
         transition:fade={{ duration: 200 }}
         on:keydown={handleKeydown}
         role="presentation"
     >
         <div 
-            class="bg-white dark:bg-[#161b22] rounded-lg shadow-xl max-w-md w-full mx-4"
+            class="bg-white dark:bg-[#161b22] backdrop-blur-md rounded-lg shadow-xl max-w-md w-full mx-4"
             on:click|stopPropagation
             on:keydown={handleModalKeyDown}
             role="dialog"
