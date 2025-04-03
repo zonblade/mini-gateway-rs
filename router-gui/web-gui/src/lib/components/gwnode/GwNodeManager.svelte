@@ -1,47 +1,39 @@
 <script lang="ts">
+    import { gwNodes, type GwNode } from "$lib/stores/gwnodeStore";
+    import { proxies, type Proxy } from "$lib/stores/proxyStore";
     import GwNodeCard from "./GwNodeCard.svelte";
     import GwNodeModal from "./GwNodeModal.svelte";
-    
-    // Define interfaces
-    interface GwNode {
-        id: number;
-        title: string;
-        proxyId: number;
-        proxyTitle: string;
-        proxyListen: string;
-        target: string;
-    }
-    
-    interface Proxy {
-        id: number;
-        title: string;
-        listen: string;
-    }
-    
-    // Mock proxies data
-    let proxies: Proxy[] = [
-        { id: 1, title: "Main Proxy", listen: "0.0.0.0:8080" },
-        { id: 2, title: "Secure API", listen: "0.0.0.0:443" },
-        { id: 3, title: "Internal Service", listen: "127.0.0.1:9000" },
-        { id: 4, title: "Legacy App", listen: "192.168.1.10:8000" },
-        { id: 5, title: "Custom SSL", listen: "0.0.0.0:8443" },
-    ];
-    
-    // Mock gwnode data
-    let gwnodes: GwNode[] = [
-        { id: 1, title: "API Gateway", proxyId: 1, proxyTitle: "Main Proxy", proxyListen: "0.0.0.0:8080", target: "192.168.1.100:3000" },
-        { id: 2, title: "Web Server", proxyId: 2, proxyTitle: "Secure API", proxyListen: "0.0.0.0:443", target: "192.168.1.101:8080" },
-        { id: 3, title: "Admin Panel", proxyId: 3, proxyTitle: "Internal Service", proxyListen: "127.0.0.1:9000", target: "192.168.1.102:8080" },
-        { id: 4, title: "Database Access", proxyId: 4, proxyTitle: "Legacy App", proxyListen: "192.168.1.10:8000", target: "192.168.1.103:5432" },
-        { id: 5, title: "Mail Server", proxyId: 5, proxyTitle: "Custom SSL", proxyListen: "0.0.0.0:8443", target: "192.168.1.104:25" },
-        { id: 6, title: "File Server", proxyId: 1, proxyTitle: "Main Proxy", proxyListen: "0.0.0.0:8080", target: "192.168.1.105:21" },
-        { id: 7, title: "Monitoring", proxyId: 3, proxyTitle: "Internal Service", proxyListen: "127.0.0.1:9000", target: "192.168.1.106:9090" },
-        { id: 8, title: "Authentication", proxyId: 2, proxyTitle: "Secure API", proxyListen: "0.0.0.0:443", target: "192.168.1.107:8080" },
-    ];
+    import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
+    import SearchInput from "$lib/components/common/SearchInput.svelte";
+    import PageHeader from "$lib/components/common/PageHeader.svelte";
+    import EmptyState from "$lib/components/common/EmptyState.svelte";
+    import Button from "$lib/components/common/Button.svelte";
     
     // For search functionality
     export let searchTerm = "";
-    $: filteredGwNodes = gwnodes.filter(gwnode => 
+    
+    // Store subscriptions
+    let gwnodeList: GwNode[] = [];
+    let proxyList: Proxy[] = [];
+    
+    // Subscribe to stores
+    const unsubGwNodes = gwNodes.subscribe(nodes => {
+        gwnodeList = nodes;
+    });
+    
+    const unsubProxies = proxies.subscribe(items => {
+        proxyList = items;
+    });
+    
+    // Cleanup subscriptions on component destroy
+    import { onDestroy } from "svelte";
+    onDestroy(() => {
+        unsubGwNodes();
+        unsubProxies();
+    });
+    
+    // Filtered nodes based on search term
+    $: filteredGwNodes = gwnodeList.filter(gwnode => 
         gwnode.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         gwnode.target.toLowerCase().includes(searchTerm.toLowerCase()) ||
         gwnode.proxyTitle.toLowerCase().includes(searchTerm.toLowerCase())
@@ -91,17 +83,20 @@
     
     // Function to save gwnode (create or update)
     function saveGwNode(): void {
-        if (isEditMode) {
-            // Update existing gwnode
-            const index = gwnodes.findIndex(n => n.id === currentGwNode.id);
-            if (index !== -1) {
-                gwnodes[index] = { ...currentGwNode };
+        gwNodes.update(nodes => {
+            if (isEditMode) {
+                // Update existing gwnode
+                const index = nodes.findIndex(n => n.id === currentGwNode.id);
+                if (index !== -1) {
+                    nodes[index] = { ...currentGwNode };
+                }
+            } else {
+                // Add new gwnode with the next available ID
+                const newId = Math.max(...nodes.map(n => n.id), 0) + 1;
+                nodes = [...nodes, { ...currentGwNode, id: newId }];
             }
-        } else {
-            // Add new gwnode with the next available ID
-            const newId = Math.max(...gwnodes.map(n => n.id), 0) + 1;
-            gwnodes = [...gwnodes, { ...currentGwNode, id: newId }];
-        }
+            return nodes;
+        });
         
         // Close the modal
         showGwNodeModal = false;
@@ -110,7 +105,7 @@
     // Function to delete a gwnode
     function deleteGwNode(id: number): void {
         if (confirm("Are you sure you want to delete this gateway node?")) {
-            gwnodes = gwnodes.filter(gwnode => gwnode.id !== id);
+            gwNodes.update(nodes => nodes.filter(gwnode => gwnode.id !== id));
         }
     }
     
@@ -121,31 +116,31 @@
 </script>
 
 <div class="w-full max-w-[900px]">
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">Gateway Nodes</h1>
-        <button 
-            on:click={addGwNode}
-            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-        >
-            Add Gateway Node
-        </button>
-    </div>
+    <PageHeader 
+        title="Gateway Nodes" 
+        hasAction={true} 
+        actionLabel="Add Gateway Node" 
+        onAction={addGwNode} 
+    />
     
     <!-- Search input -->
     <div class="mb-6">
-        <input 
-            type="text" 
-            bind:value={searchTerm}
+        <SearchInput 
+            bind:value={searchTerm} 
             placeholder="Search by title, target, or proxy..." 
-            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
         />
     </div>
     
     <!-- Card grid layout -->
-    {#if visibleGwNodes.length === 0}
-        <div class="text-center py-8 text-gray-500 dark:text-gray-400">
-            No gateway nodes found
-        </div>
+    {#if !gwnodeList.length}
+        <LoadingSpinner />
+    {:else if visibleGwNodes.length === 0}
+        <EmptyState 
+            message={searchTerm 
+                ? "No gateway nodes match your search criteria" 
+                : "No gateway nodes found"} 
+            icon="search"
+        />
     {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each visibleGwNodes as gwnode (gwnode.id)}
@@ -156,12 +151,12 @@
         <!-- Load more button -->
         {#if hasMoreToLoad}
             <div class="mt-6 text-center">
-                <button 
-                    on:click={loadMore}
-                    class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md text-sm font-medium"
+                <Button 
+                    variant="secondary" 
+                    onClick={loadMore}
                 >
                     Load more...
-                </button>
+                </Button>
             </div>
         {/if}
     {/if}
@@ -171,7 +166,7 @@
         showModal={showGwNodeModal}
         isEditMode={isEditMode}
         gwnode={currentGwNode}
-        {proxies}
+        proxies={proxyList}
         onSave={saveGwNode}
         onClose={closeModal}
     />

@@ -1,21 +1,10 @@
 <script lang="ts">
     import { fade } from "svelte/transition";
-    
-    // Define interfaces
-    interface GwNode {
-        id: number;
-        title: string;
-        proxyId: number;
-        proxyTitle: string;
-        proxyListen: string;
-        target: string;
-    }
-    
-    interface Proxy {
-        id: number;
-        title: string;
-        listen: string;
-    }
+    import type { GwNode } from "$lib/stores/gwnodeStore";
+    import type { Proxy } from "$lib/stores/proxyStore";
+    import Button from "$lib/components/common/Button.svelte";
+    import InputField from "$lib/components/common/InputField.svelte";
+    import SelectField from "$lib/components/common/SelectField.svelte";
     
     export let showModal: boolean = false;
     export let isEditMode: boolean = false;
@@ -30,6 +19,12 @@
     export let proxies: Proxy[] = [];
     export let onSave: () => void;
     export let onClose: () => void;
+    
+    // Convert proxies to options for select field
+    $: proxyOptions = proxies.map(proxy => ({
+        value: proxy.id,
+        label: proxy.title
+    }));
     
     // Selected proxy information
     $: {
@@ -87,36 +82,22 @@
                 </div>
                 
                 <form on:submit|preventDefault={onSave} class="space-y-4">
-                    <div>
-                        <label for="title" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Title
-                        </label>
-                        <input 
-                            type="text" 
-                            id="title" 
-                            bind:value={gwnode.title}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                            required
-                            placeholder="My Gateway Node"
-                        />
-                    </div>
+                    <InputField
+                        id="title"
+                        label="Title"
+                        bind:value={gwnode.title}
+                        placeholder="My Gateway Node"
+                        required={true}
+                    />
                     
-                    <div>
-                        <label for="proxyId" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Proxy
-                        </label>
-                        <select 
-                            id="proxyId" 
-                            bind:value={gwnode.proxyId}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                            required
-                        >
-                            <option value={0} disabled>Select a proxy</option>
-                            {#each proxies as proxy}
-                                <option value={proxy.id}>{proxy.title}</option>
-                            {/each}
-                        </select>
-                    </div>
+                    <SelectField
+                        id="proxyId"
+                        label="Proxy"
+                        bind:value={gwnode.proxyId}
+                        options={proxyOptions}
+                        placeholder="Select a proxy"
+                        required={true}
+                    />
                     
                     {#if gwnode.proxyId && gwnode.proxyTitle && gwnode.proxyListen}
                         <div class="rounded-md bg-gray-50 dark:bg-gray-800 p-3">
@@ -128,34 +109,27 @@
                         </div>
                     {/if}
                     
-                    <div>
-                        <label for="target" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Target (IP:Port)
-                        </label>
-                        <input 
-                            type="text" 
-                            id="target" 
-                            bind:value={gwnode.target}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                            required
-                            placeholder="Example: 192.168.1.10:8080"
-                        />
-                    </div>
+                    <InputField
+                        id="target"
+                        label="Target (IP:Port)"
+                        bind:value={gwnode.target}
+                        placeholder="Example: 192.168.1.10:8080"
+                        required={true}
+                    />
                     
                     <div class="flex justify-end space-x-2 pt-4">
-                        <button 
-                            type="button"
-                            on:click={onClose}
-                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200"
+                        <Button 
+                            variant="secondary" 
+                            onClick={onClose}
                         >
                             Cancel
-                        </button>
-                        <button 
-                            type="submit"
-                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium"
+                        </Button>
+                        <Button 
+                            type="submit" 
+                            variant="primary"
                         >
                             {isEditMode ? 'Update' : 'Create'}
-                        </button>
+                        </Button>
                     </div>
                 </form>
             </div>

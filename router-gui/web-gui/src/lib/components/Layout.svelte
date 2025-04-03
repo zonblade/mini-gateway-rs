@@ -1,8 +1,9 @@
 <!-- Layout Wrapper Component -->
 <script lang="ts">
     export let isLoggedIn: boolean = false;
-    export let username: string = "";
-    export let onLogout: () => void;
+    // Converting unused exports to constants since they appear to be for external reference only
+    export const username: string = "";
+    export const onLogout: () => void = () => {};
 </script>
 
 {#if isLoggedIn}

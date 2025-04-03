@@ -1,5 +1,6 @@
 <script lang="ts">
     import GwNodeManager from "$lib/components/gwnode/GwNodeManager.svelte";
+    import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { user } from "$lib/stores/userStore";
@@ -33,11 +34,7 @@
 </svelte:head>
 
 {#if isLoading}
-    <div class="flex items-center justify-center h-screen">
-        <div
-            class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"
-        ></div>
-    </div>
+    <LoadingSpinner />
 {:else if isLoggedIn}
     <div class="container mx-auto px-4 py-8 flex flex-col items-center">
         <GwNodeManager {searchTerm} />

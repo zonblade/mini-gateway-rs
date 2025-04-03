@@ -1,13 +1,5 @@
 <script lang="ts">
-    // Define the interface for a gwnode item
-    interface GwNode {
-        id: number;
-        title: string;
-        proxyId: number;
-        proxyTitle: string; // Proxy name
-        proxyListen: string; // Address and port
-        target: string;
-    }
+    import type { GwNode } from "$lib/stores/gwnodeStore";
     
     // Props for the component
     export let gwnode: GwNode;
