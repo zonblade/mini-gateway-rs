@@ -7,7 +7,7 @@
         <input 
             type="text" 
             bind:value={searchTerm}
-            placeholder="Search users..."
+            placeholder="Search..."
             class="w-full p-3 pl-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
         />
         <div class="absolute left-3 top-3 text-gray-400">
