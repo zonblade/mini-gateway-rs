@@ -79,7 +79,6 @@
             <LoginForm 
                 bind:username
                 bind:password
-                bind:rememberMe
                 {isSubmitting}
                 {errorMessage}
                 onSubmit={handleSubmit}

@@ -2,7 +2,6 @@
   // Form state management
   export let username: string = "";
   export let password: string = "";
-  export let rememberMe: boolean = false;
   export let isSubmitting: boolean = false;
   export let errorMessage: string = "";
   export let onSubmit: () => void;
