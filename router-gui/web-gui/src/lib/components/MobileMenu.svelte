@@ -23,7 +23,7 @@
 >
     <!-- Overlay -->
     <div 
-        class="fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity {isOpen ? 'opacity-100' : 'opacity-0'}" 
+        class="fixed inset-0 backdrop-blur-sm bg-black/30  bg-opacity-75 transition-opacity {isOpen ? 'opacity-100' : 'opacity-0'}" 
         on:click={onClose}
         on:keydown={handleKeydown}
         role="button"
