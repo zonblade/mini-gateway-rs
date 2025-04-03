@@ -7,7 +7,7 @@
 </script>
 
 <div class="flex h-16 justify-between items-center">
-    <div class="flex items-center">
+    <div class="hidden md:flex items-center">
         <img src="/logo.png" alt="Logo" class="h-8 w-auto mr-4" />
         <span class="text-xl font-semibold">Mini Gateway</span>
     </div>
