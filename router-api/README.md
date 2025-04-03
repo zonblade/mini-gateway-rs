@@ -263,13 +263,17 @@ Retrieves a list of all configured proxies.
 
 **Response:** Returns an array of proxy objects.
 
-| Field  | Type   | Description                  |
-|--------|--------|------------------------------|
-| id     | string | Unique proxy identifier      |
-| title  | string | Human-readable proxy name    |
-| source | string | Listen address (host:port)   |
-| target | string | Target address (host:port)   |
-| alt_tls| boolean| Whether TLS is enabled       |
+| Field       | Type    | Description                                |
+|-------------|---------|--------------------------------------------|
+| id          | string  | Unique proxy identifier                    |
+| title       | string  | Human-readable proxy name                  |
+| addr_listen | string  | Listen address (format: "ip:port")         |
+| addr_target | string  | Target address (format: "ip:port")         |
+| tls         | boolean | Whether TLS is enabled                     |
+| tls_pem     | string  | PEM-encoded certificate (null if not used) |
+| tls_key     | string  | Private key for certificate (null if not used) |
+| tls_autron  | boolean | Whether automatic TLS provisioning is enabled |
+| sni         | string  | Server Name Indication value (null if not used) |
 
 **Example Response:**
 ```json
@@ -277,16 +281,24 @@ Retrieves a list of all configured proxies.
   {
     "id": "proxy-1",
     "title": "Main API Proxy",
-    "source": "0.0.0.0:443",
-    "target": "127.0.0.1:8080",
-    "alt_tls": true
+    "addr_listen": "0.0.0.0:443",
+    "addr_target": "127.0.0.1:8080",
+    "tls": true,
+    "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+    "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+    "tls_autron": false,
+    "sni": "api.example.com"
   },
   {
     "id": "proxy-2",
     "title": "Web Frontend",
-    "source": "0.0.0.0:80",
-    "target": "127.0.0.1:3000",
-    "alt_tls": false
+    "addr_listen": "0.0.0.0:80",
+    "addr_target": "127.0.0.1:3000",
+    "tls": false,
+    "tls_pem": null,
+    "tls_key": null,
+    "tls_autron": false,
+    "sni": null
   }
 ]
 ```
@@ -313,13 +325,17 @@ Creates a new proxy or updates an existing one.
 
 **Request:**
 
-| Field  | Type   | Description                | Required |
-|--------|--------|----------------------------|----------|
-| id     | string | Unique ID (empty for new)  | No       |
-| title  | string | Human-readable proxy name  | Yes      |
-| source | string | Listen address (host:port) | Yes      |
-| target | string | Target address (host:port) | Yes      |
-| alt_tls| boolean| Whether TLS is enabled     | Yes      |
+| Field       | Type    | Description                                | Required |
+|-------------|---------|--------------------------------------------|----------|
+| id          | string  | Unique ID (empty for new)                  | No       |
+| title       | string  | Human-readable proxy name                  | Yes      |
+| addr_listen | string  | Listen address (format: "ip:port")         | Yes      |
+| addr_target | string  | Target address (format: "ip:port")         | Yes      |
+| tls         | boolean | Whether TLS is enabled                     | Yes      |
+| tls_pem     | string  | PEM-encoded certificate content            | No       |
+| tls_key     | string  | Private key content                        | No       |
+| tls_autron  | boolean | Whether to use automatic TLS provisioning  | No       |
+| sni         | string  | Server Name Indication value for TLS       | No       |
 
 **Response:** Returns the saved proxy object.
 
@@ -327,9 +343,13 @@ Creates a new proxy or updates an existing one.
 ```json
 {
   "title": "New API Proxy",
-  "source": "0.0.0.0:8443",
-  "target": "127.0.0.1:9090",
-  "alt_tls": true
+  "addr_listen": "0.0.0.0:8443",
+  "addr_target": "127.0.0.1:9090",
+  "tls": true,
+  "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+  "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+  "tls_autron": false,
+  "sni": "api.newservice.com"
 }
 ```
 
