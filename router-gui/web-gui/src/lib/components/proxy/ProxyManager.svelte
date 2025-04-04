@@ -1,9 +1,16 @@
 <script lang="ts">
+    import { onMount, onDestroy } from "svelte";
     import ProxyCard from "./ProxyCard.svelte";
     import ProxyModal from "./ProxyModal.svelte";
+    import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
+    import SearchInput from "$lib/components/common/SearchInput.svelte";
+    import EmptyState from "$lib/components/common/EmptyState.svelte";
+    import Button from "$lib/components/common/Button.svelte";
+    import { proxyStore } from "$lib/stores/proxyStore";
+    import type { Proxy } from "$lib/types/proxy";
     
-    // Define Proxy interface for type safety
-    interface Proxy {
+    // For adapting our API Proxy type to match the UI's expected format
+    interface UIProxy {
         id: number;
         title: string;
         listen: string;
@@ -11,36 +18,71 @@
         autoTls: boolean;
         certPem: string;
         certKey: string;
-        domain: string; // Added SNI domain field
+        domain: string;
+        target: string;
     }
-    // Mock proxy data for demonstration
-    let proxies: Proxy[] = [
-        { id: 1, title: "Main Proxy", listen: "0.0.0.0:8080", useTls: false, autoTls: false, certPem: "", certKey: "", domain: "" },
-        { id: 2, title: "Secure API", listen: "0.0.0.0:443", useTls: true, autoTls: true, certPem: "", certKey: "", domain: "api.example.com" },
-        { id: 3, title: "Internal Service", listen: "127.0.0.1:9000", useTls: false, autoTls: false, certPem: "", certKey: "", domain: "" },
-        { id: 4, title: "Legacy App", listen: "192.168.1.10:8000", useTls: false, autoTls: false, certPem: "", certKey: "", domain: "" },
-        { id: 5, title: "Custom SSL", listen: "0.0.0.0:8443", useTls: true, autoTls: false, certPem: "/path/to/cert.pem", certKey: "/path/to/key.pem", domain: "secure.example.com" },
-    ];
-    // For add/edit proxy popup
-    let showProxyModal = false;
-    let isEditMode = false;
-    let currentProxy: Proxy = { 
-        id: 0, 
-        title: "", 
-        listen: "", 
-        useTls: false, 
-        autoTls: false, 
-        certPem: "", 
-        certKey: "",
-        domain: "" 
-    };
     
-    // Search functionality
+    // Function to convert API Proxy to UI Proxy format
+    function apiToUiProxy(proxy: Proxy): UIProxy {
+        return {
+            id: parseInt(proxy.id) || 0,
+            title: proxy.title,
+            listen: proxy.addr_listen,
+            useTls: proxy.tls,
+            autoTls: proxy.tls_autron,
+            certPem: proxy.tls_pem || "",
+            certKey: proxy.tls_key || "",
+            domain: proxy.sni || "",
+            target: proxy.addr_target || ""
+        };
+    }
+    
+    // Function to convert UI Proxy back to API format
+    function uiToApiProxy(uiProxy: UIProxy): Proxy {
+        return {
+            id: uiProxy.id.toString(),
+            title: uiProxy.title,
+            addr_listen: uiProxy.listen,
+            addr_target: uiProxy.target || "",
+            tls: uiProxy.useTls,
+            tls_pem: uiProxy.certPem || null,
+            tls_key: uiProxy.certKey || null,
+            tls_autron: uiProxy.autoTls,
+            sni: uiProxy.domain || null
+        };
+    }
+    
+    // For search functionality
     export let searchTerm = "";
-    $: filteredProxies = proxies.filter(proxy => 
+    
+    // Store subscriptions
+    let apiProxies: Proxy[] = [];
+    let uiProxies: UIProxy[] = [];
+    let isLoading = true;
+    
+    // Subscribe to the store
+    const unsubProxy = proxyStore.subscribe(state => {
+        apiProxies = state.proxies;
+        uiProxies = apiProxies.map(apiToUiProxy);
+        isLoading = state.loading;
+    });
+    
+    // Fetch proxies on component mount
+    onMount(() => {
+        proxyStore.fetchProxies();
+    });
+    
+    // Cleanup subscriptions on component destroy
+    onDestroy(() => {
+        unsubProxy();
+    });
+    
+    // Filtered proxies based on search term
+    $: filteredProxies = uiProxies.filter(proxy => 
         proxy.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         proxy.listen.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        proxy.domain.toLowerCase().includes(searchTerm.toLowerCase())
+        (proxy.domain && proxy.domain.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (proxy.target && proxy.target.toLowerCase().includes(searchTerm.toLowerCase()))
     );
     
     // For "load more" functionality
@@ -52,10 +94,20 @@
         visibleCount += 6;
     }
     
-    // Reset visible count when search term changes
-    $: if (searchTerm) {
-        visibleCount = 6;
-    }
+    // For add/edit proxy modal
+    let showProxyModal = false;
+    let isEditMode = false;
+    let currentProxy: UIProxy = { 
+        id: 0, 
+        title: "", 
+        listen: "", 
+        useTls: false, 
+        autoTls: false, 
+        certPem: "", 
+        certKey: "",
+        domain: "",
+        target: "" 
+    };
     
     // Function to open modal for adding a new proxy
     function addProxy(): void {
@@ -67,41 +119,54 @@
             autoTls: false, 
             certPem: "", 
             certKey: "",
-            domain: "" 
+            domain: "",
+            target: "" 
         };
         isEditMode = false;
         showProxyModal = true;
     }
     
     // Function to open modal for editing an existing proxy
-    function editProxy(proxy: Proxy): void {
+    function editProxy(proxy: UIProxy): void {
         currentProxy = { ...proxy };
         isEditMode = true;
         showProxyModal = true;
     }
     
     // Function to save proxy (create or update)
-    function saveProxy(): void {
-        if (isEditMode) {
-            // Update existing proxy
-            const index = proxies.findIndex(p => p.id === currentProxy.id);
-            if (index !== -1) {
-                proxies[index] = { ...currentProxy };
-            }
-        } else {
-            // Add new proxy with the next available ID
-            const newId = Math.max(...proxies.map(p => p.id), 0) + 1;
-            proxies = [...proxies, { ...currentProxy, id: newId }];
-        }
+    async function saveProxy(): Promise<void> {
+        // Convert UI proxy to API format
+        const apiProxy = uiToApiProxy(currentProxy);
         
-        // Close the modal
-        showProxyModal = false;
+        try {
+            await proxyStore.saveProxy(apiProxy);
+            showProxyModal = false;
+        } catch (error) {
+            console.error('Error saving proxy:', error);
+            alert('Failed to save proxy: ' + (error instanceof Error ? error.message : String(error)));
+        }
     }
     
     // Function to delete a proxy
-    function deleteProxy(id: number): void {
+    async function deleteProxy(id: number): Promise<void> {
         if (confirm("Are you sure you want to delete this proxy?")) {
-            proxies = proxies.filter(proxy => proxy.id !== id);
+            try {
+                await proxyStore.deleteProxy(id.toString());
+            } catch (error) {
+                console.error('Error deleting proxy:', error);
+                alert('Failed to delete proxy: ' + (error instanceof Error ? error.message : String(error)));
+            }
+        }
+    }
+    
+    // Function to sync proxies with the server
+    async function syncProxies(): Promise<void> {
+        try {
+            const result = await proxyStore.syncProxies();
+            alert(result.message);
+        } catch (error) {
+            console.error('Error syncing proxies:', error);
+            alert('Failed to sync proxies: ' + (error instanceof Error ? error.message : String(error)));
         }
     }
     
@@ -110,58 +175,91 @@
         showProxyModal = false;
     }
 </script>
+
 <div class="w-full max-w-[900px]">
     <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">Proxy Management</h1>
-        <button 
-            on:click={addProxy}
-            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-        >
-            Add Proxy
-        </button>
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Proxy Management</h1>
+        <div class="flex space-x-2">
+            <Button 
+                variant="secondary" 
+                onClick={syncProxies}
+            >
+                Sync Nodes
+            </Button>
+            <Button 
+                variant="primary" 
+                onClick={addProxy}
+            >
+                Add Proxy
+            </Button>
+        </div>
     </div>
     
     <!-- Search input -->
     <div class="mb-6">
-        <input 
-            type="text" 
-            bind:value={searchTerm}
-            placeholder="Search by title, listen address, or domain..." 
-            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+        <SearchInput 
+            bind:value={searchTerm} 
+            placeholder="Search by title, address, or domain..." 
         />
     </div>
     
     <!-- Card grid layout -->
-    {#if visibleProxies.length === 0}
-        <div class="text-center py-8 text-gray-500 dark:text-gray-400">
-            No proxies found
+    {#if isLoading}
+        <LoadingSpinner />
+    {:else if visibleProxies.length === 0}
+        <div class="text-center py-8">
+            <EmptyState 
+                message={searchTerm 
+                    ? "No proxies match your search criteria" 
+                    : "No proxies found"
+                } 
+                icon="search"
+            />
+            {#if !searchTerm}
+                <div class="mt-4">
+                    <Button 
+                        variant="primary" 
+                        onClick={addProxy}
+                    >
+                        Create your first proxy
+                    </Button>
+                </div>
+            {/if}
         </div>
     {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each visibleProxies as proxy (proxy.id)}
-                <ProxyCard {proxy} onEdit={editProxy} onDelete={deleteProxy} />
+                <div>
+                    <ProxyCard 
+                        proxy={uiToApiProxy(proxy)} 
+                        onEdit={() => editProxy(proxy)} 
+                        onDelete={() => deleteProxy(proxy.id)} 
+                    />
+                </div>
             {/each}
         </div>
         
         <!-- Load more button -->
         {#if hasMoreToLoad}
             <div class="mt-6 text-center">
-                <button 
-                    on:click={loadMore}
-                    class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md text-sm font-medium"
+                <Button 
+                    variant="secondary" 
+                    onClick={loadMore}
                 >
                     Load more...
-                </button>
+                </Button>
             </div>
         {/if}
     {/if}
     
     <!-- Proxy Modal component -->
-    <ProxyModal 
-        showModal={showProxyModal}
-        isEditMode={isEditMode}
-        proxy={currentProxy}
-        onSave={saveProxy}
-        onClose={closeModal}
-    />
+    {#if showProxyModal}
+        <ProxyModal 
+            showModal={showProxyModal}
+            isEditMode={isEditMode}
+            proxy={currentProxy}
+            onSave={saveProxy}
+            onClose={closeModal}
+        />
+    {/if}
 </div>

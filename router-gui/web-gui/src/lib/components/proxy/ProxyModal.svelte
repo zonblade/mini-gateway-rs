@@ -11,6 +11,7 @@
         certPem: string;
         certKey: string;
         domain: string; // Added SNI domain field
+        target?: string; // Added target field to match API needs
     }
     
     export let showModal: boolean = false;
@@ -23,7 +24,8 @@
         autoTls: false, 
         certPem: "", 
         certKey: "",
-        domain: "" 
+        domain: "",
+        target: "" 
     };
     export let onSave: () => void;
     export let onClose: () => void;
@@ -122,6 +124,20 @@
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                             Server Name Indication for TLS connections
                         </p>
+                    </div>
+                    
+                    <div>
+                        <label for="target" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Target (IP and Port)
+                        </label>
+                        <input 
+                            type="text" 
+                            id="target" 
+                            bind:value={proxy.target}
+                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            required
+                            placeholder="Example: 192.168.1.100:8080"
+                        />
                     </div>
                     
                     <div class="flex items-center">

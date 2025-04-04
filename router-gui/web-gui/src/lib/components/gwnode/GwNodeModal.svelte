@@ -1,7 +1,7 @@
 <script lang="ts">
     import { fade } from "svelte/transition";
     import type { GwNode } from "$lib/stores/gwnodeStore";
-    import type { Proxy } from "$lib/stores/proxyStore";
+    import type { Proxy } from "$lib/types/proxy";
     import Button from "$lib/components/common/Button.svelte";
     import InputField from "$lib/components/common/InputField.svelte";
 
@@ -10,7 +10,7 @@
     export let gwnode: GwNode = {
         id: 0,
         title: "",
-        proxyId: 0,
+        proxyId: "", // Change to string to match Proxy.id type
         proxyTitle: "",
         proxyListen: "",
         target: "",
@@ -34,7 +34,7 @@
                 gwnode = {
                     ...gwnode,
                     proxyTitle: selectedProxy.title || "",
-                    proxyListen: selectedProxy.listen || "",
+                    proxyListen: selectedProxy.addr_listen || "", // Use addr_listen instead of listen
                 };
                 console.log("Updated proxy details:", gwnode); // Add logging for debugging
             }
@@ -48,7 +48,7 @@
             gwnode = {
                 ...gwnode,
                 proxyTitle: selectedProxy.title || "",
-                proxyListen: selectedProxy.listen || "",
+                proxyListen: selectedProxy.addr_listen || "", // Use addr_listen instead of listen
             };
         }
     }
@@ -68,15 +68,15 @@
     // Handle proxy selection
     function handleProxyChange(event: Event) {
         const target = event.target as HTMLSelectElement;
-        const selectedId = parseInt(target.value);
-        const selectedProxy = proxies.find(p => p.id === selectedId);
-        
+        const selectedId = target.value; // Remove parseInt since ID is string
+        const selectedProxy = proxies.find((p) => p.id === selectedId);
+
         if (selectedProxy) {
             gwnode = {
                 ...gwnode,
                 proxyId: selectedProxy.id,
                 proxyTitle: selectedProxy.title,
-                proxyListen: selectedProxy.listen
+                proxyListen: selectedProxy.addr_listen, // Use addr_listen instead of listen
             };
         }
     }

@@ -2,7 +2,7 @@ import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 // Import other stores that need to be reset on logout
 import { gwNodes } from './gwnodeStore';
-import { proxies } from './proxyStore';
+import { proxyStore } from './proxyStore';
 // Do not import connections store as we want to preserve it
 
 // Define user type based on API response
@@ -86,8 +86,8 @@ export const user = {
         // GwNodes store - reset to empty array
         gwNodes.set([]);
         
-        // Proxies store - reset to empty array
-        proxies.set([]);
+        // Proxies store - reset to initial state
+        proxyStore.reset();
         
         // Reset any localStorage data
         if (browser) {

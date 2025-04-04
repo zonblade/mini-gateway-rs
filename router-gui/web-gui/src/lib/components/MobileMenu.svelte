@@ -3,6 +3,7 @@
     export let isOpen: boolean;
     export let username: string;
     export let onClose: () => void;
+    export let onLogout: () => void;
     
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Escape') {
@@ -61,6 +62,12 @@
                 </div>
                 <div class="ml-3">
                     <div class="text-base font-medium">{username}</div>
+                    <button 
+                        on:click={onLogout}
+                        class="text-sm text-red-500 hover:text-red-700 mt-1"
+                    >
+                        Logout
+                    </button>
                 </div>
             </div>
         </div>

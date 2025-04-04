@@ -4,7 +4,7 @@ import { writable } from 'svelte/store';
 export interface GwNode {
     id: number;
     title: string;
-    proxyId: number;
+    proxyId: string; // Changed from number to string
     proxyTitle: string;
     proxyListen: string;
     target: string;
@@ -15,7 +15,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 1,
         title: "API Gateway",
-        proxyId: 1,
+        proxyId: "1", // Changed to string
         proxyTitle: "Main Proxy",
         proxyListen: "0.0.0.0:8080",
         target: "192.168.1.100:3000",
@@ -23,7 +23,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 2,
         title: "Web Server",
-        proxyId: 2,
+        proxyId: "2", // Changed to string
         proxyTitle: "Secure API",
         proxyListen: "0.0.0.0:443",
         target: "192.168.1.101:8080",
@@ -31,7 +31,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 3,
         title: "Admin Panel",
-        proxyId: 3,
+        proxyId: "3", // Changed to string
         proxyTitle: "Internal Service",
         proxyListen: "127.0.0.1:9000",
         target: "192.168.1.102:8080",
@@ -39,7 +39,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 4,
         title: "Database Access",
-        proxyId: 4,
+        proxyId: "4", // Changed to string
         proxyTitle: "Legacy App",
         proxyListen: "192.168.1.10:8000",
         target: "192.168.1.103:5432",
@@ -47,7 +47,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 5,
         title: "Mail Server",
-        proxyId: 5,
+        proxyId: "5", // Changed to string
         proxyTitle: "Custom SSL",
         proxyListen: "0.0.0.0:8443",
         target: "192.168.1.104:25",
@@ -55,7 +55,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 6,
         title: "File Server",
-        proxyId: 1,
+        proxyId: "1", // Changed to string
         proxyTitle: "Main Proxy",
         proxyListen: "0.0.0.0:8080",
         target: "192.168.1.105:21",
@@ -63,7 +63,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 7,
         title: "Monitoring",
-        proxyId: 3,
+        proxyId: "3", // Changed to string
         proxyTitle: "Internal Service",
         proxyListen: "127.0.0.1:9000",
         target: "192.168.1.106:9090",
@@ -71,7 +71,7 @@ export const gwNodes = writable<GwNode[]>([
     {
         id: 8,
         title: "Authentication",
-        proxyId: 2,
+        proxyId: "2", // Changed to string
         proxyTitle: "Secure API",
         proxyListen: "0.0.0.0:443",
         target: "192.168.1.107:8080",

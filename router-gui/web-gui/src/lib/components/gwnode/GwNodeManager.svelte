@@ -1,6 +1,7 @@
 <script lang="ts">
     import { gwNodes, type GwNode } from "$lib/stores/gwnodeStore";
-    import { proxies, type Proxy } from "$lib/stores/proxyStore";
+    import { proxies } from "$lib/stores/proxyStore";
+    import type { Proxy } from "$lib/types/proxy";
     import GwNodeCard from "./GwNodeCard.svelte";
     import GwNodeModal from "./GwNodeModal.svelte";
     import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
@@ -54,7 +55,7 @@
     let currentGwNode: GwNode = {
         id: 0,
         title: "",
-        proxyId: 0,
+        proxyId: "", // Changed from number to string
         proxyTitle: "",
         proxyListen: "",
         target: ""
@@ -65,7 +66,7 @@
         currentGwNode = {
             id: 0,
             title: "",
-            proxyId: 0,
+            proxyId: "", // Changed from number to string
             proxyTitle: "",
             proxyListen: "",
             target: ""
