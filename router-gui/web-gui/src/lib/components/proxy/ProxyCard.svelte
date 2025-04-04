@@ -6,7 +6,7 @@
     export let onDelete: () => void;
 </script>
 
-<div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-200">
+<div class="rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-200">
     <div class="p-4">
         <div class="flex justify-between items-start">
             <h3 class="text-lg font-medium text-gray-900 dark:text-white truncate">{proxy.title}</h3>
