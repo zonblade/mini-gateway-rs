@@ -46,7 +46,7 @@
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
     </div>
 {:else if isLoggedIn}
-    <div class="flex flex-col items-center">
+    <div class="px-4 flex flex-col items-center">
         <div class="shadow-sm rounded-lg py-8 w-full max-w-[900px]">
             <!-- Proxy Manager component -->
             <ProxyManager 

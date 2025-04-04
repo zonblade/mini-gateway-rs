@@ -3,7 +3,7 @@
     export let borderColor = "border-blue-600";
 </script>
 
-<div class="flex items-center justify-center h-screen">
+<div class="flex items-center justify-center h-[400px]">
     <div
         class={`animate-spin rounded-full border-t-2 border-b-2 ${borderColor} ${size}`}
     ></div>
