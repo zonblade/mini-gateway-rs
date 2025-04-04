@@ -8,18 +8,9 @@
 
 ## Architecture
 
-![img](assets/architecture.png)
+![img](assets/architecture.gif)
 
-The architecture of the mini-router is currently simple and straightforward, with support for Dragonfly and Redis. Looking ahead, there are plans to expand its capabilities to include support for:​
-- Kafka
-- RabbitMQ
-- Custom Message Queues
-
-This planned expansion aims to enhance the mini-router's versatility and effectiveness in diverse messaging environments.
-
-## Architecture ROUTER CORE
-
-![img](assets/architecture-internal.png)
+The architecture of the mini-router is currently simple and straightforward.
 
 > Incoming traffic enters from the internet and is first secured by the TLS/WSS proxy, which decrypts the data and passes it as TCP/HTTP/WS traffic (while you can disable the TLS if not needed). This standardized traffic is then processed by the Gateway, which dynamically determines whether to pass the request through a scripting plugin or directly to backend services. In parallel, a background mechanism constantly monitors for configuration changes. When updates are detected—via the Gateway API and an external update service—these are reloaded in memory to ensure the Gateway operates with the latest settings, all without interrupting the flow.
 
