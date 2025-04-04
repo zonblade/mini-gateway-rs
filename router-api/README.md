@@ -6,6 +6,12 @@ The Router API provides a RESTful interface for managing and configuring the min
 
 - [Authentication](#authentication)
 - [User Management](#user-management)
+  - [Implementation Notes](#implementation-notes)
+  - [Get All Users](#get-all-users)
+  - [Get User by ID](#get-user-by-id)
+  - [Create User](#create-user)
+  - [Update User](#update-user)
+  - [Delete User](#delete-user)
 - [Settings Management](#settings-management)
   - [Proxy Management](#proxy-management)
   - [Gateway Node Management](#gateway-node-management)
@@ -75,6 +81,14 @@ Authenticates a user and returns a JWT token for subsequent API requests.
 ```
 
 ## User Management
+
+### Implementation Notes
+
+The User Management API does not provide server-side pagination or search functionality. Client applications should implement these features on the frontend using the complete list of users returned by the API. This approach is suitable for deployments with a moderate number of users.
+
+For larger deployments, consider implementing custom filtering by:
+- Retrieving all users with `GET /api/v1/users`
+- Performing client-side filtering, sorting, and pagination
 
 ### Get All Users
 

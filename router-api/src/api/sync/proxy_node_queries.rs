@@ -1,6 +1,7 @@
 use crate::module::database::{get_connection, DatabaseError};
 use super::proxy_node::ProxyNode;
 use log::error;
+use crate::api::settings::proxy_queries;
 
 /// Retrieves a list of ProxyNode objects from the database
 ///
@@ -26,6 +27,9 @@ use log::error;
 /// - There was an error mapping the database rows to ProxyNode structures
 pub fn get_all_proxy_nodes() -> Result<Vec<ProxyNode>, DatabaseError> {
     let db = get_connection()?;
+    
+    // Ensure the proxies table exists before querying it
+    proxy_queries::ensure_proxies_table()?;
     
     let proxy_nodes = db.query(
         "SELECT 

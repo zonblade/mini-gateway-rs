@@ -1,6 +1,7 @@
 use crate::module::database::{get_connection, DatabaseError};
 use super::gateway_node::GatewayNode;
 use log::error;
+use crate::api::settings::{gateway_queries, gwnode_queries, proxy_queries};
 
 /// Retrieves a list of GatewayNode objects by joining gateway, gwnode, and proxy tables
 ///
@@ -25,6 +26,11 @@ use log::error;
 /// - There was an error mapping the database rows to GatewayNode structures
 pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
     let db = get_connection()?;
+    
+    // Ensure all required tables exist before querying
+    gateway_queries::ensure_gateways_table()?;
+    gwnode_queries::ensure_gateway_nodes_table()?;
+    proxy_queries::ensure_proxies_table()?;
     
     // Join gateway, gateway_nodes (gwnode), and proxies tables
     // to construct complete GatewayNode objects

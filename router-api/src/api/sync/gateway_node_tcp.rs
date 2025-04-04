@@ -23,6 +23,8 @@ use log::{error, info, warn};
 /// - Connection to the registry server cannot be established
 /// - Data transmission fails
 pub async fn sync_gateway_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
+    log::info!("Syncing gateway nodes to registry...");
+
     // Get the gateway nodes from the database using our JOIN query
     let gateway_nodes = match gateway_node_queries::get_all_gateway_nodes() {
         Ok(nodes) => nodes,

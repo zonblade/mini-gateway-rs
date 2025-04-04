@@ -1,26 +1,10 @@
-use crate::{
-    api::sync::{proxy_node_queries, TCPDefaultResponse},
-    client::{Client, ClientError, Result as TCPResult},
-    config,
-};
-use log::{error, info, warn};
+use crate::config;
+use crate::client::{Client, ClientError};
+use super::{proxy_node_queries, TCPDefaultResponse};
+use log::{error, info};
 
-/// Syncs all gateway nodes to the registry server
-///
-/// This function retrieves all gateway nodes by joining data from multiple tables,
-/// then sends the collected data to the gateway registry server via TCP.
-///
-/// # Returns
-///
-/// * `Ok(())` - If the data was successfully sent to the registry server
-/// * `Err(ClientError)` - If there was an error retrieving or sending the data
-///
-/// # Errors
-///
-/// This function will return an error if:
-/// - Database queries fail
-/// - Connection to the registry server cannot be established
-/// - Data transmission fails
+pub type TCPResult<T> = Result<T, ClientError>;
+
 pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
     log::info!("Syncing proxy nodes to registry...");
 

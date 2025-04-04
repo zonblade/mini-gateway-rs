@@ -1,27 +1,48 @@
+//! # Proxy Node Model
+//!
+//! This module defines the Proxy Node data structure, which represents 
+//! the configuration of a proxy endpoint within the gateway system.
+//! Proxy Nodes are serialized and sent to the registry service to sync
+//! configuration across the distributed system.
+
 use actix_web::{post, HttpResponse};
 use serde::{Deserialize, Serialize};
 
 use super::proxy_node_tcp::sync_proxy_nodes_to_registry;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// Represents a proxy node configuration
+///
+/// This struct contains all the necessary information to set up a proxy endpoint,
+/// including TLS configuration, listening address, target address, and other
+/// connection-related parameters.
+///
+/// # Fields
+///
+/// * `addr_listen` - Address where the proxy listens for connections (e.g., "0.0.0.0:443")
+/// * `addr_target` - Target address where requests are forwarded (e.g., "127.0.0.1:8080")
+/// * `tls` - Whether TLS is enabled for incoming connections
+/// * `tls_pem` - PEM certificate content when TLS is enabled (optional)
+/// * `tls_key` - Private key content when TLS is enabled (optional)
+/// * `sni` - Server Name Indication value for TLS negotiation (optional)
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProxyNode {
-    /// Whether TLS is enabled for this proxy node
-    pub tls: bool,
-    
-    /// Server Name Indication value for TLS connections
-    pub sni: Option<String>,
-    
-    /// Path to the TLS certificate PEM file
-    pub tls_pem: Option<String>,
-    
-    /// Path to the TLS private key file
-    pub tls_key: Option<String>,
-    
-    /// Network address this proxy listens on (e.g., "0.0.0.0:443")
+    /// Address where the proxy listens for connections
     pub addr_listen: String,
     
-    /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
+    /// Target address where requests are forwarded
     pub addr_target: String,
+    
+    /// Whether TLS is enabled for this proxy
+    pub tls: bool,
+    
+    /// PEM certificate content for TLS
+    pub tls_pem: Option<String>,
+    
+    /// Private key content for TLS
+    pub tls_key: Option<String>,
+    
+    /// Server Name Indication value for TLS
+    pub sni: Option<String>,
 }
 
 #[post("/proxy")]

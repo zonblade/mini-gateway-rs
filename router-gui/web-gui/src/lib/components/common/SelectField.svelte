@@ -8,10 +8,11 @@
     export let error: string = "";
     export let options: {value: number | string; label: string}[] = [];
     export let placeholder: string = "Select an option";
-    
+    export let bindValue: number | string;
+
     function handleChange(event: Event) {
         const target = event.target as HTMLSelectElement;
-        value = target.value;
+        bindValue = target.value;
     }
 </script>
 

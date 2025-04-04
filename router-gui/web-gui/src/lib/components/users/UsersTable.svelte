@@ -1,15 +1,10 @@
 <script lang="ts">
-    interface User {
-        id: number;
-        username: string;
-        email: string;
-        role: string;
-        active: boolean;
-    }
+    import type { User } from '$lib/types/userTypes';
     
     export let users: User[] = [];
     export let onEdit: (user: User) => void;
-    export let onDelete: (id: number) => void;
+    export let onDelete: (id: string) => void;
+    export let disabled: boolean = false;
 </script>
 
 <div class="overflow-x-auto">
@@ -39,7 +34,7 @@
                     <td class="py-3 px-4">
                         <span class="px-2 py-1 text-xs rounded-full 
                             {user.role === 'Admin' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300' : 
-                            user.role === 'Support' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300' : 
+                            user.role === 'Staff' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300' : 
                             user.role === 'Guest' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' : 
                             'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'}">
                             {user.role}
@@ -58,6 +53,7 @@
                                 on:click={() => onEdit(user)}
                                 aria-label="Edit user"
                                 class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
+                                disabled={disabled}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -68,6 +64,7 @@
                                 on:click={() => onDelete(user.id)}
                                 aria-label="Delete user"
                                 class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-200"
+                                disabled={disabled}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <polyline points="3 6 5 6 21 6"></polyline>

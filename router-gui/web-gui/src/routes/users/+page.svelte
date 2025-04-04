@@ -2,33 +2,46 @@
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { user } from "$lib/stores/userStore";
+    import { usersStore } from "$lib/stores/usersStore";
+    import { userActions } from "$lib/actions/userActions";
+    import type { User } from "$lib/types/userTypes";
     import SearchBar from "$lib/components/users/SearchBar.svelte";
     import UsersTable from "$lib/components/users/UsersTable.svelte";
     import Pagination from "$lib/components/users/Pagination.svelte";
     import UserModal from "$lib/components/users/UserModal.svelte";
     
-    // Define User interface for type safety
-    interface User {
-        id: number;
-        username: string;
-        email: string;
-        role: string;
-        active: boolean;
-    }
-    
-    // Authentication and loading states
+    // Authentication state
     let isLoggedIn = false;
-    let isLoading = true; // Add loading state
+    let isLoading = true;
     
+    // Subscribe to both stores
     const unsubAuthCheck = user.subscribe(value => {
         isLoggedIn = !!value;
         isLoading = false; // Set loading to false once we've checked auth status
     });
     
+    // Destructure values from the users store
+    $: ({
+        paginatedUsers,
+        isLoading: isLoadingUsers,
+        isProcessing,
+        error: errorMessage,
+        searchTerm,
+        currentPage,
+        totalPages,
+        filteredUsers,
+        itemsPerPage
+    } = $usersStore);
+    
+    // Local error handling
+    let localErrorMessage: string | null = null;
+    
     onMount(() => {
         // Redirect happens after auth check is complete
         if (!isLoading && !isLoggedIn) {
             goto('/');
+        } else if (isLoggedIn) {
+            usersStore.loadUsers(); // Load users if logged in
         }
         
         return () => {
@@ -36,55 +49,21 @@
         };
     });
     
-    // Mock user data for demonstration
-    let users: User[] = [
-        { id: 1, username: "admin", email: "admin@example.com", role: "Admin", active: true },
-        { id: 2, username: "user1", email: "user1@example.com", role: "User", active: true },
-        { id: 3, username: "user2", email: "user2@example.com", role: "User", active: false },
-        { id: 4, username: "support", email: "support@example.com", role: "Support", active: true },
-        { id: 5, username: "guest", email: "guest@example.com", role: "Guest", active: true },
-        // Add more mock users for pagination testing
-        { id: 6, username: "user6", email: "user6@example.com", role: "User", active: true },
-        { id: 7, username: "user7", email: "user7@example.com", role: "User", active: true },
-        { id: 8, username: "user8", email: "user8@example.com", role: "User", active: false },
-        { id: 9, username: "user9", email: "user9@example.com", role: "User", active: true },
-        { id: 10, username: "user10", email: "user10@example.com", role: "User", active: true },
-        { id: 11, username: "user11", email: "user11@example.com", role: "User", active: true },
-        { id: 12, username: "user12", email: "user12@example.com", role: "User", active: false },
-    ];
-
     // For add/edit user popup
     let showUserModal = false;
     let isEditMode = false;
-    let currentUser: User = { id: 0, username: "", email: "", role: "User", active: true };
+    let currentUser: User = { id: "", username: "", email: "", role: "User", active: true };
     
-    // Search functionality
-    let searchTerm = "";
-    $: filteredUsers = users.filter(user => 
-        user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.role.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    
-    // Pagination
-    let currentPage = 1;
-    let itemsPerPage = 5;
-    $: totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
-    $: paginatedUsers = filteredUsers.slice(
-        (currentPage - 1) * itemsPerPage,
-        currentPage * itemsPerPage
-    );
-    
-    // Reset to first page when search term changes
-    $: if (searchTerm) {
-        currentPage = 1;
-    }
+    // Reference to the UserModal component to access password
+    let userModalComponent: UserModal;
     
     // Function to open modal for adding a new user
     function addUser(): void {
-        currentUser = { id: 0, username: "", email: "", role: "User", active: true };
+        currentUser = { id: "", username: "", email: "", role: "User", active: true };
         isEditMode = false;
         showUserModal = true;
+        usersStore.clearError();
+        localErrorMessage = null;
     }
     
     // Function to open modal for editing an existing user
@@ -92,50 +71,97 @@
         currentUser = { ...user };
         isEditMode = true;
         showUserModal = true;
+        usersStore.clearError();
+        localErrorMessage = null;
     }
     
-    // Function to save user (create or update)
-    function saveUser(): void {
-        if (isEditMode) {
-            // Update existing user
-            const index = users.findIndex(u => u.id === currentUser.id);
-            if (index !== -1) {
-                users[index] = { ...currentUser };
+    // Function to save user (create or update) using userActions
+    async function saveUser(): Promise<void> {
+        try {
+            if (isEditMode) {
+                // Update existing user
+                const userData = {
+                    username: currentUser.username,
+                    email: currentUser.email,
+                    role: currentUser.role,
+                    active: currentUser.active
+                };
+                
+                await userActions.updateUser(currentUser.id, userData);
+            } else {
+                // Add new user with password from modal
+                const password = userModalComponent ? userModalComponent.getPassword() : '';
+                
+                if (!password) {
+                    // Set local error message
+                    localErrorMessage = "Password is required for new users";
+                    return;
+                }
+                
+                const userData = {
+                    username: currentUser.username,
+                    email: currentUser.email,
+                    password: password,
+                    role: currentUser.role,
+                    active: currentUser.active
+                };
+                
+                await userActions.createUser(userData);
             }
-        } else {
-            // Add new user with the next available ID
-            const newId = Math.max(...users.map(u => u.id), 0) + 1;
-            users = [...users, { ...currentUser, id: newId }];
+            
+            // Reload users after successful operation
+            await usersStore.loadUsers();
+            
+            // Close the modal
+            showUserModal = false;
+        } catch (error) {
+            // Display error message
+            if (error instanceof Error) {
+                localErrorMessage = error.message;
+            } else {
+                localErrorMessage = "An unknown error occurred";
+            }
+        }
+    }
+    
+    // Function to delete a user using userActions
+    async function deleteUser(id: string): Promise<void> {
+        if (!confirm("Are you sure you want to delete this user?")) {
+            return;
         }
         
-        // Close the modal
-        showUserModal = false;
-    }
-    
-    // Function to delete a user
-    function deleteUser(id: number): void {
-        if (confirm("Are you sure you want to delete this user?")) {
-            users = users.filter(user => user.id !== id);
-            
-            // If we're on a page that no longer has items, go to the previous page
-            if (paginatedUsers.length === 1 && currentPage > 1) {
-                currentPage--;
+        try {
+            await userActions.deleteUser(id);
+            // Reload users after deletion
+            await usersStore.loadUsers();
+        } catch (error) {
+            // Update the store's error state through a regular store operation
+            if (error instanceof Error) {
+                localErrorMessage = error.message;
+            } else {
+                localErrorMessage = "Failed to delete user";
             }
         }
     }
     
     // Handle page change
     function handlePageChange(page: number): void {
-        currentPage = page;
+        usersStore.setPage(page);
+    }
+    
+    // Handle search term change
+    function handleSearchChange(event: CustomEvent<string>): void {
+        usersStore.setSearchTerm(event.detail);
     }
     
     // Close modal
     function closeModal(): void {
         showUserModal = false;
+        localErrorMessage = null;
     }
     
     // Define available roles for dropdown
-    const roles: string[] = ["Admin", "User", "Support", "Guest"];
+    const roles: string[] = ["admin", "staff", "user"];
     
     // Handle authentication effect
     $: if (!isLoading && !isLoggedIn) {
@@ -155,39 +181,60 @@
                 <button 
                     on:click={addUser}
                     class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                    disabled={isProcessing}
                 >
                     Add User
                 </button>
             </div>
             
+            {#if errorMessage || localErrorMessage}
+                <div class="mb-4 p-3 bg-red-100 text-red-700 rounded">
+                    <p>{errorMessage || localErrorMessage}</p>
+                </div>
+            {/if}
+            
             <!-- Search component -->
-            <SearchBar bind:searchTerm={searchTerm} />
+            <SearchBar {searchTerm} on:search={handleSearchChange} />
             
-            <!-- Users Table component -->
-            <UsersTable 
-                users={paginatedUsers} 
-                onEdit={editUser} 
-                onDelete={deleteUser} 
-            />
-            
-            <!-- Pagination component -->
-            <Pagination 
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalItems={filteredUsers.length}
-                itemsPerPage={itemsPerPage}
-                onPageChange={handlePageChange}
-            />
+            {#if isLoadingUsers}
+                <div class="flex justify-center my-8">
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+                </div>
+            {:else if paginatedUsers.length === 0}
+                <div class="text-center py-8 text-gray-500">
+                    <p>No users found.</p>
+                </div>
+            {:else}
+                <!-- Users Table component -->
+                <UsersTable 
+                    users={paginatedUsers} 
+                    onEdit={editUser} 
+                    onDelete={deleteUser} 
+                    disabled={isProcessing}
+                />
+                
+                <!-- Pagination component -->
+                <Pagination 
+                    {currentPage}
+                    {totalPages}
+                    totalItems={filteredUsers.length}
+                    {itemsPerPage}
+                    onPageChange={handlePageChange}
+                />
+            {/if}
         </div>
     </div>
     
-    <!-- User Modal component -->
+    <!-- User Modal component with bind:this to access its methods -->
     <UserModal 
+        bind:this={userModalComponent}
         showModal={showUserModal}
-        isEditMode={isEditMode}
+        {isEditMode}
         user={currentUser}
-        roles={roles}
+        {roles}
         onSave={saveUser}
         onClose={closeModal}
+        isProcessing={isProcessing}
+        errorMessage={localErrorMessage || errorMessage}
     />
 {/if}

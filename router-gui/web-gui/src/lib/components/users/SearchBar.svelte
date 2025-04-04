@@ -1,12 +1,24 @@
 <script lang="ts">
+    import { createEventDispatcher } from 'svelte';
+    
     export let searchTerm: string = "";
+    
+    const dispatch = createEventDispatcher<{
+        search: string;
+    }>();
+    
+    function handleInput(event: Event) {
+        const value = (event.target as HTMLInputElement).value;
+        dispatch('search', value);
+    }
 </script>
 
 <div class="mb-6">
     <div class="relative">
         <input 
             type="text" 
-            bind:value={searchTerm}
+            value={searchTerm}
+            on:input={handleInput}
             placeholder="Search..."
             class="w-full p-3 pl-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
         />
