@@ -1,10 +1,10 @@
 <script lang="ts">
-    import type { GwNode } from "$lib/stores/gwnodeStore";
+    import type { GwNode } from "$lib/types/gwnode";
     
     // Props for the component
     export let gwnode: GwNode;
     export let onEdit: (gwnode: GwNode) => void;
-    export let onDelete: (id: number) => void;
+    export let onDelete: (id: string) => void;
 </script>
 
 <a href={`/gwnode/${gwnode.id}`} class="block relative">
@@ -28,7 +28,7 @@
             >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1-2 2v2"></path>
                     <line x1="10" y1="11" x2="10" y2="17"></line>
                     <line x1="14" y1="11" x2="14" y2="17"></line>
                 </svg>
@@ -45,7 +45,7 @@
             <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Proxy bind</h4>
             <div class="text-sm text-gray-700 dark:text-gray-300 ml-2">
                 <div>{gwnode.proxyTitle}</div>
-                <div class="font-mono text-xs text-gray-500 dark:text-gray-400">{gwnode.proxyListen}</div>
+                <div class="font-mono text-xs text-gray-500 dark:text-gray-400">{gwnode.source}</div>
             </div>
         </div>
         
@@ -53,7 +53,7 @@
         <div>
             <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Target</h4>
             <div class="font-mono text-sm ml-2 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded inline-block">
-                {gwnode.target}
+                {gwnode.alt_target}
             </div>
         </div>
     </div>

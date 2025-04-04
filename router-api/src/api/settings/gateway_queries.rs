@@ -42,17 +42,31 @@ use uuid::Uuid;
 pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS gateways (
-            id TEXT PRIMARY KEY,
-            gwnode_id TEXT NOT NULL,
-            pattern TEXT NOT NULL,
-            target TEXT NOT NULL,
-            priority INTEGER NOT NULL,
-            FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
-        )",
+    // Check if the table structure is correct by trying to select the columns we need
+    let check_result = db.execute(
+        "SELECT id, gwnode_id, pattern, target, priority FROM gateways LIMIT 1",
         [],
-    )?;
+    );
+    
+    if check_result.is_err() {
+        // If there's an error, the table might not exist or has an incorrect structure
+        // First try to drop the table if it exists
+        let _ = db.execute("DROP TABLE IF EXISTS gateways", []);
+        log::warn!("Recreating gateways table with correct structure");
+        
+        // Create the table with the correct structure
+        db.execute(
+            "CREATE TABLE gateways (
+                id TEXT PRIMARY KEY,
+                gwnode_id TEXT NOT NULL,
+                pattern TEXT NOT NULL,
+                target TEXT NOT NULL,
+                priority INTEGER NOT NULL,
+                FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
+            )",
+            [],
+        )?;
+    }
     
     Ok(())
 }

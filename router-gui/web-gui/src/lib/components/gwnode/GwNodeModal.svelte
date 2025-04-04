@@ -1,23 +1,29 @@
 <script lang="ts">
     import { fade } from "svelte/transition";
-    import type { GwNode } from "$lib/stores/gwnodeStore";
+    import type { GwNode } from "$lib/types/gwnode";
     import type { Proxy } from "$lib/types/proxy";
     import Button from "$lib/components/common/Button.svelte";
     import InputField from "$lib/components/common/InputField.svelte";
+    import { proxyStore } from "$lib/stores/proxyStore";
 
     export let showModal: boolean = false;
     export let isEditMode: boolean = false;
     export let gwnode: GwNode = {
-        id: 0,
+        id: "",
         title: "",
-        proxyId: "", // Change to string to match Proxy.id type
+        proxy_id: "",
         proxyTitle: "",
-        proxyListen: "",
-        target: "",
+        alt_target: "",
+        source: "",
     };
     export let proxies: Proxy[] = [];
     export let onSave: () => void;
     export let onClose: () => void;
+
+    // Additional proxy details
+    let proxyListen: string = "";
+    let proxyTls: boolean = false;
+    let proxyDomain: string = "";
 
     // Convert proxies to options for select field
     $: proxyOptions = proxies.map((proxy) => ({
@@ -25,31 +31,52 @@
         label: proxy.title,
     }));
 
-    // Selected proxy information - track both proxyId and proxies to ensure reactivity
+    // Fetch latest proxies when modal appears
+    $: if (showModal) {
+        fetchLatestProxies();
+    }
+
+    // Function to fetch the latest proxies from the API
+    async function fetchLatestProxies() {
+        try {
+            await proxyStore.fetchProxies();
+            console.log("Successfully fetched latest proxies");
+        } catch (error) {
+            console.error("Error fetching proxies:", error);
+        }
+    }
+
+    // Selected proxy information - track both proxy_id and proxies to ensure reactivity
     $: {
-        if (gwnode.proxyId && proxies.length > 0) {
-            const selectedProxy = proxies.find((p) => p.id === gwnode.proxyId);
+        if (gwnode.proxy_id && proxies.length > 0) {
+            const selectedProxy = proxies.find((p) => p.id === gwnode.proxy_id);
             if (selectedProxy) {
                 // Create a new object to ensure reactivity
                 gwnode = {
                     ...gwnode,
                     proxyTitle: selectedProxy.title || "",
-                    proxyListen: selectedProxy.addr_listen || "", // Use addr_listen instead of listen
                 };
+                // Update additional proxy details
+                proxyListen = selectedProxy.addr_listen || "";
+                proxyTls = selectedProxy.tls || false;
+                proxyDomain = selectedProxy.sni || "";
                 console.log("Updated proxy details:", gwnode); // Add logging for debugging
             }
         }
     }
 
-    // Update gwnode when proxyId changes
-    $: if (gwnode.proxyId) {
-        const selectedProxy = proxies.find((p) => p.id === gwnode.proxyId);
+    // Update gwnode when proxy_id changes
+    $: if (gwnode.proxy_id) {
+        const selectedProxy = proxies.find((p) => p.id === gwnode.proxy_id);
         if (selectedProxy) {
             gwnode = {
                 ...gwnode,
                 proxyTitle: selectedProxy.title || "",
-                proxyListen: selectedProxy.addr_listen || "", // Use addr_listen instead of listen
             };
+            // Update additional proxy details
+            proxyListen = selectedProxy.addr_listen || "";
+            proxyTls = selectedProxy.tls || false;
+            proxyDomain = selectedProxy.sni || "";
         }
     }
 
@@ -68,16 +95,36 @@
     // Handle proxy selection
     function handleProxyChange(event: Event) {
         const target = event.target as HTMLSelectElement;
-        const selectedId = target.value; // Remove parseInt since ID is string
-        const selectedProxy = proxies.find((p) => p.id === selectedId);
-
-        if (selectedProxy) {
+        const selectedId = target.value;
+        
+        if (selectedId) {
+            const selectedProxy = proxies.find((p) => p.id === selectedId);
+            
+            if (selectedProxy) {
+                // Create a new object to ensure reactivity
+                gwnode = {
+                    ...gwnode,
+                    proxy_id: selectedProxy.id,
+                    proxyTitle: selectedProxy.title || "",
+                };
+                
+                // Update additional proxy details
+                proxyListen = selectedProxy.addr_listen || "";
+                proxyTls = selectedProxy.tls || false;
+                proxyDomain = selectedProxy.sni || "";
+                
+                console.log("Updated gwnode with proxy details:", gwnode);
+            }
+        } else {
+            // If no proxy is selected, clear the proxy-related fields
             gwnode = {
                 ...gwnode,
-                proxyId: selectedProxy.id,
-                proxyTitle: selectedProxy.title,
-                proxyListen: selectedProxy.addr_listen, // Use addr_listen instead of listen
+                proxy_id: "",
+                proxyTitle: "",
             };
+            proxyListen = "";
+            proxyTls = false;
+            proxyDomain = "";
         }
     }
 </script>
@@ -135,12 +182,12 @@
                     />
 
                     <div>
-                        <label for="proxyId" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        <label for="proxy_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             Proxy<span class="text-red-500">*</span>
                         </label>
                         <select
-                            id="proxyId"
-                            value={gwnode.proxyId}
+                            id="proxy_id"
+                            value={gwnode.proxy_id}
                             on:change={handleProxyChange}
                             class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             required
@@ -152,7 +199,7 @@
                         </select>
                     </div>
 
-                    {#if gwnode.proxyId}
+                    {#if gwnode.proxy_id}
                         <div class="rounded-md bg-gray-50 dark:bg-gray-800 p-3">
                             <h3
                                 class="text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -162,21 +209,29 @@
                             <div
                                 class="mt-1 text-sm text-gray-500 dark:text-gray-400"
                             >
-                                <div>
-                                    {gwnode.proxyTitle || "Not specified"}
+                                <div class="mb-1">
+                                    <span class="font-medium">Name:</span> {gwnode.proxyTitle || "Not specified"}
                                 </div>
-                                <div class="font-mono text-xs">
-                                    {gwnode.proxyListen || "Not specified"}
+                                <div class="mb-1 font-mono text-xs">
+                                    <span class="font-medium">Listen:</span> {proxyListen || "Not specified"}
                                 </div>
+                                <div class="mb-1 text-xs">
+                                    <span class="font-medium">TLS:</span> {proxyTls ? "Enabled" : "Disabled"}
+                                </div>
+                                {#if proxyDomain}
+                                <div class="text-xs">
+                                    <span class="font-medium">Domain:</span> {proxyDomain}
+                                </div>
+                                {/if}
                             </div>
                         </div>
                     {/if}
 
                     <InputField
-                        id="target"
-                        label="Target (IP:Port)"
-                        bind:value={gwnode.target}
-                        placeholder="Example: 192.168.1.10:8080"
+                        id="alt_target"
+                        label="Target Address"
+                        bind:value={gwnode.alt_target}
+                        placeholder="IP:PORT"
                         required={true}
                     />
 

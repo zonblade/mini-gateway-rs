@@ -402,30 +402,27 @@ Retrieves a list of all gateway nodes.
 
 **Response:** Returns an array of gateway node objects.
 
-| Field    | Type   | Description                       |
-|----------|--------|-----------------------------------|
-| id       | string | Unique node identifier            |
-| proxy_id | string | ID of the proxy this node uses    |
-| title    | string | Human-readable node name          |
-| source   | string | Listen address (host:port)        |
-| target   | string | Primary target address (host:port)|
+| Field      | Type   | Description                         |
+|------------|--------|-------------------------------------|
+| id         | string | Unique node identifier              |
+| proxy_id   | string | ID of the proxy this node uses      |
+| title      | string | Human-readable name for the node    |
+| alt_target | string | Alternative target URL for routing  |
 
 **Example Response:**
 ```json
 [
   {
-    "id": "gwnode-1",
-    "proxy_id": "proxy-1",
-    "title": "API Gateway Node",
-    "source": "127.0.0.1:30001",
-    "target": "127.0.0.1:8080"
+    "id": "7f9c24e5-1315-43a7-9f31-6eb9772cb46a",
+    "proxy_id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "API Backup Gateway",
+    "alt_target": "http://backup-server:8080"
   },
   {
-    "id": "gwnode-2",
-    "proxy_id": "proxy-1",
-    "title": "Web Gateway Node",
-    "source": "127.0.0.1:30002",
-    "target": "127.0.0.1:3000"
+    "id": "8d4e6f7a-2c1b-43e5-9f87-12ab34cd56ef",
+    "proxy_id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Product Service Gateway",
+    "alt_target": "http://alternate-server:3000"
   }
 ]
 ```
@@ -466,23 +463,31 @@ Creates a new gateway node or updates an existing one.
 
 **Request:**
 
-| Field    | Type   | Description                     | Required |
-|----------|--------|---------------------------------|----------|
-| id       | string | Unique ID (empty for new)       | No       |
-| proxy_id | string | ID of the proxy this node uses  | Yes      |
-| title    | string | Human-readable node name        | Yes      |
-| source   | string | Listen address (host:port)      | Yes      |
-| target   | string | Target address (host:port)      | Yes      |
+| Field      | Type   | Description                           | Required |
+|------------|--------|---------------------------------------|----------|
+| id         | string | Unique ID (empty for new)             | No       |
+| proxy_id   | string | ID of the proxy this node uses        | Yes      |
+| title      | string | Human-readable name for the node      | No       |
+| alt_target | string | Alternative target URL for routing    | Yes      |
 
 **Response:** Returns the saved gateway node object.
 
 **Example Request:**
 ```json
 {
-  "proxy_id": "proxy-1",
-  "title": "New Gateway Node",
-  "source": "127.0.0.1:30003",
-  "target": "127.0.0.1:5000"
+  "proxy_id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "API Backup Gateway",
+  "alt_target": "http://backup-server:8080"
+}
+```
+
+**Example Response:**
+```json
+{
+  "id": "7f9c24e5-1315-43a7-9f31-6eb9772cb46a",
+  "proxy_id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "API Backup Gateway",
+  "alt_target": "http://backup-server:8080"
 }
 ```
 
@@ -507,14 +512,14 @@ Deletes a gateway node and all associated gateways.
 **Example Request:**
 ```json
 {
-  "id": "gwnode-2"
+  "id": "7f9c24e5-1315-43a7-9f31-6eb9772cb46a"
 }
 ```
 
 **Example Response:**
 ```json
 {
-  "message": "Gateway node and 3 associated gateways deleted successfully"
+  "message": "Gateway node deleted successfully along with 3 associated gateways"
 }
 ```
 

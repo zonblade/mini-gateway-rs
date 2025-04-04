@@ -3,14 +3,15 @@
     import { page } from "$app/stores";
     import { goto } from "$app/navigation";
     import { user } from "$lib/stores/userStore";
-    import { gwNodes, type GwNode } from "$lib/stores/gwnodeStore";
+    import { gwNodes } from "$lib/stores/gwnodeStore";
+    import type { GwNode } from "$lib/types/gwnode";
     import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
     import BackButton from "$lib/components/common/BackButton.svelte";
     import GwNodeDetail from "$lib/components/gwnode/GwNodeDetail.svelte";
     import GwNodeNotFound from "$lib/components/gwnode/GwNodeNotFound.svelte";
 
     // Get the gwnode ID from the route parameter
-    let gwnodeId = $page.params.id ? parseInt($page.params.id) : 0;
+    let gwnodeId = $page.params.id;
     
     // Find the matching gwnode
     let gwnode: GwNode | undefined;

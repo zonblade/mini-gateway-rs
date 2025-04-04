@@ -22,6 +22,7 @@ use uuid::Uuid;
 /// Creates a table with the following structure:
 /// - `id`: TEXT PRIMARY KEY - Unique identifier for the gateway node
 /// - `proxy_id`: TEXT NOT NULL - Reference to the associated proxy's ID
+/// - `title`: TEXT NOT NULL - Human-readable name for this gateway node
 /// - `alt_target`: TEXT NOT NULL - Alternative target URL for routing
 ///
 /// A foreign key constraint is established to ensure referential integrity with the
@@ -41,15 +42,30 @@ use uuid::Uuid;
 pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS gateway_nodes (
-            id TEXT PRIMARY KEY,
-            proxy_id TEXT NOT NULL,
-            alt_target TEXT NOT NULL,
-            FOREIGN KEY(proxy_id) REFERENCES proxies(id)
-        )",
+    // Check if the table structure is correct by trying to select the columns we need
+    let check_result = db.execute(
+        "SELECT id, proxy_id, title, alt_target FROM gateway_nodes LIMIT 1",
         [],
-    )?;
+    );
+    
+    if check_result.is_err() {
+        // If there's an error, the table might not exist or has an incorrect structure
+        // First try to drop the table if it exists
+        let _ = db.execute("DROP TABLE IF EXISTS gateway_nodes", []);
+        log::warn!("Recreating gateway_nodes table with correct structure");
+        
+        // Create the table with the correct structure
+        db.execute(
+            "CREATE TABLE gateway_nodes (
+                id TEXT PRIMARY KEY,
+                proxy_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                alt_target TEXT NOT NULL,
+                FOREIGN KEY(proxy_id) REFERENCES proxies(id)
+            )",
+            [],
+        )?;
+    }
     
     Ok(())
 }
@@ -82,7 +98,7 @@ pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
 ///     Ok(nodes) => {
 ///         println!("Found {} gateway nodes", nodes.len());
 ///         for node in nodes {
-///             println!("Gateway node: {} (proxy: {})", node.id, node.proxy_id);
+///             println!("Gateway node: {} (title: {}, proxy: {})", node.id, node.title, node.proxy_id);
 ///         }
 ///     },
 ///     Err(err) => eprintln!("Error retrieving gateway nodes: {}", err),
@@ -96,16 +112,19 @@ pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
     
     // Query all gateway nodes
     let nodes = db.query(
-        "SELECT id, proxy_id, alt_target FROM gateway_nodes",
+        "SELECT id, proxy_id, title, alt_target FROM gateway_nodes",
         [],
         |row| {
             Ok(GatewayNode {
                 id: row.get(0)?,
                 proxy_id: row.get(1)?,
-                alt_target: row.get(2)?,
+                title: row.get(2)?,
+                alt_target: row.get(3)?,
             })
         },
     )?;
+
+    log::info!("Retrieved {} gateway nodes from the database", nodes.len());
     
     Ok(nodes)
 }
@@ -141,7 +160,8 @@ pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
 ///
 /// let node_id = "7f9c24e5-1315-43a7-9f31-6eb9772cb46a";
 /// match gwnode_queries::get_gateway_node_by_id(node_id) {
-///     Ok(Some(node)) => println!("Found gateway node: {} (alt_target: {})", node.id, node.alt_target),
+///     Ok(Some(node)) => println!("Found gateway node: {} (title: {}, alt_target: {})", 
+///                                node.id, node.title, node.alt_target),
 ///     Ok(None) => println!("No gateway node found with ID: {}", node_id),
 ///     Err(err) => eprintln!("Error retrieving gateway node: {}", err),
 /// }
@@ -154,13 +174,14 @@ pub fn get_gateway_node_by_id(id: &str) -> Result<Option<GatewayNode>, DatabaseE
     
     // Query the gateway node by ID
     let node = db.query_one(
-        "SELECT id, proxy_id, alt_target FROM gateway_nodes WHERE id = ?1",
+        "SELECT id, proxy_id, title, alt_target FROM gateway_nodes WHERE id = ?1",
         [id],
         |row| {
             Ok(GatewayNode {
                 id: row.get(0)?,
                 proxy_id: row.get(1)?,
-                alt_target: row.get(2)?,
+                title: row.get(2)?,
+                alt_target: row.get(3)?,
             })
         },
     )?;
@@ -201,7 +222,8 @@ pub fn get_gateway_node_by_id(id: &str) -> Result<Option<GatewayNode>, DatabaseE
 ///     Ok(nodes) => {
 ///         println!("Found {} gateway nodes for proxy {}", nodes.len(), proxy_id);
 ///         for node in nodes {
-///             println!("Gateway node: {} (alt_target: {})", node.id, node.alt_target);
+///             println!("Gateway node: {} (title: {}, alt_target: {})", 
+///                      node.id, node.title, node.alt_target);
 ///         }
 ///     },
 ///     Err(err) => eprintln!("Error retrieving gateway nodes: {}", err),
@@ -215,13 +237,14 @@ pub fn get_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<Vec<GatewayNode>,
     
     // Query gateway nodes by proxy ID
     let nodes = db.query(
-        "SELECT id, proxy_id, alt_target FROM gateway_nodes WHERE proxy_id = ?1",
+        "SELECT id, proxy_id, title, alt_target FROM gateway_nodes WHERE proxy_id = ?1",
         [proxy_id],
         |row| {
             Ok(GatewayNode {
                 id: row.get(0)?,
                 proxy_id: row.get(1)?,
-                alt_target: row.get(2)?,
+                title: row.get(2)?,
+                alt_target: row.get(3)?,
             })
         },
     )?;
@@ -264,6 +287,7 @@ pub fn get_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<Vec<GatewayNode>,
 /// let node = GatewayNode {
 ///     id: "7f9c24e5-1315-43a7-9f31-6eb9772cb46a".to_string(),
 ///     proxy_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+///     title: "API Backup Gateway".to_string(),
 ///     alt_target: "http://backup-server.internal:8080".to_string(),
 /// };
 ///
@@ -280,11 +304,12 @@ pub fn save_gateway_node(node: &GatewayNode) -> Result<(), DatabaseError> {
     
     // Insert or replace the gateway node
     db.execute(
-        "INSERT OR REPLACE INTO gateway_nodes (id, proxy_id, alt_target) 
-         VALUES (?1, ?2, ?3)",
+        "INSERT OR REPLACE INTO gateway_nodes (id, proxy_id, title, alt_target) 
+         VALUES (?1, ?2, ?3, ?4)",
         [
             &node.id,
             &node.proxy_id,
+            &node.title,
             &node.alt_target,
         ],
     )?;

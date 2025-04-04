@@ -1,7 +1,10 @@
 <script lang="ts">
-    import { gwNodes, type GwNode } from "$lib/stores/gwnodeStore";
+    import { onMount } from "svelte";
+    import { gwNodes } from "$lib/stores/gwnodeStore";
     import { proxies } from "$lib/stores/proxyStore";
     import type { Proxy } from "$lib/types/proxy";
+    import { gwnodeActions } from "$lib/actions/gwnodeActions";
+    import type { CreateGwNodeRequest, UpdateGwNodeRequest, GwNode } from "$lib/types/gwnode";
     import GwNodeCard from "./GwNodeCard.svelte";
     import GwNodeModal from "./GwNodeModal.svelte";
     import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
@@ -16,6 +19,7 @@
     // Store subscriptions
     let gwnodeList: GwNode[] = [];
     let proxyList: Proxy[] = [];
+    let isLoading = true;
     
     // Subscribe to stores
     const unsubGwNodes = gwNodes.subscribe(nodes => {
@@ -26,18 +30,30 @@
         proxyList = items;
     });
     
+    // Load data when component mounts
+    onMount(async () => {
+        try {
+            await gwnodeActions.loadAllGwNodes();
+            isLoading = false;
+        } catch (error) {
+            console.error("Failed to load gateway nodes:", error);
+        }
+    });
+    
     // Cleanup subscriptions on component destroy
     import { onDestroy } from "svelte";
     onDestroy(() => {
         unsubGwNodes();
         unsubProxies();
     });
+
+    console.log(gwnodeList);
     
     // Filtered nodes based on search term
     $: filteredGwNodes = gwnodeList.filter(gwnode => 
         gwnode.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        gwnode.target.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        gwnode.proxyTitle.toLowerCase().includes(searchTerm.toLowerCase())
+        gwnode.alt_target.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (gwnode.proxyTitle && gwnode.proxyTitle.toLowerCase().includes(searchTerm.toLowerCase()))
     );
     
     // For "load more" functionality
@@ -53,23 +69,23 @@
     let showGwNodeModal = false;
     let isEditMode = false;
     let currentGwNode: GwNode = {
-        id: 0,
+        id: "",
         title: "",
-        proxyId: "", // Changed from number to string
+        proxy_id: "",
         proxyTitle: "",
-        proxyListen: "",
-        target: ""
+        alt_target: "",
+        source: "",
     };
     
     // Function to open modal for adding a new gwnode
     function addGwNode(): void {
         currentGwNode = {
-            id: 0,
+            id: "",
             title: "",
-            proxyId: "", // Changed from number to string
+            proxy_id: "",
             proxyTitle: "",
-            proxyListen: "",
-            target: ""
+            alt_target: "",
+            source: "",
         };
         isEditMode = false;
         showGwNodeModal = true;
@@ -83,30 +99,48 @@
     }
     
     // Function to save gwnode (create or update)
-    function saveGwNode(): void {
-        gwNodes.update(nodes => {
+    async function saveGwNode(): Promise<void> {
+        try {
             if (isEditMode) {
                 // Update existing gwnode
-                const index = nodes.findIndex(n => n.id === currentGwNode.id);
-                if (index !== -1) {
-                    nodes[index] = { ...currentGwNode };
-                }
+                const updateRequest: UpdateGwNodeRequest = {
+                    id: currentGwNode.id,
+                    proxy_id: currentGwNode.proxy_id,
+                    title: currentGwNode.title,
+                    alt_target: currentGwNode.alt_target,
+                    source: "" // Include empty source when updating
+                };
+                await gwnodeActions.updateGwNode(updateRequest);
             } else {
-                // Add new gwnode with the next available ID
-                const newId = Math.max(...nodes.map(n => n.id), 0) + 1;
-                nodes = [...nodes, { ...currentGwNode, id: newId }];
+                console.log("Creating new gwnode:", currentGwNode);
+                // Create new gwnode
+                const createRequest: CreateGwNodeRequest = {
+                    id: "", // Include empty ID for new nodes
+                    proxy_id: currentGwNode.proxy_id,
+                    title: currentGwNode.title,
+                    alt_target: currentGwNode.alt_target,
+                    source: "" // Include empty source for new nodes
+                };
+                await gwnodeActions.createGwNode(createRequest);
             }
-            return nodes;
-        });
-        
-        // Close the modal
-        showGwNodeModal = false;
+            
+            // Close the modal
+            showGwNodeModal = false;
+        } catch (error: unknown) {
+            console.error("Error saving gateway node:", error);
+            alert(`Failed to save gateway node: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
     
     // Function to delete a gwnode
-    function deleteGwNode(id: number): void {
+    async function deleteGwNode(id: string): Promise<void> {
         if (confirm("Are you sure you want to delete this gateway node?")) {
-            gwNodes.update(nodes => nodes.filter(gwnode => gwnode.id !== id));
+            try {
+                await gwnodeActions.deleteGwNode(id);
+            } catch (error: unknown) {
+                console.error("Error deleting gateway node:", error);
+                alert(`Failed to delete gateway node: ${error instanceof Error ? error.message : String(error)}`);
+            }
         }
     }
     
@@ -133,7 +167,7 @@
     </div>
     
     <!-- Card grid layout -->
-    {#if !gwnodeList.length}
+    {#if isLoading}
         <LoadingSpinner />
     {:else if visibleGwNodes.length === 0}
         <EmptyState 
@@ -166,7 +200,7 @@
     <GwNodeModal 
         showModal={showGwNodeModal}
         isEditMode={isEditMode}
-        gwnode={currentGwNode}
+        bind:gwnode={currentGwNode}
         proxies={proxyList}
         onSave={saveGwNode}
         onClose={closeModal}

@@ -130,6 +130,7 @@ mod tests {
         let id = Uuid::new_v4().to_string();
         let gwnode = SettingsGatewayNode {
             id: id.clone(),
+            title: "Test Gateway Node".to_string(),
             proxy_id: proxy_id.to_string(),
             alt_target: "127.0.0.1:8082".to_string(),
         };

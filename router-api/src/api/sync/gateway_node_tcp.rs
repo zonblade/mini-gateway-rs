@@ -132,6 +132,7 @@ mod test {
         let gwnode = SettingsGatewayNode {
             id: id.clone(),
             proxy_id: proxy_id.to_string(),
+            title: "Test Gateway Node".to_string(),
             alt_target: "127.0.0.1:8082".to_string(),
         };
 

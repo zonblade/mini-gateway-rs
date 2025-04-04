@@ -96,6 +96,7 @@ pub struct Proxy {
 ///
 /// * `id` - Unique identifier for this gateway node
 /// * `proxy_id` - The ID of the proxy this gateway node is associated with
+/// * `title` - Human-readable name for this gateway node
 /// * `alt_target` - An alternative target URL that can be used for routing
 ///
 /// # Relationships
@@ -109,6 +110,7 @@ pub struct Proxy {
 /// GatewayNode {
 ///     id: "7f9c24e5-1315-43a7-9f31-6eb9772cb46a",
 ///     proxy_id: "550e8400-e29b-41d4-a716-446655440000",
+///     title: "API Backup Gateway",
 ///     alt_target: "http://backup-server.internal:8080",
 /// }
 /// ```
@@ -121,6 +123,8 @@ pub struct GatewayNode {
     pub id: String,
     /// Reference to the proxy ID that this gateway node is associated with
     pub proxy_id: String,
+    /// Human-readable name for this gateway node
+    pub title: String,
     /// Alternative target URL
     pub alt_target: String,
 }

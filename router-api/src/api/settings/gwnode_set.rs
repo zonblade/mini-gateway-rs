@@ -23,6 +23,7 @@ use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 /// The request body should be a JSON object with the following fields:
 /// - `id` (optional): The unique identifier for the gateway node. If empty, a new ID will be generated.
 /// - `proxy_id`: The ID of the proxy this gateway node is associated with. Must reference an existing proxy.
+/// - `title`: Human-readable name for this gateway node
 /// - `alt_target`: Alternative target URL for routing.
 ///
 /// # Response
@@ -45,6 +46,7 @@ use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 ///
 /// {
 ///   "proxy_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "API Backup Gateway",
 ///   "alt_target": "http://backup-server:8080"
 /// }
 /// ```
@@ -57,6 +59,7 @@ use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 /// {
 ///   "id": "7f9c24e5-1315-43a7-9f31-6eb9772cb46a",
 ///   "proxy_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "Updated Gateway Name",
 ///   "alt_target": "http://new-target:8080"
 /// }
 /// ```
@@ -87,6 +90,11 @@ pub async fn set_gateway_node(
     // If no ID provided, generate a new one
     if node.id.is_empty() {
         node.id = gwnode_queries::generate_gateway_node_id();
+    }
+    
+    // If no title provided, set a default one
+    if node.title.is_empty() {
+        node.title = format!("Gateway Node {}", &node.id[..8]);
     }
     
     // Verify that the referenced proxy exists

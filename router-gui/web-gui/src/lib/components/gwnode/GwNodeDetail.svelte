@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { GwNode } from "$lib/stores/gwnodeStore";
+    import type { GwNode } from "$lib/types/gwnode";
     
     export let gwnode: GwNode;
 </script>
@@ -22,9 +22,9 @@
                         {gwnode.proxyTitle}
                     </div>
                     <div>
-                        <span class="font-medium">Listen:</span>
+                        <span class="font-medium">Source:</span>
                         <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
-                            >{gwnode.proxyListen}</code
+                            >{gwnode.source}</code
                         >
                     </div>
                 </div>
@@ -39,7 +39,7 @@
                     <div>
                         <span class="font-medium">Address:</span>
                         <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
-                            >{gwnode.target}</code
+                            >{gwnode.alt_target}</code
                         >
                     </div>
                 </div>
