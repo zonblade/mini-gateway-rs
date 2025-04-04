@@ -43,7 +43,7 @@
             id: uiProxy.id.toString(),
             title: uiProxy.title,
             addr_listen: uiProxy.listen,
-            addr_target: uiProxy.target || "",
+            addr_target: "", // Always send empty string as addr_target
             tls: uiProxy.useTls,
             tls_pem: uiProxy.certPem || null,
             tls_key: uiProxy.certKey || null,

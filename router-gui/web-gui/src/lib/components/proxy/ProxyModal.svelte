@@ -11,7 +11,7 @@
         certPem: string;
         certKey: string;
         domain: string; // Added SNI domain field
-        target?: string; // Added target field to match API needs
+        target?: string; // Keep this property but we'll hide it from UI
     }
     
     export let showModal: boolean = false;
@@ -25,7 +25,7 @@
         certPem: "", 
         certKey: "",
         domain: "",
-        target: "" 
+        target: "" // Keep the property with empty string as default
     };
     export let onSave: () => void;
     export let onClose: () => void;
@@ -126,19 +126,7 @@
                         </p>
                     </div>
                     
-                    <div>
-                        <label for="target" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Target (IP and Port)
-                        </label>
-                        <input 
-                            type="text" 
-                            id="target" 
-                            bind:value={proxy.target}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                            required
-                            placeholder="Example: 192.168.1.100:8080"
-                        />
-                    </div>
+                    <!-- Target field removed from UI -->
                     
                     <div class="flex items-center">
                         <input 

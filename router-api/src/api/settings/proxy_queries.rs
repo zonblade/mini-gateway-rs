@@ -250,10 +250,10 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
             &proxy.title,
             &proxy.addr_listen,
             &proxy.addr_target,
-            &proxy.tls.to_string(),
+            &(if proxy.tls { "1" } else { "0" }).to_string(),
             &proxy.tls_pem.clone().unwrap_or("\u{0000}".to_string()),
             &proxy.tls_key.clone().unwrap_or("\u{0000}".to_string()),
-            &proxy.tls_autron.to_string(),
+            &(if proxy.tls_autron { "1" } else { "0" }).to_string(),
             &proxy.sni.clone().unwrap_or("\u{0000}".to_string()),
         ],
     )?;

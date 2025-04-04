@@ -43,13 +43,6 @@
                 </code>
             </div>
             
-            <div class="flex items-center text-sm mt-2">
-                <span class="font-medium text-gray-600 dark:text-gray-300 mr-2">Target:</span>
-                <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded font-mono">
-                    {proxy.addr_target || "Not set"}
-                </code>
-            </div>
-            
             {#if proxy.tls}
                 <div class="flex items-center mt-2">
                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
