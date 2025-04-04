@@ -2,7 +2,7 @@
 //! 
 //! The terminator module provides functionality for gracefully shutting down the router system.
 //! It includes mechanisms for termination initiated both through command line input and through
-//! service requests (such as from Redis messages).
+//! service requests from external components.
 //! 
 //! ## Module Structure
 //! 

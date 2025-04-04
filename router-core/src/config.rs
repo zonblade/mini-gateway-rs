@@ -85,13 +85,19 @@ pub enum RoutingData {
 /// # Examples
 ///
 /// ```
-/// // Get the Redis connection URI
-/// let redis_uri = GeneralConfig::RedisURI.get::<String>();
+/// // Get the storage connection string
+/// let storage_uri = GeneralConfig::StorageURI.get::<String>();
 /// ```
 #[derive(Debug, Clone, Configure)]
 pub enum GeneralConfig {
-    /// Redis connection URI for communication between components
-    RedisURI
+    /// Storage system connection URI for component communication and persistence
+    StorageURI,
+    
+    /// Storage system type (e.g., "memory", "file", "database")
+    StorageType,
+    
+    /// Connection timeout in milliseconds
+    ConnectionTimeout
 }
 
 /// Proxy node configuration.

@@ -48,13 +48,12 @@ Each sub-repository within this project is designed to be standalone. This means
 
 | Sub-repository | Description                                                                 | Notes                                                                                     |
 |----------------|-----------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| `router-core`  | Core proxy service responsible for handling traffic routing and forwarding. | Requires Redis/DragonflyDB for communication. Must run in a private/secure network.       |
+| `router-core`  | Core proxy service responsible for handling traffic routing and forwarding. | Must run in a private/secure network.       |
 | `router-api`   | Provides an API interface for managing and configuring the router.          | Intended for internal use only. Not designed for external consumption.                    |
 | `router-cli`   | Command-line interface for interacting with and managing the router.        | Useful for quick configuration and debugging.                                             |
 | `router-gui`   | Graphical user interface for managing the router.                          | Designed for internal use. Should not be exposed to public networks.                      |
 
 ## Connectivity and Network Requirements
 
-- All of the applications are interconnected using Redis or DragonflyDB as the communication backbone. Ensure that a compatible instance of Redis or DragonflyDB is properly configured and accessible to all sub-repositories.
 - The system must operate within a private and secure network. Exposing the applications or the database to public networks is not recommended and could lead to security vulnerabilities.
 - The API or GUI provided by the system is intended strictly for internal use and is not designed for external consumption. Ensure that access is restricted to authorized users within the secure network.

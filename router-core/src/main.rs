@@ -13,7 +13,7 @@
 //! 
 //! ## Communication
 //! 
-//! The router core communicates with other components using Redis/DragonflyDB as a backbone,
+//! The router core communicates with other components using a message-based architecture,
 //! allowing for configuration updates and state synchronization without service interruption.
 
 use std::sync::atomic::{AtomicBool, Ordering};

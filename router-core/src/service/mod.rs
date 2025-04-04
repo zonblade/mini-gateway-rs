@@ -22,7 +22,7 @@
 //! Services in this module follow a consistent lifecycle:
 //! 
 //! 1. Registration with the service registry during initialization
-//! 2. Configuration via dynamic updates through Redis/DragonflyDB
+//! 2. Configuration via dynamic updates through the configuration system
 //! 3. Request processing based on current configuration
 //! 4. Graceful shutdown when termination signals are received
 pub mod proxy;
