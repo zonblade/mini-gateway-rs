@@ -46,8 +46,6 @@
         unsubGwNodes();
         unsubProxies();
     });
-
-    console.log("gwnodeList", gwnodeList);
     
     // Filtered nodes based on search term
     $: filteredGwNodes = gwnodeList.filter(gwnode => 
@@ -112,7 +110,6 @@
                 };
                 await gwnodeActions.updateGwNode(updateRequest);
             } else {
-                console.log("Creating new gwnode:", currentGwNode);
                 // Create new gwnode
                 const createRequest: CreateGwNodeRequest = {
                     id: "", // Include empty ID for new nodes

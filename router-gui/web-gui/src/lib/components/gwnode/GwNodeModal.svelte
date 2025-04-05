@@ -40,7 +40,6 @@
     async function fetchLatestProxies() {
         try {
             await proxyStore.fetchProxies();
-            console.log("Successfully fetched latest proxies");
         } catch (error) {
             console.error("Error fetching proxies:", error);
         }
@@ -60,7 +59,6 @@
                 proxyListen = selectedProxy.addr_listen || "";
                 proxyTls = selectedProxy.tls || false;
                 proxyDomain = selectedProxy.sni || "";
-                console.log("Updated proxy details:", gwnode); // Add logging for debugging
             }
         }
     }
@@ -112,8 +110,6 @@
                 proxyListen = selectedProxy.addr_listen || "";
                 proxyTls = selectedProxy.tls || false;
                 proxyDomain = selectedProxy.sni || "";
-                
-                console.log("Updated gwnode with proxy details:", gwnode);
             }
         } else {
             // If no proxy is selected, clear the proxy-related fields

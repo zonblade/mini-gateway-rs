@@ -12,7 +12,6 @@ export const gatewayActions = {
      */
     async loadAllGateways(): Promise<Gateway[]> {
         try {
-            console.log("Loading all gateways");
             const loadedGateways = await gatewayService.getAllGateways();
             gateways.set(loadedGateways);
             return loadedGateways;
@@ -29,7 +28,6 @@ export const gatewayActions = {
      */
     async loadGatewaysByGwNodeId(gwnodeId: string): Promise<Gateway[]> {
         try {
-            console.log(`Loading gateways for node ${gwnodeId}`);
             const loadedGateways = await gatewayService.getGatewaysByGwNodeId(gwnodeId);
             gateways.set(loadedGateways);
             return loadedGateways;
@@ -60,7 +58,6 @@ export const gatewayActions = {
      */
     async createGateway(gateway: CreateGatewayRequest): Promise<Gateway> {
         try {
-            console.log("Creating new gateway:", gateway);
             const createdGateway = await gatewayService.createGateway(gateway);
             
             // Update the store by adding the new gateway
@@ -80,7 +77,6 @@ export const gatewayActions = {
      */
     async updateGateway(gateway: UpdateGatewayRequest): Promise<Gateway> {
         try {
-            console.log(`Updating gateway ${gateway.id}:`, gateway);
             const updatedGateway = await gatewayService.updateGateway(gateway);
             
             // Update the store by replacing the updated gateway
@@ -102,7 +98,6 @@ export const gatewayActions = {
      */
     async deleteGateway(id: string): Promise<string> {
         try {
-            console.log(`Deleting gateway ${id}`);
             const result = await gatewayService.deleteGateway(id);
             
             // Update the store by removing the deleted gateway

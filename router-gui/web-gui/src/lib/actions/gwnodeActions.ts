@@ -64,8 +64,6 @@ export const gwnodeActions = {
      */
     async createGwNode(gwnode: CreateGwNodeRequest): Promise<GwNode> {
         try {
-            console.log("Creating new gateway node:", gwnode);
-
             const createdNode = await gwnodeService.createGwNode(gwnode);
             
             // Update the store

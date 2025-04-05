@@ -43,9 +43,6 @@ export const userService = {
                 method: 'GET',
                 headers: getHeaders()
             });
-
-            console.log(`Fetching all users from ${baseUrl}/users/admin`);
-            console.log('response:', response);
             
             if (!response.ok) {
                 throw new Error(`Error fetching users: ${response.statusText}`);
