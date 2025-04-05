@@ -6,6 +6,12 @@
 <span style="font-size:16px;">A very fast yet easy to control Gatway!</span>
 </p>
 
+## Introduction
+
+![img](assets/demo.gif)
+
+It is designed to be easy to use and configure, making it suitable for both small and large-scale applications. The mini-gateway is built with a focus on performance, security, and flexibility, allowing users to customize their routing and proxying needs.
+
 ## Architecture
 
 ![img](assets/architecture.gif)
