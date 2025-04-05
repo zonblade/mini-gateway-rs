@@ -98,7 +98,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("RUST_LOG", "info");
     env_logger::init();
     config::init();
-    log::info!("Starting API server...");
+    
+    // Parse command line arguments using clap
+    let matches = clap::Command::new("Router API")
+        .version("0.0.1-pre")
+        .author("mini-gateway-rs")
+        .about("RESTful API service for managing the Mini Gateway routing system")
+        .arg(
+            clap::Arg::new("ip")
+                .long("ip")
+                .help("IP address to bind the server to")
+                .value_name("IP")
+                .default_value("0.0.0.0")
+        )
+        .arg(
+            clap::Arg::new("port")
+                .long("port")
+                .help("Port number to bind the server to")
+                .value_name("PORT")
+                .default_value("24042")
+                .value_parser(clap::value_parser!(u16))
+        )
+        .get_matches();
+
+    // Extract values with fallbacks
+    let ip = matches.get_one::<String>("ip").unwrap();
+    let port = matches.get_one::<u16>("port").unwrap();
+    let bind_address = format!("{}:{}", ip, port);
+    
+    log::info!("Starting API server on {}...", bind_address);
+    
     // Create a thread-safe client wrapped in Arc<Mutex<>> to safely share
     // across multiple threads and request handlers
     let client = Arc::new(Mutex::new(Client::new()));
@@ -110,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Configure and start actix-web server
-    log::info!("Starting HTTP server on port 24042...");
+    log::info!("Starting HTTP server on {}...", bind_address);
     HttpServer::new(move || {
         // Configure CORS with permissive settings for development
         // In production, this should be restricted to specific origins
@@ -136,8 +165,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Configure routes using the function defined in the api module
             .configure(api::configure)
     })
-    // Bind server to all network interfaces on port 24042
-    .bind("0.0.0.0:24042")?
+    // Bind server to the specified address and port
+    .bind(&bind_address)?
     // Set number of worker threads to 2 for handling concurrent requests
     .workers(2)
     // Start the HTTP server and keep it running until terminated

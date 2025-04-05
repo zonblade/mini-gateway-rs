@@ -12,8 +12,8 @@ mod config;
 async fn omnicontrol(
     tail: web::Path<String>,data: web::Data<Arc<RwLock<HashMap<String, Vec<u8>>>>>, // Updated type
 ) -> impl Responder {
-    // if it's only empty assign as index.html
-    let tail = if tail.is_empty() {
+    // if it's empty or doesn't have an extension, serve index.html
+    let tail = if tail.is_empty() || !tail.contains('.') {
         "index.html".to_string()
     } else {
         tail.into_inner()

@@ -1,0 +1,12 @@
+Package: gwrs-mini-gateway
+Version: 0.0.1
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: GWRS Team <zonblade@gmail.com>
+Description: GWRS Mini-Gateway for network routing and API management
+ GWRS Mini-Gateway provides a lightweight routing and API management solution.
+ This package includes the router-core and router-api components which work
+ together to provide a complete API gateway experience.
+Depends: ca-certificates, curl
+Homepage: https://gateway.rs
