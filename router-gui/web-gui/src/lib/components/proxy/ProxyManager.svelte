@@ -148,10 +148,10 @@
     }
     
     // Function to delete a proxy
-    async function deleteProxy(id: number): Promise<void> {
+    async function deleteProxy(id: string): Promise<void> {
         if (confirm("Are you sure you want to delete this proxy?")) {
             try {
-                await proxyStore.deleteProxy(id.toString());
+                await proxyStore.deleteProxy(id);
             } catch (error) {
                 console.error('Error deleting proxy:', error);
                 alert('Failed to delete proxy: ' + (error instanceof Error ? error.message : String(error)));
@@ -233,7 +233,7 @@
                     <ProxyCard 
                         proxy={uiToApiProxy(proxy)} 
                         onEdit={() => editProxy(proxy)} 
-                        onDelete={() => deleteProxy(proxy.id)} 
+                        onDelete={() => deleteProxy(proxy.id.toString())} 
                     />
                 </div>
             {/each}
