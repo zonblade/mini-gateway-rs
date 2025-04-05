@@ -47,7 +47,7 @@
         unsubProxies();
     });
 
-    console.log(gwnodeList);
+    console.log("gwnodeList", gwnodeList);
     
     // Filtered nodes based on search term
     $: filteredGwNodes = gwnodeList.filter(gwnode => 

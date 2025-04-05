@@ -1,8 +1,26 @@
 <script lang="ts">
     import type { GwNode } from "$lib/types/gwnode";
     import GatewayTableManager from "$lib/components/gateway/GatewayTableManager.svelte";
+    import { proxies } from "$lib/stores/proxyStore";
     
     export let gwnode: GwNode;
+    
+    // Proxy details
+    let proxyListen = "";
+    let proxyTls = false;
+    let proxyDomain = "";
+    let proxyTitle = "";
+    
+    // Get proxy details if proxy_id exists
+    $: if (gwnode.proxy_id && $proxies) {
+        const selectedProxy = $proxies.find((p) => p.id === gwnode.proxy_id);
+        if (selectedProxy) {
+            proxyListen = selectedProxy.addr_listen || "";
+            proxyTls = selectedProxy.tls || false;
+            proxyDomain = selectedProxy.sni || "";
+            proxyTitle = selectedProxy.title || "";
+        }
+    }
 </script>
 
 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
@@ -20,14 +38,26 @@
                 <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
                     <div class="mb-1">
                         <span class="font-medium">Name:</span>
-                        {gwnode.proxyTitle}
+                        {proxyTitle || 'Not specified'}
                     </div>
-                    <div>
-                        <span class="font-medium">Source:</span>
+                    <div class="mb-1">
+                        <span class="font-medium">Listen:</span>
                         <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
-                            >{gwnode.source}</code
-                        >
+                            >{proxyListen}</code>
                     </div>
+                    {#if proxyTls}
+                        <div class="mb-1">
+                            <span class="font-medium">TLS:</span>
+                            <span class="text-green-600 dark:text-green-400">Enabled</span>
+                        </div>
+                    {/if}
+                    {#if proxyDomain}
+                        <div>
+                            <span class="font-medium">Domain:</span>
+                            <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
+                                >{proxyDomain}</code>
+                        </div>
+                    {/if}
                 </div>
             </div>
 
@@ -40,8 +70,7 @@
                     <div>
                         <span class="font-medium">Address:</span>
                         <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
-                            >{gwnode.alt_target}</code
-                        >
+                            >{gwnode.alt_target}</code>
                     </div>
                 </div>
             </div>

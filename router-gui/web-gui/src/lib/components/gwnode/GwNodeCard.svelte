@@ -1,10 +1,28 @@
 <script lang="ts">
     import type { GwNode } from "$lib/types/gwnode";
+    import { proxies } from "$lib/stores/proxyStore";
     
     // Props for the component
     export let gwnode: GwNode;
     export let onEdit: (gwnode: GwNode) => void;
     export let onDelete: (id: string) => void;
+
+    // Proxy details
+    let proxyListen = "";
+    let proxyTls = false;
+    let proxyDomain = "";
+    let proxyTitle = "";
+    
+    // Get proxy details if proxy_id exists
+    $: if (gwnode.proxy_id && $proxies) {
+        const selectedProxy = $proxies.find((p) => p.id === gwnode.proxy_id);
+        if (selectedProxy) {
+            proxyListen = selectedProxy.addr_listen || "";
+            proxyTls = selectedProxy.tls || false;
+            proxyDomain = selectedProxy.sni || "";
+            proxyTitle = selectedProxy.title || "";
+        }
+    }
 </script>
 
 <a href={`/gwnode/${gwnode.id}`} class="block relative">
@@ -40,12 +58,29 @@
             {gwnode.title}
         </h3>
         
-        <!-- Proxy information (two lines) -->
+        <!-- Proxy information -->
         <div class="mb-2">
             <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Proxy bind</h4>
             <div class="text-sm text-gray-700 dark:text-gray-300 ml-2">
-                <div>{gwnode.proxyTitle}</div>
-                <div class="font-mono text-xs text-gray-500 dark:text-gray-400">{gwnode.source}</div>
+                <div>{proxyTitle || 'Not specified'}</div>
+                
+                {#if proxyListen}
+                    <div class="font-mono text-xs text-gray-500 dark:text-gray-400">
+                        Listen: {proxyListen}
+                    </div>
+                {/if}
+                
+                {#if proxyTls}
+                    <div class="text-xs text-green-600 dark:text-green-400">
+                        TLS Enabled
+                    </div>
+                {/if}
+                
+                {#if proxyDomain}
+                    <div class="font-mono text-xs text-gray-500 dark:text-gray-400">
+                        Domain: {proxyDomain}
+                    </div>
+                {/if}
             </div>
         </div>
         
