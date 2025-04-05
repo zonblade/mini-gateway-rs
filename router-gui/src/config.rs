@@ -1,17 +1,11 @@
+use std::collections::HashMap;
+
 use mini_config::Configure;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Configure)]
-pub enum HtmlTemplate {
-    GlobCSSAssets,
-    GlobJSAssets,
-    GlobLayout,
-    GlobHead,
-    Home,
-    Login,
-    SettingProxy,
-    SettingGwNode,
-    SettingGateway,
+pub enum BuildHtml {
+    Content,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,59 +14,46 @@ pub struct HtmlAssets {
     pub content: String,
 }
 
-pub fn init(){
-    // let mut css_assets: Vec<HtmlAssets> = vec![];
-    // let mut js_assets: Vec<HtmlAssets> = vec![];
-    // let mut html_assets: Vec<HtmlAssets> = vec![];
+// Change the return type to use Vec<u8> instead of String
+pub fn init() -> HashMap<String, Vec<u8>> {
+    let project_path = std::env::current_dir().unwrap();
+    let path = project_path.join("router-gui/web-gui/build");
+    println!("project_path: {:?}", path);
 
-    // // Compile-time embedding of CSS files
-    // // Add your CSS files here
-    // css_assets.push(HtmlAssets {
-    //     filename: "layout.css".to_string(),
-    //     content: include_str!("../interface/css/layout.css").to_string(),
-    // });
-    // css_assets.push(HtmlAssets {
-    //     filename: "component.css".to_string(),
-    //     content: include_str!("../interface/css/component.css").to_string(),
-    // });
-    // css_assets.push(HtmlAssets {
-    //     filename: "tailwind.css".to_string(),
-    //     content: include_str!("../interface/css/tailwind/output.css").to_string(),
-    // });
-    // // Add more CSS files as needed
+    let mut all_paths = Vec::new();
 
-    // // Compile-time embedding of JS files
-    // // Add your JS files here
-    // // js_assets.push(HtmlAssets {
-    // //     filename: "main.js".to_string(),
-    // //     content: include_str!("../interface/assets/js/main.js").to_string(),
-    // // });
-    // // Add more JS files as needed
+    if path.exists() {
+        all_paths = visit_dirs(&path).unwrap_or_default();
+    }
 
-    // // Compile-time embedding of HTML files
-    // // Add your HTML files here
-    // html_assets.push(HtmlAssets {
-    //     filename: "layout-login.html".to_string(),
-    //     content: include_str!("../interface/html-glob/layout-login.html").to_string(),
-    // });
-    // html_assets.push(HtmlAssets {
-    //     filename: "layout-dashboard.html".to_string(),
-    //     content: include_str!("../interface/html-glob/layout-dashboard.html").to_string(),
-    // });
-    // html_assets.push(HtmlAssets {
-    //     filename: "home.html".to_string(),
-    //     content: include_str!("../interface/html/home.html").to_string(),
-    // });
-    // html_assets.push(HtmlAssets {
-    //     filename: "login.html".to_string(),
-    //     content: include_str!("../interface/html/login.html").to_string(),
-    // });
-    // // Add more HTML files as needed
+    let str_path = path.to_str().unwrap_or_default();
 
-    // HtmlTemplate::GlobCSSAssets.xset(css_assets);
-    // HtmlTemplate::GlobJSAssets.xset(js_assets);
-    // HtmlTemplate::GlobLayout.xset(html_assets);
+    let assets: HashMap<String, Vec<u8>> = all_paths
+        .iter()
+        .map(|p| {
+            let clean = p.clone().replace(str_path, "");
+            (
+                clean.to_string(),
+                std::fs::read(p).unwrap_or_default(), // Use read() instead of read_to_string()
+            )
+        })
+        .collect();
 
-    // // The base_dir is not needed anymore since we're not reading files at runtime
-    // println!("Assets embedded at build time");
+    assets
+}
+
+fn visit_dirs(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
+    let mut paths = Vec::new();
+    paths.push(dir.display().to_string());
+
+    if dir.is_dir() {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let sub_paths = visit_dirs(&path)?;
+            paths.extend(sub_paths);
+        }
+    }
+
+    Ok(paths)
 }
