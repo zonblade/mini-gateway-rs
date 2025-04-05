@@ -18,7 +18,6 @@ pub struct HtmlAssets {
 pub fn init() -> HashMap<String, Vec<u8>> {
     let project_path = std::env::current_dir().unwrap();
     let path = project_path.join("router-gui/web-gui/build");
-    println!("project_path: {:?}", path);
 
     let mut all_paths = Vec::new();
 
