@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { GwNode } from "$lib/types/gwnode";
+    import GatewayTableManager from "$lib/components/gateway/GatewayTableManager.svelte";
     
     export let gwnode: GwNode;
 </script>
@@ -46,4 +47,10 @@
             </div>
         </div>
     </div>
+    
+    <!-- Gateway Routing Rules Table -->
+    <GatewayTableManager 
+        gwnodeId={gwnode.id}
+        gwnodeTitle={gwnode.title}
+    />
 </div>

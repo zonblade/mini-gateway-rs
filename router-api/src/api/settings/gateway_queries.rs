@@ -43,9 +43,10 @@ pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
     // Check if the table structure is correct by trying to select the columns we need
-    let check_result = db.execute(
+    let check_result = db.query(
         "SELECT id, gwnode_id, pattern, target, priority FROM gateways LIMIT 1",
         [],
+        |_| Ok(()),
     );
     
     if check_result.is_err() {

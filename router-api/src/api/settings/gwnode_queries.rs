@@ -43,12 +43,19 @@ pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
     // Check if the table structure is correct by trying to select the columns we need
-    let check_result = db.execute(
+    let check_result = db.query(
         "SELECT id, proxy_id, title, alt_target FROM gateway_nodes LIMIT 1",
         [],
+        |_| Ok(()),
     );
     
     if check_result.is_err() {
+        match check_result {
+            Err(e)=>{
+                log::error!("Error checking gateway_nodes table structure: {}", e);
+            },
+            _=>{}
+        }
         // If there's an error, the table might not exist or has an incorrect structure
         // First try to drop the table if it exists
         let _ = db.execute("DROP TABLE IF EXISTS gateway_nodes", []);

@@ -60,12 +60,14 @@
 {#if isLoading}
     <LoadingSpinner />
 {:else if isLoggedIn}
-    <div class="py-8 flex flex-col items-center">
+    <div class="py-8 px-4 flex flex-col items-center">
         <div class="w-full max-w-[900px]">
             <BackButton text="Back to Gateway Nodes" />
 
             {#if gwnode}
                 <GwNodeDetail {gwnode} />
+
+                <!-- under this should be table of gateway -->
             {:else}
                 <GwNodeNotFound />
             {/if}
