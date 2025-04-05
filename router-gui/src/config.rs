@@ -1,12 +1,5 @@
 use std::collections::HashMap;
-
-use mini_config::Configure;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Configure)]
-pub enum BuildHtml {
-    Content,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HtmlAssets {
