@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  router-client-builder:
+    build:
+      context: ../../  # Points to the root of the project where Cargo.toml is located
+      dockerfile: ./build-docker/client/Dockerfile
+    volumes:
+      - ./output:/host-output  # Maps ./output folder to the /host-output in container
+    environment:
+      - CARGO_TERM_COLOR=always

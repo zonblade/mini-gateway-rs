@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use include_dir::{include_dir, Dir};
+
+// Include the web-gui/build directory at compile time
+static WEB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/web-gui/build");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HtmlAssets {
@@ -7,45 +11,39 @@ pub struct HtmlAssets {
     pub content: String,
 }
 
-// Change the return type to use Vec<u8> instead of String
 pub fn init() -> HashMap<String, Vec<u8>> {
-    let project_path = std::env::current_dir().unwrap();
-    let path = project_path.join("router-gui/web-gui/build");
-
-    let mut all_paths = Vec::new();
-
-    if path.exists() {
-        all_paths = visit_dirs(&path).unwrap_or_default();
-    }
-
-    let str_path = path.to_str().unwrap_or_default();
-
-    let assets: HashMap<String, Vec<u8>> = all_paths
-        .iter()
-        .map(|p| {
-            let clean = p.clone().replace(str_path, "");
-            (
-                clean.to_string(),
-                std::fs::read(p).unwrap_or_default(), // Use read() instead of read_to_string()
-            )
-        })
-        .collect();
-
+    let mut assets: HashMap<String, Vec<u8>> = HashMap::new();
+    
+    // Process all files in the embedded directory
+    process_dir(&WEB_DIR, "", &mut assets);
+    
     assets
 }
 
-fn visit_dirs(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
-    let mut paths = Vec::new();
-    paths.push(dir.display().to_string());
-
-    if dir.is_dir() {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let sub_paths = visit_dirs(&path)?;
-            paths.extend(sub_paths);
+// Recursively process directories and files
+fn process_dir(dir: &Dir, path_prefix: &str, assets: &mut HashMap<String, Vec<u8>>) {
+    for entry in dir.entries() {
+        match entry {
+            include_dir::DirEntry::Dir(subdir) => {
+                let new_prefix = if path_prefix.is_empty() {
+                    format!("/{}", subdir.path().file_name().unwrap().to_string_lossy())
+                } else {
+                    format!("{}/{}", path_prefix, subdir.path().file_name().unwrap().to_string_lossy())
+                };
+                process_dir(subdir, &new_prefix, assets);
+            },
+            include_dir::DirEntry::File(file) => {
+                let file_name = file.path().file_name().unwrap().to_string_lossy();
+                let full_path = if path_prefix.is_empty() {
+                    format!("/{}", file_name)
+                } else {
+                    format!("{}/{}", path_prefix, file_name)
+                };
+                
+                // Read file content as bytes directly
+                let content = file.contents();
+                assets.insert(full_path, content.to_vec());
+            }
         }
     }
-
-    Ok(paths)
 }
