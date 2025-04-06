@@ -1,0 +1,17 @@
+[Unit]
+Description=GWRS Mini-Gateway API
+After=network.target gwrs-core.service
+Wants=network-online.target gwrs-core.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/router-api
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/gwrs/api.log
+StandardError=append:/var/log/gwrs/api.error.log
+
+[Install]
+WantedBy=multi-user.target

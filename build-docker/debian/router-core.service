@@ -1,0 +1,17 @@
+[Unit]
+Description=GWRS Mini-Gateway Core
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/router-core
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/gwrs/core.log
+StandardError=append:/var/log/gwrs/core.error.log
+
+[Install]
+WantedBy=multi-user.target

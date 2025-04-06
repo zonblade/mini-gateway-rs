@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  mini-gateway:
+    image: zonblade/mini-gateway:0.0.1-alpha.2-bookworm-slim
+    container_name: mini-gateway
+    privileged: true  # Required for systemd
+    restart: unless-stopped
+    network_mode: "host"  # Use host networking instead of bridge

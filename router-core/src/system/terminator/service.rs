@@ -11,7 +11,7 @@
 //! When received, this signal allows the application to perform cleanup operations
 //! before shutting down.
 
-use std::process::{id as pid, Command};
+use std::process::{id as pid, Command, exit};
 
 /// Initializes the termination process for the router.
 ///
@@ -20,17 +20,12 @@ use std::process::{id as pid, Command};
 /// This function triggers a self-termination of the current process by:
 /// 1. Obtaining the current process ID
 /// 2. Sending a SIGINT signal to itself using the system `kill` command
+/// 3. If the kill command isn't available, calls std::process::exit as a fallback
 ///
 /// # Signal Details
 ///
 /// SIGINT (Signal Interrupt) is used rather than SIGTERM or SIGKILL to allow
 /// the process to perform necessary cleanup operations before terminating.
-///
-/// # Panics
-///
-/// This function will panic if:
-/// - The `kill` command execution fails for any reason
-/// - The system cannot convert the process ID to a string
 ///
 /// # Examples
 ///
@@ -43,19 +38,30 @@ use std::process::{id as pid, Command};
 ///
 /// # Platform Compatibility
 ///
-/// This implementation uses the UNIX/Linux `kill` command and may not work
-/// on all platforms, particularly Windows systems.
+/// This implementation primarily uses the UNIX/Linux `kill` command, but has a
+/// fallback mechanism for platforms where it's not available (e.g., Windows).
 pub fn init(){
     let pid = pid();
     log::debug!(
         "Sample termination: sending SIGINT to process id: {}",
         pid
     );
-    // Use the `kill` command to send SIGINT to self.
-    let status = Command::new("kill")
+    
+    // Try to use the `kill` command to send SIGINT to self
+    match Command::new("kill")
         .arg("-SIGINT")
         .arg(pid.to_string())
-        .status()
-        .expect("Failed to execute kill command");
-    log::debug!("Kill command exited with status: {}", status);
+        .status() {
+            Ok(status) => {
+                log::debug!("Kill command exited with status: {}", status);
+            },
+            Err(e) => {
+                // Log the error but don't panic
+                log::warn!("Failed to execute kill command: {}", e);
+                log::info!("Using process::exit as fallback termination method");
+                
+                // Use exit as a fallback
+                exit(0);
+            }
+    }
 }
