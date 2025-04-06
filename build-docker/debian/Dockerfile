@@ -52,5 +52,5 @@ RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/lib/systemd/systemd"]
 
-# Expose all ports since this is a base image
-EXPOSE 1-65535
+# Expose API
+EXPOSE 24042

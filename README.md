@@ -54,6 +54,12 @@ Other Features
 
 api documentation can be found [here](https://github.com/zonblade/mini-gateway-rs/blob/main/router-api/README.md) , installation not yet ready but will be available both docker and apt-repository.
 
+## Getting Started
+
+for manual build guideline please refer to each dockerfiles in [here](https://github.com/zonblade/mini-gateway-rs/tree/main/build-docker) but we provide docker and binary:
+- for the docker you can get it [here on dockerhub](https://hub.docker.com/r/zonblade/mini-gateway/tags)
+- for the binary you can check our github release 
+
 ## Sub-repositories
 
 Each sub-repository within this project is designed to be standalone. This means that they are independent modules and should be run separately. Ensure that you configure and execute each sub-repo according to its specific requirements and purpose. Refer to the documentation within each sub-repo for detailed setup and usage instructions.

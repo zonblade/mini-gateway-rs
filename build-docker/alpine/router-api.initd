@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+
+name="gwrs-api"
+description="GWRS Mini-Gateway API"
+command="/usr/local/bin/router-api"
+command_args="--ip 0.0.0.0"
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="yes"
+output_log="/var/log/gwrs/api.log"
+error_log="/var/log/gwrs/api.error.log"
+
+depend() {
+    need net gwrs-core
+    after firewall
+}
+
+start_pre() {
+    checkpath -d -m 0755 -o root:root /var/log/gwrs
+}

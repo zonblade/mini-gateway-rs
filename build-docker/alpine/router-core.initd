@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+
+name="gwrs-core"
+description="GWRS Mini-Gateway Core"
+command="/usr/local/bin/router-core"
+command_args=""
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="yes"
+output_log="/var/log/gwrs/core.log"
+error_log="/var/log/gwrs/core.error.log"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath -d -m 0755 -o root:root /var/log/gwrs
+}
