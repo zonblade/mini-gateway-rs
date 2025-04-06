@@ -6,11 +6,19 @@
 <span style="font-size:16px;">A very fast yet easy to control Gatway!</span>
 </p>
 
+### Adopters
+
+> 👋 Using Mini-Router at your company? \
+> We’d love to know! If you're using Mini-Router in production, please reach out \
+> we’d be honored to list your logo on `gateway.rs` as a user. \
+> (open a PR to add your proof of usage and your logo!)
+
 ## Introduction
 
 ![img](assets/demo.gif)
 
 It is designed to be easy to use and configure, making it suitable for both small and large-scale applications. The mini-gateway is built with a focus on performance, security, and flexibility, allowing users to customize their routing and proxying needs.
+
 
 ## Architecture
 
