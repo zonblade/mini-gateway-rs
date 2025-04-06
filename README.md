@@ -13,6 +13,20 @@
 > we’d be honored to list your logo on `gateway.rs` as a user. \
 > (open a PR to add your proof of usage and your logo!)
 
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Architecture](#architecture)
+- [Roadmap](#roadmap)
+  - [Control Center](#control-center)
+  - [Core Features](#core-features)
+  - [Other Features](#other-features)
+- [Documentation](#documentation)
+- [Getting Started](#getting-started)
+- [Sub-repositories](#sub-repositories)
+  - [Sub-repository Overview](#sub-repository-overview)
+- [Connectivity and Network Requirements](#connectivity-and-network-requirements)
+
 ## Introduction
 
 ![img](assets/demo.gif)
@@ -30,14 +44,14 @@ The architecture of the mini-gateway is currently simple and straightforward.
 
 ## Roadmap
 
-Control Center
+### Control Center
 - [x] Web GUI - Control Panel
 - [ ] Web GUI - Live Monitoring
 - [ ] CLI - Control Panel
 - [ ] CLI - Live Monitoring (looks like htop)
 - [ ] Robust Logging integration
 
-Core Features
+### Core Features
 - [x] (proxy)   HTTP/HTTPS
 - [x] (proxy)   HTTP Host Lock
 - [x] (proxy)   Websocket
@@ -47,7 +61,7 @@ Core Features
 - [ ] Auto Renew SSL (let's encrypt)
 - [ ] Scripting Plugin
 
-Other Features
+### Other Features
 - for requested features please create issue.
 
 ## Documentation
