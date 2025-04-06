@@ -4,7 +4,8 @@ members = [
     "router-api",
     "router-cli",
     "router-core",
-    "router-gui"
+    "router-gui",
+    "router-client/src-tauri"
 ]
 
 [workspace.dependencies]
