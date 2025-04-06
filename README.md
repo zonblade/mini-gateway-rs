@@ -8,7 +8,7 @@
 
 ### Adopters
 
-> 👋 Using Mini-Router at your company? \
+> 👋 Using Mini-Gateway at your company? \
 > We’d love to know! If you're using Mini-Router in production, please reach out \
 > we’d be honored to list your logo on `gateway.rs` as a user. \
 > (open a PR to add your proof of usage and your logo!)
