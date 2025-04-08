@@ -41,11 +41,11 @@ impl DataRegistry {
         match std::fs::create_dir_all(&path) {
             Ok(_) => {
                 match std::fs::write(&pem_path, pem) {
-                    Ok(_) => log::info!("PEM file saved to {}", pem_path),
+                    Ok(_) => log::debug!("PEM file saved to {}", pem_path),
                     Err(e) => log::error!("Failed to save PEM file: {}", e),
                 }
                 match std::fs::write(&key_path, key) {
-                    Ok(_) => log::info!("Key file saved to {}", key_path),
+                    Ok(_) => log::debug!("Key file saved to {}", key_path),
                     Err(e) => log::error!("Failed to save Key file: {}", e),
                 }
             }

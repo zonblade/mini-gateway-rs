@@ -91,7 +91,7 @@ pub fn run_error_page_server(
         }
     };
 
-    log::info!("{} server listening on {}", server_type, bind_addr);
+    log::debug!("{} server listening on {}", server_type, bind_addr);
 
     // HTML content for the error page
     let html_content = "<!DOCTYPE html>\

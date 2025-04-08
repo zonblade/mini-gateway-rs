@@ -215,10 +215,10 @@ impl ServerApp for ProxyApp {
         mut io: Stream,
         _shutdown: &ShutdownWatch,
     ) -> Option<Stream> {
-        log::info!("");
-        log::info!("#-------------------------------------#");
-        log::info!("#           Incoming Request          #");
-        log::info!("#-------------------------------------#");
+        log::debug!("");
+        log::debug!("#-------------------------------------#");
+        log::debug!("#           Incoming Request          #");
+        log::debug!("#-------------------------------------#");
         let mut buf = [0; 8192]; // Increased buffer size for larger headers
         let n = match io.read(&mut buf).await {
             Ok(n) => n,
@@ -235,12 +235,12 @@ impl ServerApp for ProxyApp {
 
         let preview = String::from_utf8_lossy(&buf[..std::cmp::min(n, 200)]);
         let first_line = preview.lines().next().unwrap_or("Empty request");
-        log::info!("Request preview : {}", first_line);
+        log::debug!("Request preview : {}", first_line);
 
         // In your process_new implementation, modify the host extraction:
         // Determine if this is a TLS connection based on the first byte
         let is_tls = n > 0 && buf[0] == 0x16;
-        log::info!(
+        log::debug!(
             "Connection type : {}",
             if is_tls { "TLS" } else { "Plain HTTP" }
         );
@@ -258,7 +258,7 @@ impl ServerApp for ProxyApp {
             None
         };
 
-        log::info!("Host header     : {:?}", host_header);
+        log::debug!("Host header     : {:?}", host_header);
 
         // Check for WebSocket upgrade
         let is_websocket = !is_tls
@@ -266,7 +266,7 @@ impl ServerApp for ProxyApp {
                 .lines()
                 .any(|line| line.to_lowercase().contains("upgrade: websocket"));
         if is_websocket {
-            log::info!("Upgrade request : WebSocket");
+            log::debug!("Upgrade request : WebSocket");
         }
 
         // Extract host information
@@ -284,7 +284,7 @@ impl ServerApp for ProxyApp {
             })
         };
 
-        log::info!("Host info       : {:?}", host_info);
+        log::debug!("Host info       : {:?}", host_info);
 
         // Find matching redirect rule based on host info and TLS status
         let proxy_to = if let Some(host) = host_info {
@@ -319,7 +319,7 @@ impl ServerApp for ProxyApp {
         .unwrap_or_else(|| BasicPeer::new(DEFAULT_PORT.p500));
 
         let target_addr = format!("{}", proxy_to._address);
-        log::info!("Proxying to     : {} (TLS: {})", target_addr, is_tls);
+        log::debug!("Proxying to     : {} (TLS: {})", target_addr, is_tls);
 
         // Get the appropriate connector
         let connector = self.client_connectors.get(&target_addr).unwrap_or_else(|| {

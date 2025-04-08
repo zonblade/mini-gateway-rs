@@ -35,6 +35,7 @@
 //! 2. Store this data in a time-series format
 //! 3. Aggregate and analyze the data for reporting
 //! 4. Provide both real-time and historical views
+mod logs;
 
 use actix_web::web;
 
