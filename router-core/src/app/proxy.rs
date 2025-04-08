@@ -182,7 +182,13 @@ impl ProxyApp {
                 DuplexEvent::DownstreamRead(n) => {
                     log::info!("|ID:{}, STATUS:01, SIZE:_ |", id);
                     client_session.write_all(&upstream_buf[0..n]).await.unwrap();
-                    client_session.flush().await.unwrap();
+                    match client_session.flush().await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::error!("Error flushing data to upstream: {}", e);
+                            return;
+                        }
+                    };
                 }
                 DuplexEvent::UpstreamRead(n) => {
                     log::info!("|ID:{}, STATUS:11, SIZE:_ |", id);
@@ -190,7 +196,13 @@ impl ProxyApp {
                         .write_all(&downstream_buf[0..n])
                         .await
                         .unwrap();
-                    server_session.flush().await.unwrap();
+                    match server_session.flush().await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::error!("Error flushing data to downstream: {}", e);
+                            return;
+                        }
+                    };
                 }
             }
         }

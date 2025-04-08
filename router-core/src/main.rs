@@ -26,6 +26,8 @@ mod app;
 mod config;
 mod service;
 mod system;
+mod writer;
+
 
 /// Main entry point for the router core application.
 ///
@@ -47,11 +49,14 @@ mod system;
 /// changes and adjusting routing behavior dynamically.
 #[tokio::main]
 async fn main() {
-    // Configure logging
-    std::env::set_var("RUST_LOG", "info");
-    env_logger::init();
+    // Configure file-based logging
+    writer::writer_start();
+    // std::env::set_var("RUST_LOG", "info");
+    // env_logger::init();
 
-    log::debug!("Starting proxy server...");
+    
+    log::info!("Starting proxy server...");
+    
     // Create atomic flag to track server active state
     let active_state = Arc::new(AtomicBool::new(false));
 

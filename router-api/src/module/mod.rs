@@ -18,3 +18,4 @@
 //! foundational capabilities that other parts of the system can build upon.
 
 pub mod database;
+pub mod fs_watch;
