@@ -6,7 +6,6 @@ use std::time::Duration;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::app::gateway;
 use crate::config::{self, GatewayNode, ProxyNode};
 use crate::system::protocol::types::ConnectionParams;
 use crate::system::protocol::ServiceProtocol;
