@@ -98,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("RUST_LOG", "info");
     env_logger::init();
     config::init();
+    module::fs_watch::start_log_watcher();
     
     // Parse command line arguments using clap
     let matches = clap::Command::new("Router API")

@@ -9,18 +9,18 @@ use std::env;
 #[cfg(target_os = "macos")]
 fn get_default_log_dir() -> String {
     dirs::home_dir()
-        .map(|p| p.join("Library/Logs/gwrs").to_string_lossy().to_string())
-        .unwrap_or_else(|| String::from("/tmp/gwrs"))
+        .map(|p| p.join("Library/Logs/gwrs/core.log").to_string_lossy().to_string())
+        .unwrap_or_else(|| String::from("/tmp/gwrs/core.log"))
 }
 
 #[cfg(target_os = "linux")]
 fn get_default_log_dir() -> String {
-    String::from("/var/log/gwrs")
+    String::from("/var/log/gwrs/core.log")
 }
 
 #[cfg(target_os = "windows")]
 fn get_default_log_dir() -> String {
-    String::from("C:\\ProgramData\\gwrs")
+    String::from("C:\\ProgramData\\gwrs\\core.log")
 }
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(10);
@@ -71,11 +71,20 @@ impl LogWatcher {
         // Try to open the file, create it if it doesn't exist
         let file = OpenOptions::new()
             .read(true)
+            .write(true) // Add write permission to ensure proper file creation
             .create(true)
             .open(&self.path)?;
+            
+        // Get file metadata to check size
+        let metadata = file.metadata()?;
         
         let mut reader = BufReader::new(file);
-        let mut pos = reader.seek(SeekFrom::End(0))?;
+        // Only seek if the file has content
+        let mut pos = if metadata.len() > 0 {
+            reader.seek(SeekFrom::End(0))?
+        } else {
+            0
+        };
         
         loop {
             // Check if file still exists
@@ -85,7 +94,12 @@ impl LogWatcher {
             
             // Try to read new content
             let mut buffer = String::new();
-            let new_pos = reader.seek(SeekFrom::Current(0))?;
+            // Only seek if we have a valid position
+            let new_pos = if pos > 0 {
+                reader.seek(SeekFrom::Current(0))?
+            } else {
+                0
+            };
             
             if new_pos < pos {
                 // File was truncated, reset position
@@ -107,8 +121,10 @@ impl LogWatcher {
                     }
                 }
                 
-                // Print the new log line directly
-                println!("{}", buffer);
+                // Only print the log line if it contains the "|ID:" pattern
+                if buffer.contains("|ID:") {
+                    println!("{}", buffer);
+                }
             } else {
                 // No new data, sleep for a short period
                 thread::sleep(POLL_INTERVAL);
