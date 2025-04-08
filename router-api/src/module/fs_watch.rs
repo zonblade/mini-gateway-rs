@@ -5,11 +5,23 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::env;
 
-// Default log paths for different platforms
+
 #[cfg(target_os = "macos")]
-const DEFAULT_LOG_PATH: &str = "~/Library/Logs/gwrs/core.error.log";
-#[cfg(not(target_os = "macos"))]
-const DEFAULT_LOG_PATH: &str = "/var/log/gwrs/core.error.log";
+fn get_default_log_dir() -> String {
+    dirs::home_dir()
+        .map(|p| p.join("Library/Logs/gwrs").to_string_lossy().to_string())
+        .unwrap_or_else(|| String::from("/tmp/gwrs"))
+}
+
+#[cfg(target_os = "linux")]
+fn get_default_log_dir() -> String {
+    String::from("/var/log/gwrs")
+}
+
+#[cfg(target_os = "windows")]
+fn get_default_log_dir() -> String {
+    String::from("C:\\ProgramData\\gwrs")
+}
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -21,7 +33,7 @@ pub struct LogWatcher {
 impl LogWatcher {
     pub fn new() -> Self {
         // Resolve the log path
-        let log_path = env::var("GWRS_LOG_PATH").unwrap_or_else(|_| DEFAULT_LOG_PATH.to_string());
+        let log_path = env::var("GWRS_LOG_PATH").unwrap_or_else(|_| get_default_log_dir());
         
         // Expand tilde if present (for macOS home directory)
         let expanded_path = if log_path.starts_with("~/") {
