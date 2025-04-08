@@ -62,11 +62,11 @@ impl ServiceHandler {
     /// * `name` - Unique identifier for the service
     /// * `service` - The service implementation boxed as a trait object
     pub fn add_service(&mut self, name: String, service: Box<dyn ServiceProtocol>) {
-        info!("Registering service: {}", name);
+       log::debug!("Registering service: {}", name);
         let current_count = self.services.len();
         self.services.insert(name.clone(), service);
         let new_count = self.services.len();
-        info!("Service '{}' registered successfully. Services count: {} -> {}", name, current_count, new_count);
+       log::debug!("Service '{}' registered successfully. Services count: {} -> {}", name, current_count, new_count);
     }
 
     /// Register multiple services at once
@@ -79,11 +79,11 @@ impl ServiceHandler {
     ///
     /// * `services_with_names` - A vector of name-service pairs to register
     pub fn add_services(&mut self, services_with_names: Vec<(String, Box<dyn ServiceProtocol>)>) {
-        info!("Registering {} services", services_with_names.len());
+       log::debug!("Registering {} services", services_with_names.len());
         for (name, service) in services_with_names {
             self.add_service(name, service);
         }
-        info!("All services registered. Total count: {}", self.services.len());
+       log::debug!("All services registered. Total count: {}", self.services.len());
     }
 
     /// Retrieve a service by name
@@ -106,7 +106,7 @@ impl ServiceHandler {
         } else if !self.services.contains_key(name) {
             warn!("Service '{}' not found. Available services: {:?}", name, keys);
         } else {
-            info!("Service '{}' found. Total services available: {}", name, self.services.len());
+           log::debug!("Service '{}' found. Total services available: {}", name, self.services.len());
         }
         self.services.get(name)
     }
@@ -133,11 +133,11 @@ impl ServiceHandler {
     /// - Pre-warm caches
     /// - Set up health checks
     pub fn join(&self) {
-        info!("Service handler started with {} services", self.services.len());
+       log::debug!("Service handler started with {} services", self.services.len());
         
         // Log registered services
         for name in self.services.keys() {
-            info!("Active service: {}", name);
+           log::debug!("Active service: {}", name);
         }
     }
 }
@@ -165,9 +165,9 @@ pub type SharedServiceHandler = Arc<RwLock<ServiceHandler>>;
 ///
 /// A SharedServiceHandler (Arc<RwLock<ServiceHandler>>) ready to register services
 pub fn init() -> SharedServiceHandler {
-    info!("Initializing service handler");
+   log::debug!("Initializing service handler");
     let handler = Arc::new(RwLock::new(ServiceHandler::new()));
-    info!("Service handler initialized successfully");
+   log::debug!("Service handler initialized successfully");
     handler
 }
 

@@ -63,7 +63,7 @@ async fn process_gate_connection(
     
     // Log connection parameters
     if !params.service.is_empty() {
-        log::debug!("Connected to service: {}, action: {}", params.service, params.action);
+        log::info!("Connected to service: {}, action: {}", params.service, params.action);
     }
     
     // Process messages in a loop
@@ -213,7 +213,7 @@ pub async fn handle_connection(
     let handshake = String::from_utf8_lossy(&buffer[..n]);
     
     if handshake.starts_with(&protocol_prefix) {
-        log::debug!("Received valid protocol handshake: {}", handshake);
+        log::info!("Received valid protocol handshake: {}", handshake);
         
         // Extract connection parameters from handshake
         let params = parse_connection_params(&handshake, &protocol_prefix);

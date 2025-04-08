@@ -67,6 +67,7 @@ impl DataRegistry {
             Ok(data) => {
                 let mut data_node = Vec::new();
                 for node in data {
+                    log::debug!("Parsed proxy data: {:#?}", node.clone());
                     let mut tls_key = None;
                     let mut tls_pem = None;
                     if node.tls {
@@ -138,7 +139,7 @@ impl ServiceProtocol for DataRegistry {
         params: &ConnectionParams,
     ) -> io::Result<()> {
         let request_str = String::from_utf8_lossy(buffer);
-        info!("Received request: {}", request_str);
+       log::debug!("Received request: {}", request_str);
         let action = &params.action;
 
         let response = match (action.as_str(), request_str.as_ref()) {
@@ -198,7 +199,7 @@ impl ServiceProtocol for DataRegistry {
             None => "no metrics".to_string(),
         };
 
-        info!(
+       log::debug!(
             "Request [{}]: service={}, action={}, status={}, metrics=[{}]",
             self.name, service, action, status_str, metrics_info
         );

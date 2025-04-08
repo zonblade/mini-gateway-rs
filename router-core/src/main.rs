@@ -48,7 +48,7 @@ mod system;
 #[tokio::main]
 async fn main() {
     // Configure logging
-    std::env::set_var("RUST_LOG", "info");
+    std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
     
     log::debug!("Starting proxy server...");

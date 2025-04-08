@@ -186,5 +186,28 @@ export const gwnodeService = {
             console.error(`Error deleting gateway node ${id}:`, error);
             throw error;
         }
+    },
+    
+    /**
+     * Sync gateway nodes with the server
+     * @returns Promise with the result of the synchronization
+     */
+    async syncGatewayNodes(): Promise<{ status: string, message: string }> {
+        try {
+            const baseUrl = getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/sync/gateway`, {
+                method: 'POST',
+                headers: getHeaders()
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to sync gateway nodes: ${response.statusText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error syncing gateway nodes:', error);
+            throw error;
+        }
     }
 };

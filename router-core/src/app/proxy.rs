@@ -139,6 +139,9 @@ impl ProxyApp {
     async fn duplex(&self, mut server_session: Stream, mut client_session: Stream) {
         let mut upstream_buf = [0; 8192];
         let mut downstream_buf = [0; 8192];
+        // create identifier id
+        let id = client_session.id();
+
         loop {
             let downstream_read = server_session.read(&mut upstream_buf);
             let upstream_read = client_session.read(&mut downstream_buf);
@@ -148,6 +151,7 @@ impl ProxyApp {
                     event = match n {
                         Ok(n) => DuplexEvent::DownstreamRead(n),
                         Err(e) => {
+                            log::info!("|ID:{}, STATUS:00, SIZE:_ |", id);
                             log::error!("Error reading from downstream: {}", e);
                             return;
                         }
@@ -157,6 +161,7 @@ impl ProxyApp {
                     event = match n {
                         Ok(n) => DuplexEvent::UpstreamRead(n),
                         Err(e) => {
+                            log::info!("|ID:{}, STATUS:10, SIZE:_ |", id);
                             log::error!("Error reading from upstream: {}", e);
                             return;
                         }
@@ -165,18 +170,22 @@ impl ProxyApp {
             }
             match event {
                 DuplexEvent::DownstreamRead(0) => {
+                    log::info!("|ID:{}, STATUS:00, SIZE:_ |", id);
                     debug!("downstream session closing");
                     return;
                 }
                 DuplexEvent::UpstreamRead(0) => {
+                    log::info!("|ID:{}, STATUS:10, SIZE:_ |", id);
                     debug!("upstream session closing");
                     return;
                 }
                 DuplexEvent::DownstreamRead(n) => {
+                    log::info!("|ID:{}, STATUS:01, SIZE:_ |", id);
                     client_session.write_all(&upstream_buf[0..n]).await.unwrap();
                     client_session.flush().await.unwrap();
                 }
                 DuplexEvent::UpstreamRead(n) => {
+                    log::info!("|ID:{}, STATUS:11, SIZE:_ |", id);
                     server_session
                         .write_all(&downstream_buf[0..n])
                         .await
@@ -361,6 +370,8 @@ impl ServerApp for ProxyApp {
                 return None;
             }
         };
+
+        log::info!("|ID:{}, STATUS:99, SIZE:0 |", io.id());
 
         self.duplex(io, client_session).await;
         None

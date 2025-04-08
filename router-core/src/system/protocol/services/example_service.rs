@@ -132,7 +132,7 @@ impl ServiceProtocol for ExampleService {
             None => "no metrics".to_string(),
         };
         
-        info!(
+       log::debug!(
             "Request [{}]: service={}, action={}, status={}, metrics=[{}]",
             self.name, service, action, status_str, metrics_info
         );

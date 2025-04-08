@@ -118,5 +118,23 @@ export const gwnodeActions = {
             console.error(`Failed to delete gateway node ${id}:`, error);
             throw error;
         }
+    },
+
+    /**
+     * Sync gateway nodes with the server
+     * @returns A message with the result of the synchronization
+     */
+    async syncGatewayNodes(): Promise<{ status: string, message: string }> {
+        try {
+            const result = await gwnodeService.syncGatewayNodes();
+            
+            // Reload the nodes after sync to ensure the store is up to date
+            await gwnodeActions.loadAllGwNodes();
+            
+            return result;
+        } catch (error) {
+            console.error("Failed to sync gateway nodes:", error);
+            throw error;
+        }
     }
 };

@@ -9,7 +9,6 @@
     import GwNodeModal from "./GwNodeModal.svelte";
     import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
     import SearchInput from "$lib/components/common/SearchInput.svelte";
-    import PageHeader from "$lib/components/common/PageHeader.svelte";
     import EmptyState from "$lib/components/common/EmptyState.svelte";
     import Button from "$lib/components/common/Button.svelte";
     
@@ -141,6 +140,20 @@
         }
     }
     
+    // Function to sync gateway nodes with the server
+    async function syncGatewayNodes(): Promise<void> {
+        try {
+            isLoading = true;
+            const result = await gwnodeActions.syncGatewayNodes();
+            isLoading = false;
+            alert(result.message);
+        } catch (error: unknown) {
+            console.error("Error syncing gateway nodes:", error);
+            alert(`Failed to sync gateway nodes: ${error instanceof Error ? error.message : String(error)}`);
+            isLoading = false;
+        }
+    }
+    
     // Close modal
     function closeModal(): void {
         showGwNodeModal = false;
@@ -148,12 +161,23 @@
 </script>
 
 <div class="w-full max-w-[900px]">
-    <PageHeader 
-        title="Gateway Nodes" 
-        hasAction={true} 
-        actionLabel="Add Gateway Node" 
-        onAction={addGwNode} 
-    />
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Gateway Nodes</h1>
+        <div class="flex space-x-2">
+            <Button 
+                variant="secondary" 
+                onClick={syncGatewayNodes}
+            >
+                Sync Nodes
+            </Button>
+            <Button 
+                variant="primary" 
+                onClick={addGwNode}
+            >
+                Add Gateway Node
+            </Button>
+        </div>
+    </div>
     
     <!-- Search input -->
     <div class="mb-6">

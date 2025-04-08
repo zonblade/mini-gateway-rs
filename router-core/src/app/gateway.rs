@@ -155,7 +155,7 @@ impl GatewayApp {
             // First use a read lock to check if update is needed
             let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
             if *saved_id_guard == config_id {
-                info!("No changes in routing rules, skipping population");
+                log::debug!("No changes in routing rules, skipping population");
                 return;
             }
         }
@@ -185,7 +185,7 @@ impl GatewayApp {
         }
 
         if redirects.is_empty() {
-            info!("No redirect rules found");
+           log::debug!("No redirect rules found");
             return;
         }
 
@@ -339,7 +339,7 @@ impl ProxyHttp for GatewayApp {
         let port_str = DEFAULT_PORT.p404;
         let parts: Vec<&str> = port_str.split(':').collect();
         let addr = (parts[0], parts[1].parse::<u16>().unwrap_or(80));
-        info!("No matching rules, connecting to default {addr:?}");
+       log::debug!("No matching rules, connecting to default {addr:?}");
         let peer = Box::new(HttpPeer::new(addr, false, "".to_string()));
         Ok(peer)
     }
@@ -369,7 +369,7 @@ impl ProxyHttp for GatewayApp {
         let response_code = session
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
-        info!("Response code: {}", response_code);
+       log::debug!("Response code: {}", response_code);
         // Insert any additional metric logging here (e.g., Prometheus counters)
     }
 }
