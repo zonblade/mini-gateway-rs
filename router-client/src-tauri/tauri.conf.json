@@ -12,8 +12,8 @@
   "app": {
     "windows": [
       {
-        "title": "router-client",
-        "width": 800,
+        "title": "Mini Gateway 0.0.1-Alpha.3",
+        "width": 900,
         "height": 700,
         "resizable": true
       }
