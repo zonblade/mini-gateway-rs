@@ -88,7 +88,7 @@ pub fn init() {
 
             // Create a gateway service for each address
             for addr in addr.iter() {
-                log::debug!("Creating gateway service for address: {}", addr);
+                log::info!("Creating gateway service for address: {}", addr);
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
                     &my_server.configuration,
                     GatewayApp::new(addr),
@@ -96,7 +96,7 @@ pub fn init() {
                 my_gateway_service.add_tcp(addr);
                 my_gateway.push(Box::new(my_gateway_service));
             }
-
+            log::info!("Gateway services created: {}", my_gateway.len());
             // Add all gateway services to the server and run
             my_server.add_services(my_gateway);
             my_server.run(RunArgs::default());

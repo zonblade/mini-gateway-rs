@@ -202,8 +202,6 @@ impl GatewayApp {
 
         // Sort by priority
         source_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
-        
-        log::debug!("Redirect rules for {}: {:#?}", self.source, source_rules);
 
         // Now acquire write locks to update the data
         {

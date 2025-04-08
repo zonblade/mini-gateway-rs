@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use log::info;
 use serde_json::json;
 use std::collections::HashMap;
 use std::thread::sleep;
@@ -120,9 +119,8 @@ impl DataRegistry {
             }
         };
         log::debug!("Parsed gateway data: {:#?}", gateway_data);
-        let gateway_string = serde_json::to_string(&gateway_data).unwrap_or_default();
         config::RoutingData::GatewayID.set(&checksum);
-        config::RoutingData::GatewayRouting.set(&gateway_string);
+        config::RoutingData::GatewayRouting.xset(&gateway_data);
         sleep(Duration::from_millis(500));
         terminator::service::init();
         Ok(())
