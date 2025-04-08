@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use log::info;
 use serde_json::json;
 use std::collections::HashMap;
+use std::thread::sleep;
+use std::time::Duration;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -117,8 +119,12 @@ impl DataRegistry {
                 return Err(e);
             }
         };
-        config::RoutingData::GatewayID.xset(checksum);
-        config::RoutingData::GatewayRouting.xset(gateway_data);
+        log::debug!("Parsed gateway data: {:#?}", gateway_data);
+        let gateway_string = serde_json::to_string(&gateway_data).unwrap_or_default();
+        config::RoutingData::GatewayID.set(&checksum);
+        config::RoutingData::GatewayRouting.set(&gateway_string);
+        sleep(Duration::from_millis(500));
+        terminator::service::init();
         Ok(())
     }
 }

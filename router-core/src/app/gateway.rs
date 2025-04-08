@@ -61,7 +61,7 @@ use crate::config::{self, GatewayNode, DEFAULT_PORT};
 /// * `alt_listen` - The address:port string identifying which listener this rule belongs to
 /// * `alt_target` - Destination backend service for matched requests
 /// * `priority` - Rule evaluation priority (higher values are processed first)
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct RedirectRule {
     pattern: Regex,
     target: String,
@@ -140,6 +140,7 @@ impl GatewayApp {
     ///
     /// A new `GatewayApp` instance with configured and prioritized redirect rules
     pub fn new(alt_source: &str) -> Self {
+        log::debug!("Creating GatewayApp with source: {}", alt_source);
         let app = GatewayApp {
             source: alt_source.to_string(),
         };
@@ -148,8 +149,11 @@ impl GatewayApp {
     }
 
     fn populate(&self) {
+        log::debug!("Populating redirect rules for source: {}", self.source);
         // Get read access to check if we need to update
         let config_id = config::RoutingData::GatewayID.get();
+
+        log::debug!("Current config ID: {}", config_id);
         
         {
             // First use a read lock to check if update is needed
@@ -160,15 +164,14 @@ impl GatewayApp {
             }
         }
 
+        log::debug!("Updating redirect rules for source: {}", self.source);
+
         let node = config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
         let mut redirects: Vec<RedirectRule> = vec![];
 
-        while let Some(node) = node.clone() {
-            if node.is_empty() {
-                break;
-            }
-
-            for rule in node {
+        // Process gateway rules if they exist
+        if let Some(rules) = node {
+            for rule in rules {
                 let pattern = Regex::new(&rule.path_listen).unwrap();
                 let target = rule.path_target.clone();
                 let alt_listen = rule.addr_listen.clone();
@@ -184,6 +187,8 @@ impl GatewayApp {
             }
         }
 
+        log::debug!("Redirect rules loaded: {}", redirects.len());
+
         if redirects.is_empty() {
            log::debug!("No redirect rules found");
             return;
@@ -198,6 +203,8 @@ impl GatewayApp {
         // Sort by priority
         source_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
         
+        log::debug!("Redirect rules for {}: {:#?}", self.source, source_rules);
+
         // Now acquire write locks to update the data
         {
             // Lock the REDIRECT_RULES for writing
