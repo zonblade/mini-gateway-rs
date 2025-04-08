@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use crate::app::gateway;
 use crate::config::{self, GatewayNode, ProxyNode};
 use crate::system::protocol::types::ConnectionParams;
 use crate::system::protocol::ServiceProtocol;
@@ -119,10 +120,59 @@ impl DataRegistry {
             }
         };
         log::debug!("Parsed gateway data: {:#?}", gateway_data);
+
+        let gateway_existing = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
+            Some(data) => data,
+            None => {
+                vec![]
+            }
+        };
+
+        // Get existing gateway addresses
+        let gateway_existing: Vec<String> = gateway_existing
+            .iter()
+            .map(|x| x.addr_listen.clone())
+            .collect();
+            
+        // Get incoming gateway addresses
+        let gateway_incoming: Vec<String> = gateway_data
+            .iter()
+            .map(|x| x.addr_listen.clone())
+            .collect();
+            
+        // Find addresses that are in existing but not in incoming (to be removed)
+        let addresses_to_remove: Vec<String> = gateway_existing.clone()
+            .into_iter()
+            .filter(|x| !gateway_incoming.contains(x))
+            .collect();
+            
+        // Find addresses that are in incoming but not in existing (to be added)
+        let addresses_to_add: Vec<String> = gateway_incoming
+            .iter()
+            .filter(|x| !gateway_existing.contains(x))
+            .cloned()
+            .collect();
+            
+        // Check if there are any changes
+        let has_changes = !addresses_to_remove.is_empty() || !addresses_to_add.is_empty();
+
         config::RoutingData::GatewayID.set(&checksum);
         config::RoutingData::GatewayRouting.xset(&gateway_data);
-        sleep(Duration::from_millis(500));
-        terminator::service::init();
+
+        if has_changes {
+            log::info!("Gateway configuration changes detected:");
+            if !addresses_to_remove.is_empty() {
+                log::info!("Addresses to remove: {:?}", addresses_to_remove);
+            }
+            if !addresses_to_add.is_empty() {
+                log::info!("Addresses to add: {:?}", addresses_to_add);
+            }
+            sleep(Duration::from_millis(500));
+            terminator::service::init();
+        } else {
+            log::info!("No changes in gateway configuration");
+        }
+        
         Ok(())
     }
 }
