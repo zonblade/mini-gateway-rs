@@ -33,6 +33,7 @@ use pingora::upstreams::peer::BasicPeer;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
+use std::time::{Duration, Instant};
 
 use crate::config::{self, GatewayNode, DEFAULT_PORT};
 
@@ -108,6 +109,8 @@ static SAVED_CONFIG_ID: LazyLock<RwLock<String>> =
 /// * `source` - The listener address this gateway instance is bound to
 pub struct GatewayApp {
     source: String,
+    last_check_time: RwLock<Instant>, // Use RwLock for thread-safe interior mutability
+    check_interval: Duration, // Interval between configuration checks
 }
 
 impl GatewayApp {
@@ -117,11 +120,6 @@ impl GatewayApp {
     /// by the specified listener address.
     ///
     /// ## Rule Configuration
-    ///
-    /// This method defines several built-in routing rules:
-    /// - `/favicon.ico` → redirects to a static file server
-    /// - `/api/...` → transforms to `/v2/api/...` and routes to API server
-    /// - `/ws...` → routes to a WebSocket server
     ///
     /// The rules are filtered by the `alt_source` parameter, so only rules matching
     /// the specified listener address will be active for this gateway instance.
@@ -142,6 +140,8 @@ impl GatewayApp {
         log::debug!("Creating GatewayApp with source: {}", alt_source);
         let app = GatewayApp {
             source: alt_source.to_string(),
+            last_check_time: RwLock::new(Instant::now()),
+            check_interval: Duration::from_secs(5), // Check config every 5 seconds
         };
         app.populate();
         app
@@ -226,6 +226,23 @@ impl GatewayApp {
             .cloned()
             .unwrap_or_default()
     }
+    
+    // Check if we should refresh configuration based on time interval and update the timestamp
+    fn should_check_config(&self) -> bool {
+        let now = Instant::now();
+        let should_update = {
+            let last_check = self.last_check_time.read().unwrap();
+            now.duration_since(*last_check) >= self.check_interval
+        };
+        
+        if should_update {
+            // Update the timestamp using RwLock interior mutability
+            let mut last_check = self.last_check_time.write().unwrap();
+            *last_check = now;
+        }
+        
+        should_update
+    }
 }
 
 #[async_trait]
@@ -286,8 +303,10 @@ impl ProxyHttp for GatewayApp {
     ) -> pingora::Result<Box<HttpPeer>> {
         let path = session.req_header().uri.path();
         
-        // Check for configuration changes and update if needed
-        self.populate();
+        // Only check for config changes periodically using our interior mutability pattern
+        if self.should_check_config() {
+            self.populate();
+        }
         
         // Get the rules for this source
         let rules = self.get_rules();
@@ -296,45 +315,59 @@ impl ProxyHttp for GatewayApp {
         for rule in &rules {
             if let Some(captures) = rule.pattern.captures(path) {
                 if let Some(alt_target) = &rule.alt_target {
-                    // Transform the path based on the rule's target pattern
-                    let mut new_path = rule.target.clone();
-
-                    // Replace capture groups like $1, $2, etc. in the target pattern
-                    for i in 1..captures.len() {
-                        if let Some(capture) = captures.get(i) {
-                            new_path = new_path.replace(&format!("${}", i), capture.as_str());
+                    // Start with target pattern - avoid clone by using a reference when possible
+                    let target_ref = &rule.target;
+                    
+                    // Check if we need replacements at all
+                    let needs_replacement = target_ref.contains('$');
+                    
+                    // Only allocate and process if replacements are needed
+                    let final_path = if needs_replacement {
+                        let mut new_path = target_ref.to_string();
+                        // Pre-compute capture group references to avoid multiple format! calls
+                        let mut replacements = Vec::with_capacity(captures.len() - 1);
+                        
+                        for i in 1..captures.len() {
+                            if let Some(capture) = captures.get(i) {
+                                replacements.push((format!("${}", i), capture.as_str()));
+                            }
                         }
-                    }
+                        
+                        // Do all replacements in one pass
+                        for (pattern, replacement) in replacements {
+                            new_path = new_path.replace(&pattern, replacement);
+                        }
+                        
+                        new_path
+                    } else {
+                        target_ref.to_string()
+                    };
+                    
+                    // Avoid cloning the URI if possible, work directly with the session's URI
+                    let uri_ref = &mut session.req_header_mut().uri;
 
-                    // Update the request path
-                    let uri = session.req_header_mut().uri.clone();
-                    let mut parts = uri.into_parts();
-
-                    // Get the original path and query
-                    let path_and_query = parts
-                        .path_and_query
-                        .unwrap_or_else(|| http::uri::PathAndQuery::from_static("/"));
-
-                    // Preserve the query string if there is one
-                    let query = path_and_query
-                        .query()
-                        .map(|q| format!("?{}", q))
-                        .unwrap_or_default();
-
-                    // Create the new path with the transformed path and original query
-                    let new_path_and_query = format!("{}{}", new_path, query);
+                    // Get the original query without allocating when possible
+                    let query_opt = uri_ref.query();
+                    
+                    // Construct the final path and query
+                    let new_path_and_query = if let Some(query) = query_opt {
+                        format!("{}?{}", final_path, query)
+                    } else {
+                        final_path
+                    };
+                    
+                    // Rebuild the URI with the new path and query
+                    let mut parts = uri_ref.clone().into_parts();
                     parts.path_and_query = Some(
                         http::uri::PathAndQuery::from_maybe_shared(new_path_and_query.into_bytes())
                             .expect("Valid URI"),
                     );
-
-                    // Update the URI in the request header
-                    session.req_header_mut().uri = http::Uri::from_parts(parts).expect("Valid URI");
-
-                    let addr = alt_target._address.to_string();
-                    let new_peer = HttpPeer::new(addr, false, "".to_string());
-                    let peer = Box::new(new_peer);
-                    return Ok(peer);
+                    *uri_ref = http::Uri::from_parts(parts).expect("Valid URI");
+                    
+                    // Create the peer directly with the correct String type
+                    let addr_str = alt_target._address.to_string();
+                    let new_peer = HttpPeer::new(addr_str, false, String::new());
+                    return Ok(Box::new(new_peer));
                 }
             }
         }
@@ -343,8 +376,8 @@ impl ProxyHttp for GatewayApp {
         let port_str = DEFAULT_PORT.p404;
         let parts: Vec<&str> = port_str.split(':').collect();
         let addr = (parts[0], parts[1].parse::<u16>().unwrap_or(80));
-       log::debug!("No matching rules, connecting to default {addr:?}");
-        let peer = Box::new(HttpPeer::new(addr, false, "".to_string()));
+        log::debug!("No matching rules, connecting to default {addr:?}");
+        let peer = Box::new(HttpPeer::new(addr, false, String::new()));
         Ok(peer)
     }
 
