@@ -27,7 +27,6 @@
 //! 5. Response from the backend is returned to the client
 
 use async_trait::async_trait;
-use log::info;
 use pingora::prelude::HttpPeer;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::BasicPeer;
