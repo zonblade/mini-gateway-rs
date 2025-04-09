@@ -1,10 +1,9 @@
-use std::fs::OpenOptions;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions, File};
+use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
+use std::path::{PathBuf, Path};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::env;
-
 
 #[cfg(target_os = "macos")]
 fn get_default_log_dir() -> String {
@@ -15,7 +14,7 @@ fn get_default_log_dir() -> String {
 
 #[cfg(target_os = "linux")]
 fn get_default_log_dir() -> String {
-    String::from("/var/log/gwrs/core.log")
+    String::from("/var/tmp/gwrs/log/core.log")
 }
 
 #[cfg(target_os = "windows")]
@@ -25,6 +24,12 @@ fn get_default_log_dir() -> String {
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+// Maximum log file size in bytes (3GB)
+const MAX_LOG_SIZE: u64 = 3 * 1024 * 1024 * 1024;
+
+// Maximum number of backup log files to keep
+const MAX_BACKUP_FILES: usize = 5;
 
 pub struct LogWatcher {
     path: PathBuf,
@@ -62,11 +67,105 @@ impl LogWatcher {
         Ok(())
     }
 
+    /// Checks if the log file exceeds the maximum size and rotates it if necessary
+    fn check_and_rotate_log(&self) -> io::Result<bool> {
+        // Check if the log file exists
+        if self.path.exists() {
+            // Get the file size
+            let metadata = fs::metadata(&self.path)?;
+            let file_size = metadata.len();
+            
+            // If the file size exceeds the maximum, rotate the log
+            if file_size >= MAX_LOG_SIZE {
+                println!("Log file size ({} bytes) exceeds limit ({}), rotating logs", 
+                    file_size, MAX_LOG_SIZE);
+                self.rotate_logs()?;
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
+    }
+
+    /// Rotates log files, creating backups with timestamps
+    fn rotate_logs(&self) -> io::Result<()> {
+        let log_dir = self.path.parent().unwrap_or(Path::new("."));
+        let file_stem = self.path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let extension = self.path.extension().unwrap_or_default().to_string_lossy().to_string();
+        
+        // Get timestamp for uniqueness
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        // Create backup filename with timestamp
+        let backup_filename = format!("{}.{}.{}", file_stem, timestamp, extension);
+        let backup_path = log_dir.join(backup_filename);
+        
+        println!("Rotating log file to: {}", backup_path.display());
+        
+        // Rename current log file to backup
+        fs::rename(&self.path, &backup_path)?;
+        
+        // Create a new empty log file
+        File::create(&self.path)?;
+        
+        // Clean up old log files if there are too many
+        self.cleanup_old_logs()?;
+        
+        Ok(())
+    }
+
+    /// Removes the oldest backup log files to keep only MAX_BACKUP_FILES
+    fn cleanup_old_logs(&self) -> io::Result<()> {
+        let log_dir = self.path.parent().unwrap_or(Path::new("."));
+        let file_stem = self.path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let extension = self.path.extension().unwrap_or_default().to_string_lossy().to_string();
+        
+        // Collect all backup log files
+        let mut backup_files: Vec<_> = fs::read_dir(log_dir)?
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        // Use simple string matching for our timestamp pattern
+                        return name.starts_with(&format!("{}.",&file_stem)) && 
+                               name.ends_with(&format!(".{}", &extension));
+                    }
+                }
+                false
+            })
+            .collect();
+        
+        // Sort by modification time (oldest first)
+        backup_files.sort_by(|a, b| {
+            let time_a = a.metadata().and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::now());
+            let time_b = b.metadata().and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::now());
+            time_a.cmp(&time_b)
+        });
+        
+        // Remove oldest files if we have too many
+        if backup_files.len() > MAX_BACKUP_FILES {
+            println!("Cleaning up old log files, keeping {} most recent backups", MAX_BACKUP_FILES);
+            for old_file in backup_files.iter().take(backup_files.len() - MAX_BACKUP_FILES) {
+                println!("Removing old log file: {}", old_file.path().display());
+                let _ = fs::remove_file(old_file.path());
+            }
+        }
+        
+        Ok(())
+    }
+
     fn watch_file(&self) -> io::Result<()> {
         // Ensure log directory exists
         self.ensure_log_directory()?;
         
         println!("Starting to watch log file: {}", self.path.display());
+        
+        // Check if we need to rotate the log before watching
+        self.check_and_rotate_log()?;
         
         // Try to open the file, create it if it doesn't exist
         let file = OpenOptions::new()
@@ -86,10 +185,23 @@ impl LogWatcher {
             0
         };
         
+        // Track when we last checked file size
+        let mut last_size_check = Instant::now();
+        let size_check_interval = Duration::from_secs(60); // Check size every minute
+        
         loop {
             // Check if file still exists
             if !self.path.exists() {
                 return Ok(());
+            }
+            
+            // Periodically check file size and rotate if necessary
+            if last_size_check.elapsed() >= size_check_interval {
+                if self.check_and_rotate_log()? {
+                    // File was rotated, need to reopen it
+                    return Ok(());
+                }
+                last_size_check = Instant::now();
             }
             
             // Try to read new content
@@ -122,9 +234,12 @@ impl LogWatcher {
                 }
                 
                 // Only print the log line if it contains the "|ID:" pattern
+                // traffic log
                 if buffer.contains("|ID:") {
                     println!("{}", buffer);
                 }
+
+                
             } else {
                 // No new data, sleep for a short period
                 thread::sleep(POLL_INTERVAL);

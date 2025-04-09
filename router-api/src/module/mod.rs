@@ -11,6 +11,11 @@
 //! - `database`: Provides database connection and management functionality, including
 //!   connection pooling, migrations, and query utilities.
 //!
+//! - `fs_watch`: Standard log file watcher with position-based tracking and file rotation.
+//!
+//! - `fs_watch_advanced`: Enhanced log file watcher with timestamp-based tracking, persistent
+//!   state, and complete log processing.
+//!
 //! ## Usage
 //!
 //! These modules are typically used as dependencies by higher-level components in
@@ -19,3 +24,4 @@
 
 pub mod database;
 pub mod fs_watch;
+pub mod fs_watch_advanced;

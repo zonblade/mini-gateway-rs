@@ -10,8 +10,8 @@ Group=root
 ExecStart=/usr/local/bin/router-api --ip 0.0.0.0
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/var/log/gwrs/api.log
-StandardError=append:/var/log/gwrs/api.error.log
+StandardOutput=append:/var/tmp/gwrs/log/api.log
+StandardError=append:/var/tmp/gwrs/log/api.error.log
 # Log rotation settings
 LogRateLimitBurst=10000
 LogsDirectory=gwrs

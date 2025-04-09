@@ -1,7 +1,7 @@
 # GWRS services logrotate configuration
 # Place this file at /etc/logrotate.d/gwrs
 
-/var/log/gwrs/*.log {
+/var/tmp/gwrs/log/*.log {
     size 50M
     rotate 4
     maxsize 200M

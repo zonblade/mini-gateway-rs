@@ -29,7 +29,7 @@ COPY --from=builder /app/target/release/router-api /usr/local/bin/router-api
 # Create necessary directories
 RUN mkdir -p /opt/gwrs/bin && \
     mkdir -p /opt/gwrs/conf && \
-    mkdir -p /var/log/gwrs
+    mkdir -p /var/tmp/gwrs/log
 
 # Create symlinks to binaries
 RUN ln -sf /usr/local/bin/router-core /opt/gwrs/bin/router-core && \

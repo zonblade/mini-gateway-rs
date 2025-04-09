@@ -70,8 +70,8 @@ impl ProxyApp {
         
         if let Some(os_err) = e.raw_os_error() {
             match os_err {
-                54 => log::info!("|ID:{}, STATUS:{}, CONNECTION_RESET |", id, status),
-                60 => log::info!("|ID:{}, STATUS:{}, OPERATION_TIMEOUT |", id, status),
+                54 => log::info!("|ID:{}, STATUS:{}, SIZE:0, COMMENT:CONNECTION_RESET |", id, status),
+                60 => log::info!("|ID:{}, STATUS:{}, SIZE:0, COMMENT:OPERATION_TIMEOUT |", id, status),
                 _ => log::error!("Error reading from {}: {} (code: {:?})", prefix, e, os_err),
             }
         } else {
@@ -82,7 +82,7 @@ impl ProxyApp {
     // Helper function to handle timeout
     fn handle_timeout(id: i32, is_upstream: bool) {
         let status = if is_upstream { "10" } else { "00" };
-        log::info!("|ID:{}, STATUS:{}, READ_TIMEOUT |", id, status);
+        log::info!("|ID:{}, STATUS:{}, SIZE:0, COMMENT:READ_TIMEOUT |", id, status);
     }
     
     // Helper function to handle write errors
@@ -94,7 +94,7 @@ impl ProxyApp {
         
         if let Some(os_err) = e.raw_os_error() {
             if os_err == 32 { // EPIPE - Broken pipe
-                log::info!("|ID:{}, STATUS:{}{}, BROKEN_PIPE |", id, status_base, status_suffix);
+                log::info!("|ID:{}, STATUS:{}{}, SIZE:0, COMMENT:BROKEN_PIPE |", id, status_base, status_suffix);
             } else {
                 log::error!("Error {} data to {}: {} (code: {:?})", operation, direction, e, os_err);
             }
@@ -221,17 +221,17 @@ impl ProxyApp {
             }
             match event {
                 DuplexEvent::DownstreamRead(0) => {
-                    log::info!("|ID:{}, STATUS:00, SIZE:_ |", id);
+                    log::info!("|ID:{}, STATUS:00, SIZE:0, COMMENT:- |", id);
                     debug!("downstream session closing");
                     return;
                 }
                 DuplexEvent::UpstreamRead(0) => {
-                    log::info!("|ID:{}, STATUS:10, SIZE:_ |", id);
+                    log::info!("|ID:{}, STATUS:10, SIZE:0, COMMENT:- |", id);
                     debug!("upstream session closing");
                     return;
                 }
                 DuplexEvent::DownstreamRead(n) => {
-                    log::info!("|ID:{}, STATUS:01, SIZE:{} |", id, n);
+                    log::info!("|ID:{}, STATUS:01, SIZE:{}, COMMENT:- |", id, n);
                     match client_session.write_all(&upstream_buf[0..n]).await {
                         Ok(_) => {},
                         Err(e) => {
@@ -248,7 +248,7 @@ impl ProxyApp {
                     };
                 }
                 DuplexEvent::UpstreamRead(n) => {
-                    log::info!("|ID:{}, STATUS:11, SIZE:{} |", id, n);
+                    log::info!("|ID:{}, STATUS:11, SIZE:{}, COMMENT:- |", id, n);
                     match server_session.write_all(&downstream_buf[0..n]).await {
                         Ok(_) => {},
                         Err(e) => {
@@ -442,8 +442,6 @@ impl ServerApp for ProxyApp {
                 return None;
             }
         };
-
-        log::info!("|ID:{}, STATUS:99, SIZE:0 |", io.id());
 
         self.duplex(io, client_session).await;
         None
