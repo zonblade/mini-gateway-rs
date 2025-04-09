@@ -8,7 +8,7 @@ if [ ! -d /run/openrc ]; then
 fi
 
 # Setup necessary directories for OpenRC
-mkdir -p /var/tmp/gwrs/log
+mkdir -p /tmp/gwrs/log
 mkdir -p /run
 mkdir -p /var/run
 
@@ -28,7 +28,7 @@ if [ "$1" = "/sbin/init" ]; then
     
     # Keep container running
     echo "Services started. Container is now running..."
-    exec tail -f /var/tmp/gwrs/log/core.log /var/tmp/gwrs/log/api.log
+    exec tail -f /tmp/gwrs/log/core.log /tmp/gwrs/log/api.log
 else
     # Run command as specified
     exec "$@"

@@ -10,8 +10,8 @@ Group=root
 ExecStart=/usr/local/bin/router-core
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/var/tmp/gwrs/log/core.log
-StandardError=append:/var/tmp/gwrs/log/core.error.log
+StandardOutput=append:/tmp/gwrs/log/core.log
+StandardError=append:/tmp/gwrs/log/core.error.log
 # Log rotation settings
 LogRateLimitBurst=10000
 LogsDirectory=gwrs

@@ -6,8 +6,8 @@ command="/usr/local/bin/router-api"
 command_args="--ip 0.0.0.0"
 pidfile="/run/${RC_SVCNAME}.pid"
 command_background="yes"
-output_log="/var/tmp/gwrs/log/api.log"
-error_log="/var/tmp/gwrs/log/api.error.log"
+output_log="/tmp/gwrs/log/api.log"
+error_log="/tmp/gwrs/log/api.error.log"
 
 depend() {
     need net gwrs-core
@@ -15,5 +15,5 @@ depend() {
 }
 
 start_pre() {
-    checkpath -d -m 0755 -o root:root /var/tmp/gwrs/log
+    checkpath -d -m 0755 -o root:root /tmp/gwrs/log
 }

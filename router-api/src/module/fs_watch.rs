@@ -14,7 +14,7 @@ fn get_default_log_dir() -> String {
 
 #[cfg(target_os = "linux")]
 fn get_default_log_dir() -> String {
-    String::from("/var/tmp/gwrs/log/core.log")
+    String::from("/tmp/gwrs/log/core.log")
 }
 
 #[cfg(target_os = "windows")]

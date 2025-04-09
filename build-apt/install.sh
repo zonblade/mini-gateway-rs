@@ -76,7 +76,7 @@ apt-get install -y curl wget gnupg ca-certificates
 # Create directory for GWRS
 mkdir -p /opt/gwrs/bin
 mkdir -p /opt/gwrs/conf
-mkdir -p /var/tmp/gwrs/log
+mkdir -p /tmp/gwrs/log
 
 # Download and install binaries
 echo "Downloading and installing binaries..."
@@ -123,8 +123,8 @@ Group=root
 ExecStart=/opt/gwrs/bin/router-core --config /opt/gwrs/conf/core.conf
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/var/tmp/gwrs/log/core.log
-StandardError=append:/var/tmp/gwrs/log/core.error.log
+StandardOutput=append:/tmp/gwrs/log/core.log
+StandardError=append:/tmp/gwrs/log/core.error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -143,8 +143,8 @@ Group=root
 ExecStart=/opt/gwrs/bin/router-api --config /opt/gwrs/conf/api.conf
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/var/tmp/gwrs/log/api.log
-StandardError=append:/var/tmp/gwrs/log/api.error.log
+StandardOutput=append:/tmp/gwrs/log/api.log
+StandardError=append:/tmp/gwrs/log/api.error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -176,7 +176,7 @@ if [ "$core_status" = "active" ] && [ "$api_status" = "active" ]; then
   echo "  sudo systemctl {start|stop|restart|status} gwrs-api"
 else
   echo "Warning: Services did not start properly."
-  echo "Please check the logs in /var/tmp/gwrs/log/"
+  echo "Please check the logs in /tmp/gwrs/log/"
   echo "  - Core status: ${core_status}"
   echo "  - API status: ${api_status}"
 fi
