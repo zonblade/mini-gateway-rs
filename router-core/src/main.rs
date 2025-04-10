@@ -54,7 +54,6 @@ async fn main() {
     writer::writer_start();
     // std::env::set_var("RUST_LOG", "info");
     // env_logger::init();
-
     
     log::info!("Starting proxy server...");
     

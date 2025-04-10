@@ -10,6 +10,7 @@
 //! * `protocol`: Implementation of the custom protocol for inter-service communication
 //! * `server`: Core server initialization and management functionality
 //! * `terminator`: Signal handling and graceful shutdown mechanisms
+//! * `listeners`: Module for managing network listeners
 //! 
 //! ## Responsibility
 //! 
@@ -20,3 +21,4 @@ pub mod default_page;
 pub mod protocol;
 pub mod server;
 pub mod terminator;
+pub mod listeners;
