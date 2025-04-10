@@ -8,18 +8,18 @@ use std::env;
 #[cfg(target_os = "macos")]
 fn get_default_log_dir() -> String {
     dirs::home_dir()
-        .map(|p| p.join("Library/Logs/gwrs/core.log").to_string_lossy().to_string())
-        .unwrap_or_else(|| String::from("/tmp/gwrs/core.log"))
+        .map(|p| p.join("Library/Logs/gwrs/core.proxy.log").to_string_lossy().to_string())
+        .unwrap_or_else(|| String::from("/tmp/gwrs/core.proxy.log"))
 }
 
 #[cfg(target_os = "linux")]
 fn get_default_log_dir() -> String {
-    String::from("/tmp/gwrs/log/core.log")
+    String::from("/tmp/gwrs/log/core.proxy.log")
 }
 
 #[cfg(target_os = "windows")]
 fn get_default_log_dir() -> String {
-    String::from("C:\\ProgramData\\gwrs\\core.log")
+    String::from("C:\\ProgramData\\gwrs\\core.proxy.log")
 }
 
 const RETRY_INTERVAL: Duration = Duration::from_secs(10);
@@ -167,64 +167,128 @@ impl LogWatcher {
         // Check if we need to rotate the log before watching
         self.check_and_rotate_log()?;
         
-        // Try to open the file, create it if it doesn't exist
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true) // Add write permission to ensure proper file creation
-            .create(true)
-            .open(&self.path)?;
-            
-        // Get file metadata to check size
-        let metadata = file.metadata()?;
-        
-        let mut reader = BufReader::new(file);
-        // Only seek if the file has content
-        let mut pos = if metadata.len() > 0 {
-            reader.seek(SeekFrom::End(0))?
-        } else {
-            0
-        };
-        
         // Track when we last checked file size
         let mut last_size_check = Instant::now();
         let size_check_interval = Duration::from_secs(60); // Check size every minute
         
+        // Store the initial inode/file ID to detect when the file is replaced
+        let initial_metadata = fs::metadata(&self.path).ok();
+        let mut current_metadata = initial_metadata.clone();
+        let mut reader_needs_reset = true;
+        let mut reader = None;
+        let mut pos: u64 = 0;
+        
         loop {
             // Check if file still exists
             if !self.path.exists() {
+                println!("Log file no longer exists at {}", self.path.display());
                 return Ok(());
             }
+            
+            // Check if the file has been replaced (different inode/ID)
+            let new_metadata = fs::metadata(&self.path).ok();
+            
+            // Compare modification times to detect file replacement
+            let file_changed = match (current_metadata.as_ref(), new_metadata.as_ref()) {
+                (Some(old_meta), Some(new_meta)) => {
+                    if let (Ok(old_time), Ok(new_time)) = (old_meta.modified(), new_meta.modified()) {
+                        old_time != new_time
+                    } else {
+                        // If we can't get modification times, assume file changed
+                        true
+                    }
+                },
+                // If either metadata is missing, assume file changed
+                _ => true
+            };
+            
+            if file_changed {
+                println!("Log file was replaced or modified, switching to new file");
+                current_metadata = new_metadata;
+                reader_needs_reset = true;
+                pos = 0;
+            }
+            
+            // Reset reader if needed (first time or after file replacement)
+            if reader_needs_reset {
+                // Try to open the file, create it if it doesn't exist
+                let file = match OpenOptions::new()
+                    .read(true)
+                    .write(true) // Add write permission to ensure proper file creation
+                    .create(true)
+                    .open(&self.path) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            println!("Failed to open log file: {}", e);
+                            thread::sleep(RETRY_INTERVAL);
+                            continue;
+                        }
+                    };
+                    
+                reader = Some(BufReader::new(file));
+                reader_needs_reset = false;
+                pos = 0;
+            }
+            
+            // Get a reference to our reader
+            let reader_ref = match reader.as_mut() {
+                Some(r) => r,
+                None => {
+                    println!("No reader available");
+                    thread::sleep(RETRY_INTERVAL);
+                    continue;
+                }
+            };
             
             // Periodically check file size and rotate if necessary
             if last_size_check.elapsed() >= size_check_interval {
                 if self.check_and_rotate_log()? {
-                    // File was rotated, need to reopen it
-                    return Ok(());
+                    // File was rotated, we'll detect the new file on the next loop
+                    reader_needs_reset = true;
+                    println!("Log rotation detected, will switch to new file");
+                    thread::sleep(POLL_INTERVAL);
+                    continue;
                 }
                 last_size_check = Instant::now();
             }
             
-            // Try to read new content
-            let mut buffer = String::new();
             // Only seek if we have a valid position
-            let new_pos = if pos > 0 {
-                reader.seek(SeekFrom::Current(0))?
-            } else {
-                0
-            };
-            
-            if new_pos < pos {
-                // File was truncated, reset position
-                println!("Log file was truncated, resetting position");
-                pos = 0;
-                reader.seek(SeekFrom::Start(0))?;
-            } else {
-                pos = new_pos;
+            if pos > 0 {
+                match reader_ref.seek(SeekFrom::Start(pos)) {
+                    Ok(new_pos) => {
+                        if new_pos < pos {
+                            // File was truncated, reset position
+                            println!("Log file was truncated, resetting position");
+                            pos = 0;
+                            reader_ref.seek(SeekFrom::Start(0))?;
+                        }
+                    },
+                    Err(e) => {
+                        println!("Seek error: {}, resetting reader", e);
+                        reader_needs_reset = true;
+                        thread::sleep(POLL_INTERVAL);
+                        continue;
+                    }
+                }
             }
             
-            let bytes_read = reader.read_line(&mut buffer)?;
+            // Try to read new content
+            let mut buffer = String::new();
+            
+            let bytes_read = match reader_ref.read_line(&mut buffer) {
+                Ok(n) => n,
+                Err(e) => {
+                    println!("Error reading line: {}, resetting reader", e);
+                    reader_needs_reset = true;
+                    thread::sleep(POLL_INTERVAL);
+                    continue;
+                }
+            };
             
             if bytes_read > 0 {
+                // Update position for next read
+                pos += bytes_read as u64;
+                
                 // Remove the trailing newline
                 if buffer.ends_with('\n') {
                     buffer.pop();
@@ -238,8 +302,6 @@ impl LogWatcher {
                 if buffer.contains("|ID:") {
                     println!("{}", buffer);
                 }
-
-                
             } else {
                 // No new data, sleep for a short period
                 thread::sleep(POLL_INTERVAL);
