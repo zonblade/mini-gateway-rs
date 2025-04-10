@@ -26,7 +26,6 @@ mod app;
 mod config;
 mod service;
 mod system;
-mod writer;
 
 
 /// Main entry point for the router core application.
@@ -51,7 +50,7 @@ mod writer;
 async fn main() {
     // Configure file-based logging
     config::init();
-    writer::writer_start();
+    system::writer::writer_start();
     // std::env::set_var("RUST_LOG", "info");
     // env_logger::init();
     
