@@ -406,7 +406,7 @@ impl ProxyHttp for GatewayApp {
         let response_code = session
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
-       log::debug!("Response code: {}", response_code);
+       log::info!("[GWX] Response code: {}", response_code);
         // Insert any additional metric logging here (e.g., Prometheus counters)
     }
 }

@@ -10,9 +10,7 @@ use crate::system::writer::logger::TagBasedLogger;
 // Get the default log directory based on the OS
 #[cfg(target_os = "macos")]
 fn get_default_log_dir() -> String {
-    dirs::home_dir()
-        .map(|p| p.join("Library/Logs/gwrs").to_string_lossy().to_string())
-        .unwrap_or_else(|| String::from("/tmp/gwrs"))
+    String::from("/tmp/gwrs/log")
 }
 
 #[cfg(target_os = "linux")]
@@ -40,63 +38,64 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Define log file paths
-    let default_log_path = format!("{}/core.log", log_dir);
-    let app_log_path = format!("{}/app.log", log_dir);
-    let listen_log_path = format!("{}/listen.log", log_dir);
-
-    println!("Default logs: {}", default_log_path);
-    println!("APP logs: {}", app_log_path);
-    println!("LSTN logs: {}", listen_log_path);
+    let log_path_default    = format!("{}/core.log"         , log_dir);
+    let log_path_proxy      = format!("{}/core.proxy.log"   , log_dir);
+    let log_path_gateway    = format!("{}/core.gateway.log" , log_dir);
+    let log_path_netlisten  = format!("{}/core.net.log"     , log_dir);
 
     // Open the log files for appending, create if they don't exist
-    let default_file = OpenOptions::new()
+    let file_default = OpenOptions::new()
         .create(true)
         .write(true)
         .append(true)
-        .open(&default_log_path)?;
+        .open(&log_path_default)?;
 
-    let app_file = OpenOptions::new()
+    let file_proxy = OpenOptions::new()
         .create(true)
         .write(true)
         .append(true)
-        .open(&app_log_path)?;
+        .open(&log_path_proxy)?;
 
-    let listen_file = OpenOptions::new()
+    let file_gateway = OpenOptions::new()
         .create(true)
         .write(true)
         .append(true)
-        .open(&listen_log_path)?;
+        .open(&log_path_gateway)?;
+
+    let file_netlisten = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(&log_path_netlisten)?;
 
     // Use buffered writers to improve performance
     let buffer_size = 64 * 1024; // 64KB buffer
-    let default_writer = BufWriter::with_capacity(buffer_size, default_file);
-    let app_writer = BufWriter::with_capacity(buffer_size, app_file);
-    let listen_writer = BufWriter::with_capacity(buffer_size, listen_file);
+    let writer_default      = BufWriter::with_capacity(buffer_size, file_default);
+    let writer_proxy        = BufWriter::with_capacity(buffer_size, file_proxy);
+    let writer_gateway      = BufWriter::with_capacity(buffer_size, file_gateway);
+    let writer_netlisten    = BufWriter::with_capacity(buffer_size, file_netlisten);
 
     // Determine log level from environment or use default
     let log_level = std::env::var("RUST_LOG")
         .map(|level| match level.to_lowercase().as_str() {
             "error" => LevelFilter::Error,
-            "warn" => LevelFilter::Warn,
-            "info" => LevelFilter::Info,
+            "warn"  => LevelFilter::Warn,
+            "info"  => LevelFilter::Info,
             "debug" => LevelFilter::Debug,
             "trace" => LevelFilter::Trace,
             _ => LevelFilter::Info,
         })
         .unwrap_or(LevelFilter::Info);
-
-    // Create tag patterns (use case-insensitive regex for flexibility)
-    let app_pattern = Regex::new(r"\[APP\]").unwrap();
-    let listen_pattern = Regex::new(r"\[LSTN\]").unwrap();
-
+    
     // Create and initialize the tag-based logger
     let tag_writers = vec![
-        (app_pattern, RwLock::new(app_writer)),
-        (listen_pattern, RwLock::new(listen_writer)),
+        ("[PXY]"  , RwLock::new(writer_proxy)),
+        ("[GWX]"  , RwLock::new(writer_gateway)),
+        ("[NET]"  , RwLock::new(writer_netlisten)),
     ];
 
     let logger = Box::new(TagBasedLogger {
-        default_writer: RwLock::new(default_writer),
+        default_writer: RwLock::new(writer_default),
         tag_writers,
         level_filter: log_level,
     });
@@ -106,10 +105,10 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
 
     // Write test log entries with various tags to verify the files are working
     log::info!("Tag-based logging system initialized");
-    log::info!("[APP] This is an app-related log message");
-    log::info!("[LSTN] This is a listener-related log message");
+    log::info!("[PXY] This is an proxy-related log message");
+    log::info!("[GWX] This is a gateway-related log message");
+    log::info!("[NET] This is a network-related log message");
     log::info!("This is a regular log message with no specific tag");
-    log::warn!("[APP] This is a warning in the app component");
 
     Ok(())
 }
