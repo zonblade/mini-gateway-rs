@@ -49,7 +49,7 @@ impl TagBasedLogger {
             let backup_path = format!("{}.1", log_path);
             
             // Close and reopen the file to release file handle
-            drop(writer);
+            drop(&mut *writer);
             
             // Rename current log to backup
             if Path::new(log_path).exists() {
