@@ -4,7 +4,7 @@ use std::fs::{File, rename};
 use std::path::Path;
 use std::sync::RwLock;
 
-const MAX_LOG_SIZE: u64 = 10 * 1024 * 1024; // 10MB in bytes
+const MAX_LOG_SIZE: u64 = 1 * 1024 * 1024 * 1024; // 1GB in bytes
 
 // Define a custom logger that will direct logs to different files based on message content
 pub struct TagBasedLogger {
