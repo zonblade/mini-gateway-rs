@@ -2,16 +2,16 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::RwLock;
 use log::{LevelFilter, Record, Metadata, SetLoggerError, Level};
 use regex::Regex;
 
 // Define a custom logger that will direct logs to different files based on message content
 struct TagBasedLogger {
     // Default writer for logs that don't match specific tags
-    default_writer: Mutex<BufWriter<std::fs::File>>,
+    default_writer: RwLock<BufWriter<std::fs::File>>,
     // Map of tag-based writers (tag -> writer)
-    tag_writers: Vec<(Regex, Mutex<BufWriter<std::fs::File>>)>,
+    tag_writers: Vec<(Regex, RwLock<BufWriter<std::fs::File>>)>,
     // Level filter
     level_filter: LevelFilter,
 }
@@ -30,7 +30,7 @@ impl log::Log for TagBasedLogger {
             
             for (pattern, writer) in &self.tag_writers {
                 if pattern.is_match(&message) {
-                    if let Ok(mut writer) = writer.lock() {
+                    if let Ok(mut writer) = writer.write() {
                         writeln!(
                             writer,
                             "[{}] {} [{}] {}",
@@ -52,7 +52,7 @@ impl log::Log for TagBasedLogger {
             
             // If no specific tag matched or we want to log to the default file anyway
             if !matched {
-                if let Ok(mut writer) = self.default_writer.lock() {
+                if let Ok(mut writer) = self.default_writer.write() {
                     writeln!(
                         writer,
                         "[{}] {} [{}] {}",
@@ -72,12 +72,12 @@ impl log::Log for TagBasedLogger {
     }
 
     fn flush(&self) {
-        if let Ok(mut writer) = self.default_writer.lock() {
+        if let Ok(mut writer) = self.default_writer.write() {
             writer.flush().ok();
         }
         
         for (_, writer) in &self.tag_writers {
-            if let Ok(mut writer) = writer.lock() {
+            if let Ok(mut writer) = writer.write() {
                 writer.flush().ok();
             }
         }
@@ -168,12 +168,12 @@ fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     
     // Create and initialize the tag-based logger
     let tag_writers = vec![
-        (app_pattern, Mutex::new(app_writer)),
-        (listen_pattern, Mutex::new(listen_writer)),
+        (app_pattern, RwLock::new(app_writer)),
+        (listen_pattern, RwLock::new(listen_writer)),
     ];
     
     let logger = Box::new(TagBasedLogger {
-        default_writer: Mutex::new(default_writer),
+        default_writer: RwLock::new(default_writer),
         tag_writers,
         level_filter: log_level,
     });
