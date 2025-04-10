@@ -8,9 +8,7 @@ use std::collections::HashSet;
 
 #[cfg(target_os = "macos")]
 fn get_default_log_dir() -> String {
-    dirs::home_dir()
-        .map(|p| p.join("Library/Logs/gwrs/core.proxy.log").to_string_lossy().to_string())
-        .unwrap_or_else(|| String::from("/tmp/gwrs/core.proxy.log"))
+    String::from("/tmp/gwrs/log/core.proxy.log")
 }
 
 #[cfg(target_os = "linux")]
