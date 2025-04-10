@@ -24,4 +24,3 @@
 
 pub mod database;
 pub mod fs_watch;
-pub mod fs_watch_advanced;

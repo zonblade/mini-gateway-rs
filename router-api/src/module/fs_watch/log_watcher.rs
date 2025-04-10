@@ -6,60 +6,9 @@ use std::time::{Duration, Instant};
 use std::env;
 use std::collections::HashSet;
 
-#[cfg(target_os = "macos")]
-fn get_default_log_dir() -> String {
-    String::from("/tmp/gwrs/log/core.proxy.log")
-}
-
-#[cfg(target_os = "linux")]
-fn get_default_log_dir() -> String {
-    String::from("/tmp/gwrs/log/core.proxy.log")
-}
-
-#[cfg(target_os = "windows")]
-fn get_default_log_dir() -> String {
-    String::from("C:\\ProgramData\\gwrs\\core.proxy.log")
-}
-
-const RETRY_INTERVAL: Duration = Duration::from_secs(1);
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
-const SCAN_INTERVAL: Duration = Duration::from_secs(5); // How often to scan for rotated files
-
-// Structure to hold file stats for detecting file changes
-#[cfg(unix)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct FileId {
-    dev: u64, // device ID
-    ino: u64, // inode number
-}
-
-#[cfg(windows)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct FileId {
-    volume_serial_number: u32,
-    file_index: u64,
-}
-
-// Get a unique file identifier that survives across renames
-#[cfg(unix)]
-fn get_file_id(file: &File) -> io::Result<FileId> {
-    use std::os::unix::fs::MetadataExt;
-    let metadata = file.metadata()?;
-    Ok(FileId {
-        dev: metadata.dev(),
-        ino: metadata.ino(),
-    })
-}
-
-#[cfg(windows)]
-fn get_file_id(file: &File) -> io::Result<FileId> {
-    use std::os::windows::fs::MetadataExt;
-    let metadata = file.metadata()?;
-    Ok(FileId {
-        volume_serial_number: metadata.volume_serial_number(),
-        file_index: metadata.file_index(),
-    })
-}
+use super::constants::{RETRY_INTERVAL, POLL_INTERVAL, SCAN_INTERVAL};
+use super::file_id::{FileId, get_file_id};
+use super::utils::get_default_log_dir;
 
 pub struct LogWatcher {
     path: PathBuf,
@@ -154,7 +103,7 @@ impl LogWatcher {
     }
 
     // Main tailing function that follows log file changes
-    fn tail_file(&mut self) -> io::Result<()> {
+    pub fn tail_file(&mut self) -> io::Result<()> {
         // Ensure log directory exists
         self.ensure_log_directory()?;
         
@@ -411,4 +360,4 @@ pub fn start_log_watcher() -> thread::JoinHandle<()> {
             thread::sleep(RETRY_INTERVAL);
         }
     })
-}
+} 
