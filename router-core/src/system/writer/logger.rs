@@ -1,5 +1,5 @@
 use log::{Level, LevelFilter, Metadata, Record};
-use std::io::{BufWriter, Write, Seek, SeekFrom};
+use std::io::{BufWriter, Write};
 use std::fs::{File, rename};
 use std::path::Path;
 use std::sync::RwLock;
@@ -31,7 +31,7 @@ impl TagBasedLogger {
     }
 
     // Helper function to handle flushing for logs
-    fn flush_if_needed(&self, writer: &mut BufWriter<File>, level: Level) {
+    fn flush_if_needed(&self, writer: &mut BufWriter<File>, _level: Level) {
         // Always flush logs to ensure they're written to disk immediately
         writer.flush().ok();
     }
@@ -42,23 +42,36 @@ impl TagBasedLogger {
         let metadata = file.metadata()?;
         
         if metadata.len() >= MAX_LOG_SIZE {
-            // Flush before rotating
+            // Flush any pending data
             writer.flush()?;
             
             // Create backup filename
             let backup_path = format!("{}.1", log_path);
             
-            // Close and reopen the file to release file handle
-            drop(&mut *writer);
+            // We need to replace the writer with a new one to release the file handle
+            // First take ownership of the current file path
+            let path_to_rotate = log_path.to_string();
             
-            // Rename current log to backup
-            if Path::new(log_path).exists() {
-                rename(log_path, backup_path)?;
+            // Create a temporary file path for later cleanup
+            let temp_path = format!("{}.new", log_path);
+            
+            // Create a temporary writer to swap with our current one
+            let temp_file = File::create(&temp_path)?;
+            
+            // Replace the writer with a temporary one, effectively closing the original file
+            std::mem::swap(writer, &mut BufWriter::new(temp_file));
+            
+            // Now we can safely rename the original file since we've released the handle
+            if Path::new(&path_to_rotate).exists() {
+                rename(&path_to_rotate, backup_path)?;
             }
             
-            // Open new log file
-            let new_file = File::create(log_path)?;
+            // Create our new log file and assign it to the writer
+            let new_file = File::create(&path_to_rotate)?;
             *writer = BufWriter::new(new_file);
+            
+            // Remove the temporary file we created
+            let _ = std::fs::remove_file(&temp_path);
         }
         
         Ok(())

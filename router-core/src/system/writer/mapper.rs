@@ -1,5 +1,4 @@
 use log::LevelFilter;
-use regex::Regex;
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -89,13 +88,14 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     
     // Create and initialize the tag-based logger
     let tag_writers = vec![
-        ("[PXY]"  , RwLock::new(writer_proxy)),
-        ("[GWX]"  , RwLock::new(writer_gateway)),
-        ("[NET]"  , RwLock::new(writer_netlisten)),
+        ("[PXY]"  , RwLock::new(writer_proxy), log_path_proxy),
+        ("[GWX]"  , RwLock::new(writer_gateway), log_path_gateway),
+        ("[NET]"  , RwLock::new(writer_netlisten), log_path_netlisten),
     ];
 
     let logger = Box::new(TagBasedLogger {
         default_writer: RwLock::new(writer_default),
+        default_path: log_path_default,
         tag_writers,
         level_filter: log_level,
     });
