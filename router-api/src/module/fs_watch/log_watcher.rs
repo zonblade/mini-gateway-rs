@@ -5,15 +5,19 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::env;
 use std::collections::HashSet;
+use std::sync::Arc;
+use chrono::Local;
 
 use super::constants::{RETRY_INTERVAL, POLL_INTERVAL, SCAN_INTERVAL};
 use super::file_id::{FileId, get_file_id};
 use super::utils::get_default_log_dir;
+use super::db_pool::{LogDbPool, LogEntry, get_log_db_pool};
 
 pub struct LogWatcher {
     path: PathBuf,
     processed_lines: usize,
     processed_files: HashSet<FileId>, // Track already processed files by ID
+    db_pool: Arc<LogDbPool>, // Database pool for batching log entries
 }
 
 impl LogWatcher {
@@ -36,6 +40,7 @@ impl LogWatcher {
             path: PathBuf::from(expanded_path),
             processed_lines: 0,
             processed_files: HashSet::new(),
+            db_pool: Arc::new(get_log_db_pool()), // Initialize database pool
         }
     }
 
@@ -294,9 +299,117 @@ impl LogWatcher {
                                 }
                             }
                             
-                            // Only print log lines containing "|ID:"
+                            // Only process log lines containing "|ID:"
                             if line.contains("|ID:") {
+                                // Print line to console
                                 println!("{}", line);
+                                
+                                // Parse the log line into components
+                                // Expected format: [RFC3339_TIME_FORMAT] INDICATOR [path] [PXY] |ID:<STRING> ,STATUS:<STRING> ,SIZE:<NUM> ,COMMENT:<STRING> |
+                                let mut timestamp = String::new();
+                                let mut indicator = String::from("[system]"); // Default indicator
+                                let mut path = String::from("log"); // Default path
+                                let mut id = String::new();
+                                let mut status = String::new();
+                                let mut size = 0;
+                                let mut comment = String::new();
+                                
+                                // Extract timestamp, indicator, and path from the part before the pipe
+                                let prefix = &line[0..pipe_idx].trim();
+                                
+                                // Attempt to parse parts before the pipe section
+                                if let Some(bracket_idx) = prefix.find('[') {
+                                    if bracket_idx > 0 {
+                                        // Extract timestamp
+                                        timestamp = prefix[0..bracket_idx].trim().to_string();
+                                        
+                                        // Parse the remaining parts in brackets
+                                        let parts: Vec<&str> = prefix[bracket_idx..].split(']').collect();
+                                        if parts.len() > 1 {
+                                            // Extract indicator - this could be ERROR, WARN, LOG, etc.
+                                            indicator = parts[0][1..].trim().to_string();
+                                            
+                                            // Try to extract path from the next bracket
+                                            if let Some(next_bracket) = parts[1].find('[') {
+                                                if next_bracket < parts[1].len() - 1 {
+                                                    path = parts[1][next_bracket+1..].trim().to_string();
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // No bracket found, check if there's a common indicator without brackets
+                                    let common_indicators = ["ERROR", "WARN", "INFO", "DEBUG", "LOG", "TRACE"];
+                                    for &ind in &common_indicators {
+                                        if let Some(pos) = prefix.find(ind) {
+                                            // Extract timestamp before the indicator
+                                            if pos > 0 {
+                                                timestamp = prefix[0..pos].trim().to_string();
+                                            }
+                                            // Set the indicator
+                                            indicator = ind.to_string();
+                                            break;
+                                        }
+                                    }
+                                }
+                                
+                                // Extract the content after the pipe
+                                let content = &line[pipe_idx+1..];
+                                
+                                // Parse ID
+                                if let Some(id_start) = content.find("ID:") {
+                                    let id_content = &content[id_start+3..];
+                                    if let Some(comma_idx) = id_content.find(',') {
+                                        id = id_content[0..comma_idx].trim().to_string();
+                                    }
+                                }
+                                
+                                // Parse STATUS
+                                if let Some(status_start) = content.find("STATUS:") {
+                                    let status_content = &content[status_start+7..];
+                                    if let Some(comma_idx) = status_content.find(',') {
+                                        status = status_content[0..comma_idx].trim().to_string();
+                                    }
+                                }
+                                
+                                // Parse SIZE
+                                if let Some(size_start) = content.find("SIZE:") {
+                                    let size_content = &content[size_start+5..];
+                                    if let Some(comma_idx) = size_content.find(',') {
+                                        if let Ok(s) = size_content[0..comma_idx].trim().parse::<usize>() {
+                                            size = s;
+                                        }
+                                    }
+                                }
+                                
+                                // Parse COMMENT
+                                if let Some(comment_start) = content.find("COMMENT:") {
+                                    let comment_content = &content[comment_start+8..];
+                                    if let Some(pipe_idx) = comment_content.find('|') {
+                                        comment = comment_content[0..pipe_idx].trim().to_string();
+                                    } else {
+                                        comment = comment_content.trim().to_string();
+                                    }
+                                }
+                                
+                                // If timestamp is empty, use current time
+                                if timestamp.is_empty() {
+                                    timestamp = chrono::Local::now().to_rfc3339();
+                                }
+                                
+                                // Create log entry with the parsed components
+                                let log_entry = LogEntry {
+                                    timestamp,
+                                    indicator,
+                                    path,
+                                    id,
+                                    status,
+                                    size,
+                                    comment,
+                                };
+                                
+                                // Add to pool - will be flushed every 5 seconds
+                                self.db_pool.add_log(log_entry);
                             }
                             
                             self.processed_lines += 1;
@@ -360,4 +473,4 @@ pub fn start_log_watcher() -> thread::JoinHandle<()> {
             thread::sleep(RETRY_INTERVAL);
         }
     })
-} 
+}
