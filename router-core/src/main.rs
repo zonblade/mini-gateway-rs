@@ -27,7 +27,6 @@ mod config;
 mod service;
 mod system;
 
-
 /// Main entry point for the router core application.
 ///
 /// This function initializes the core components of the routing system:
@@ -50,12 +49,11 @@ mod system;
 async fn main() {
     // Configure file-based logging
     config::init();
-    system::writer::writer_start();
     // std::env::set_var("RUST_LOG", "info");
     // env_logger::init();
-    
+
     log::info!("Starting proxy server...");
-    
+
     // Create atomic flag to track server active state
     let active_state = Arc::new(AtomicBool::new(false));
 
@@ -71,6 +69,8 @@ async fn main() {
             log::error!("Failed to initialize global UDP sender: {}", e);
             return;
         }
+
+        system::writer::writer_start();
     }
 
     // Set up interrupt handler for graceful shutdown on SIGINT (Ctrl+C)

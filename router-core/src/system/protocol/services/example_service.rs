@@ -1,11 +1,11 @@
 use async_trait::async_trait;
+use log::debug;
 use std::collections::HashMap;
-use tokio::net::TcpStream;
 use tokio::io::{self, AsyncWriteExt};
-use log::{info, debug};
+use tokio::net::TcpStream;
 
-use crate::system::protocol::types::ConnectionParams;
 use super::service_protocol::ServiceProtocol;
+use crate::system::protocol::types::ConnectionParams;
 
 /// # Example Service Implementation
 ///
@@ -70,8 +70,8 @@ impl ServiceProtocol for ExampleService {
     /// This implements the required `new()` method from the ServiceProtocol trait.
     /// It creates a service with a default name that can be registered with the handler.
     fn new() -> Self {
-        Self { 
-            name: "example".to_string() 
+        Self {
+            name: "example".to_string(),
         }
     }
 
@@ -86,18 +86,24 @@ impl ServiceProtocol for ExampleService {
     ///
     /// If a client sends "Hello world", the service will respond with:
     /// "Service example processed: Hello world"
-    async fn upstream_peer(&self, socket: &mut TcpStream, buffer: &[u8], _buffer_size: usize, params: &ConnectionParams) -> io::Result<()> {
+    async fn upstream_peer(
+        &self,
+        socket: &mut TcpStream,
+        buffer: &[u8],
+        _buffer_size: usize,
+        params: &ConnectionParams,
+    ) -> io::Result<()> {
         // Example processing - echo the request with a prefix
         let request_str = String::from_utf8_lossy(buffer);
         debug!("Received request: {}", request_str);
-        
+
         // Prepare response
         let response = format!("Service {} processed: {}", self.name, request_str);
-        
+
         // Write response back to client
         socket.write_all(response.as_bytes()).await?;
         socket.flush().await?;
-        
+
         Ok(())
     }
 
@@ -114,13 +120,18 @@ impl ServiceProtocol for ExampleService {
     ///
     /// The method shows how to extract and format metrics from the provided HashMap,
     /// which could include timing, byte counts, or other measurements.
-    async fn logging(&self, params: &ConnectionParams, status: Option<&str>, metrics: Option<HashMap<String, String>>) {
+    async fn logging(
+        &self,
+        params: &ConnectionParams,
+        status: Option<&str>,
+        metrics: Option<HashMap<String, String>>,
+    ) {
         // Log the request details
         let service = &params.service;
         let action = &params.action;
-        
+
         let status_str = status.unwrap_or("unknown");
-        
+
         let metrics_info = match metrics {
             Some(m) => {
                 let mut info = String::new();
@@ -128,13 +139,17 @@ impl ServiceProtocol for ExampleService {
                     info.push_str(&format!("{}={}, ", k, v));
                 }
                 info
-            },
+            }
             None => "no metrics".to_string(),
         };
-        
-       log::debug!(
+
+        log::debug!(
             "Request [{}]: service={}, action={}, status={}, metrics=[{}]",
-            self.name, service, action, status_str, metrics_info
+            self.name,
+            service,
+            action,
+            status_str,
+            metrics_info
         );
     }
 }

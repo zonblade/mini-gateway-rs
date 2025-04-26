@@ -162,10 +162,12 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
     let listener = match TcpListener::bind(&listen_addr).await {
         Ok(listener) => {
             log::debug!("Protocol server listening on {}", listen_addr);
+            // println!("Success to bind {}", listen_addr);
             listener
         }
         Err(e) => {
             log::error!("Failed to bind protocol server to {}: {}", listen_addr, e);
+            // println!("Failed to bind protocol server to {}: {}", listen_addr, e);
             return Err(e);
         }
     };

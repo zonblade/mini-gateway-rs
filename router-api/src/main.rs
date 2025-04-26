@@ -53,6 +53,7 @@ use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpServer};
 use api::sync;
 use client::Client;
+use module::udp_log_fetcher;
 use std::sync::{Arc, Mutex};
 
 /// Main entry point for the Router API server.
@@ -95,11 +96,61 @@ use std::sync::{Arc, Mutex};
 /// - Critical runtime errors during server execution
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    std::env::set_var("RUST_LOG", "info");
-    env_logger::init();
-    config::init();
-    module::fs_watch::start_log_watcher();
-    
+    {
+        std::env::set_var("RUST_LOG", "info");
+        env_logger::init();
+        config::init();
+    }
+
+    // Initialize the multi-port UDP logger with proper port isolation
+    log::info!("Starting multi-port UDP logger...");
+    match module::udp_logger::initialize_udp_logger("127.0.0.1", module::udp_logger::LogPorts::default()) {
+        Ok(_) => log::info!("UDP logger started successfully on ports 24401, 24402, and 24403"),
+        Err(e) => log::error!("Failed to start UDP logger: {}", e),
+    }
+
+    // Get consumers for each specific port type
+    let proxy_consumer = module::udp_logger::get_proxy_log_consumer();
+    let gateway_consumer = module::udp_logger::get_gateway_log_consumer();
+    let normal_consumer = module::udp_logger::get_normal_log_consumer();
+
+    // // Optional: Spawn threads to process messages from each consumer
+    if let Some(consumer) = proxy_consumer {
+        std::thread::spawn(move || {
+            log::info!("Started proxy log consumer thread");
+            loop {
+                match consumer.recv() {
+                    Ok(msg) => log::info!("Proxy log: {}", msg.message),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    if let Some(consumer) = gateway_consumer {
+        std::thread::spawn(move || {
+            log::info!("Started gateway log consumer thread");
+            loop {
+                match consumer.recv() {
+                    Ok(msg) => log::info!("Gateway log: {}", msg.message),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    if let Some(consumer) = normal_consumer {
+        std::thread::spawn(move || {
+            log::info!("Started normal log consumer thread");
+            loop {
+                match consumer.recv() {
+                    Ok(msg) => log::info!("Normal log: {}", msg.message),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     // Parse command line arguments using clap
     let matches = clap::Command::new("Router API")
         .version("0.0.1-pre")

@@ -24,9 +24,17 @@ impl UdpSender {
     /// # Returns
     /// * `Result<UdpSender>` - A new UdpSender instance or an io::Error
     pub fn new(bind_addr: &str) -> Result<Self> {
+        log::debug!("Creating new UdpSender with bind address: {}", bind_addr);
         let socket = UdpSocket::bind(bind_addr)?;
+        
         // Make socket non-blocking for concurrent access
         socket.set_nonblocking(true)?;
+        
+        // Get and log the actual local address after binding
+        if let Ok(local_addr) = socket.local_addr() {
+            log::info!("UdpSender bound to local address: {}", local_addr);
+        }
+        
         Ok(Self {
             socket: Arc::new(socket),
         })
@@ -43,10 +51,32 @@ impl UdpSender {
     /// # Returns
     /// * `Result<usize>` - Number of bytes sent or an io::Error
     pub fn send_text(&self, message: &str, target_addr: &str) -> Result<usize> {
-        let addr: SocketAddr = target_addr
-            .parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-        self.socket.send_to(message.as_bytes(), addr)
+        let addr: SocketAddr = match target_addr.parse() {
+            Ok(addr) => addr,
+            Err(e) => {
+                log::error!("Invalid target address '{}': {}", target_addr, e);
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid target address '{}': {}", target_addr, e)));
+            }
+        };
+        
+        log::debug!("Sending UDP message to {}", addr);
+        match self.socket.send_to(message.as_bytes(), addr) {
+            Ok(bytes) => {
+                log::trace!("Successfully sent {} bytes to {}", bytes, addr);
+                Ok(bytes)
+            },
+            Err(e) => {
+                // Handle WouldBlock specifically for non-blocking sockets
+                if e.kind() == io::ErrorKind::WouldBlock {
+                    // Just return 0 bytes sent instead of an error for WouldBlock
+                    log::debug!("UDP socket would block, message queued");
+                    Ok(0)
+                } else {
+                    log::error!("Failed to send UDP message to {}: {}", addr, e);
+                    Err(e)
+                }
+            }
+        }
     }
 
     /// Creates a clone of this sender that can be moved to another thread.
@@ -94,7 +124,7 @@ static INIT: Once = Once::new();
 pub fn global_sender() -> Result<UdpSender> {
     INIT.call_once(|| {
         // This will only run once across all threads
-        match UdpSender::new("127.0.0.1:24043") {
+        match UdpSender::new("0.0.0.0:0") { // Use any available port instead of a fixed one
             Ok(sender) => {
                 log::info!("Initializing global UDP sender");
                 // We only set this once, so the Result can be safely ignored
@@ -132,7 +162,8 @@ pub fn global_sender() -> Result<UdpSender> {
 pub fn init_global_sender() -> Result<()> {
     // Use a simple flag to track if we've already initialized
     let mut initialized = false;
-    let bind_addr = "127.0.0.1:24043";
+    // Bind to 0.0.0.0 to allow sending from any interface
+    let bind_addr = "127.0.0.1:0";
 
     INIT.call_once(|| {
         match UdpSender::new(bind_addr) {
@@ -172,28 +203,40 @@ pub fn init_global_sender() -> Result<()> {
 }
 
 pub fn log_to_proxy(message: &str) {
-    while let Ok(sender) = global_sender() {
-        let result = sender.send_text(&message, "127.0.0.1:24401");
+    if let Ok(sender) = global_sender() {
+        // Include port explicitly in target_addr and add more debugging
+        let target_addr = "127.0.0.1:24401";
+        let result = sender.send_text(message, target_addr);
         if let Err(e) = result {
-            log::error!("Failed to send message to proxy: {}", e);
+            log::error!("Failed to send message to proxy at {}: {}", target_addr, e);
+        } else if let Ok(bytes) = result {
+            log::debug!("Successfully sent {} bytes to proxy at {}", bytes, target_addr);
         }
     }
 }
 
 pub fn log_to_gateway(message: &str){
-    while let Ok(sender) = global_sender() {
-        let result = sender.send_text(&message, "127.0.0.1:24402");
+    if let Ok(sender) = global_sender() {
+        // Include port explicitly in target_addr and add more debugging
+        let target_addr = "127.0.0.1:24402";
+        let result = sender.send_text(message, target_addr);
         if let Err(e) = result {
-            log::error!("Failed to send message to gateway: {}", e);
+            log::error!("Failed to send message to gateway at {}: {}", target_addr, e);
+        } else if let Ok(bytes) = result {
+            log::debug!("Successfully sent {} bytes to gateway at {}", bytes, target_addr);
         }
     }
 }
 
 pub fn log_to_normal(message: &str){
-    while let Ok(sender) = global_sender() {
-        let result = sender.send_text(&message, "127.0.0.1:24403");
+    if let Ok(sender) = global_sender() {
+        // Include port explicitly in target_addr and add more debugging
+        let target_addr = "127.0.0.1:24403";
+        let result = sender.send_text(message, target_addr);
         if let Err(e) = result {
-            log::error!("Failed to send message to gateway: {}", e);
+            log::error!("Failed to send message to normal at {}: {}", target_addr, e);
+        } else if let Ok(bytes) = result {
+            log::debug!("Successfully sent {} bytes to normal at {}", bytes, target_addr);
         }
     }
 }

@@ -51,10 +51,20 @@ impl log::Log for TagBasedLogger {
         }
 
         let message = record.args().to_string();
+        let mut found = false;
 
         // Iterate through each tag pattern and send the log message accordingly.
         for pattern in &self.tag_writers {
-            udp_sender::switch_log(&pattern, &message);
+            if message.contains(pattern) {
+                // Send the log message to the corresponding UDP endpoint.
+                udp_sender::switch_log(pattern, &message);
+                found = true;
+            }
+        }
+
+        // If no tag matched, log a warning about the unrecognized message.
+        if !found {
+            udp_sender::switch_log("-", &message);
         }
     }
 

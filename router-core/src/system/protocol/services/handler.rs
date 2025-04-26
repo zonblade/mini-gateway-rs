@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use log::{info, warn, error};
+use log::{warn, error};
 
 use super::service_protocol::ServiceProtocol;
 
