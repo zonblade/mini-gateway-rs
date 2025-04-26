@@ -64,6 +64,15 @@ async fn main() {
         system::protocol::start_interface();
     }
 
+    // initialize global sender
+    {
+        let result = system::udp_sender::init_global_sender();
+        if let Err(e) = result {
+            log::error!("Failed to initialize global UDP sender: {}", e);
+            return;
+        }
+    }
+
     // Set up interrupt handler for graceful shutdown on SIGINT (Ctrl+C)
     {
         let running_clone = Arc::clone(&active_state);

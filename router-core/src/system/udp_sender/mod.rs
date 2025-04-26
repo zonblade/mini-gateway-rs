@@ -32,14 +32,6 @@ impl UdpSender {
         })
     }
 
-    /// Creates a new UdpSender that binds to any available interface and lets the OS choose a port
-    ///
-    /// # Returns
-    /// * `Result<UdpSender>` - A new UdpSender instance or an io::Error
-    pub fn new_any_port() -> Result<Self> {
-        Self::new("0.0.0.0:0")
-    }
-
     /// Sends a plain text message to the target address
     ///
     /// This method is thread-safe and can be called concurrently from multiple threads.
@@ -57,31 +49,6 @@ impl UdpSender {
         self.socket.send_to(message.as_bytes(), addr)
     }
 
-    /// Sends a raw byte message to the target address
-    ///
-    /// This method is thread-safe and can be called concurrently from multiple threads.
-    ///
-    /// # Arguments
-    /// * `data` - The raw bytes to send
-    /// * `target_addr` - The target socket address (IP and port)
-    ///
-    /// # Returns
-    /// * `Result<usize>` - Number of bytes sent or an io::Error
-    pub fn send_bytes(&self, data: &[u8], target_addr: &str) -> Result<usize> {
-        let addr: SocketAddr = target_addr
-            .parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-        self.socket.send_to(data, addr)
-    }
-
-    /// Gets the local address this sender is bound to
-    ///
-    /// # Returns
-    /// * `Result<SocketAddr>` - The local socket address or an io::Error
-    pub fn local_addr(&self) -> Result<SocketAddr> {
-        self.socket.local_addr()
-    }
-
     /// Creates a clone of this sender that can be moved to another thread.
     ///
     /// This is a lightweight operation as it only clones the Arc reference.
@@ -96,7 +63,8 @@ impl UdpSender {
 }
 
 /// Global instance of UdpSender for application-wide use
-static mut GLOBAL_UDP_SENDER: Option<UdpSender> = None;
+use std::sync::OnceLock;
+static GLOBAL_UDP_SENDER: OnceLock<UdpSender> = OnceLock::new();
 static INIT: Once = Once::new();
 
 /// Gets the global UDP sender instance, initializing it if necessary
@@ -123,30 +91,29 @@ static INIT: Once = Once::new();
 ///
 /// # Returns
 /// A reference to the global UDP sender instance
-pub fn global_sender() -> Result<&'static UdpSender> {
-    unsafe {
-        INIT.call_once(|| {
-            // This will only run once across all threads
-            match UdpSender::new("127.0.0.1:24043") {
-                Ok(sender) => {
-                    log::info!("Initializing global UDP sender");
-                    GLOBAL_UDP_SENDER = Some(sender);
-                }
-                Err(e) => {
-                    log::error!("Failed to initialize global UDP sender: {}", e);
-                    // We don't set GLOBAL_UDP_SENDER, so it remains None
-                }
+pub fn global_sender() -> Result<UdpSender> {
+    INIT.call_once(|| {
+        // This will only run once across all threads
+        match UdpSender::new("127.0.0.1:24043") {
+            Ok(sender) => {
+                log::info!("Initializing global UDP sender");
+                // We only set this once, so the Result can be safely ignored
+                let _ = GLOBAL_UDP_SENDER.set(sender);
             }
-        });
-
-        // Return a reference to the global sender, or an error if initialization failed
-        match &GLOBAL_UDP_SENDER {
-            Some(sender) => Ok(sender),
-            None => Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Failed to initialize global UDP sender",
-            )),
+            Err(e) => {
+                log::error!("Failed to initialize global UDP sender: {}", e);
+                // We don't set GLOBAL_UDP_SENDER, so it remains uninitialized
+            }
         }
+    });
+
+    // Return a clone of the global sender, or an error if initialization failed
+    match GLOBAL_UDP_SENDER.get() {
+        Some(sender) => Ok(sender.clone()),
+        None => Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to initialize global UDP sender",
+        )),
     }
 }
 
@@ -162,42 +129,44 @@ pub fn global_sender() -> Result<&'static UdpSender> {
 /// # Returns
 /// `Ok(())` if initialization was successful, or an error if it failed
 /// or if the global sender was already initialized
-pub fn init_global_sender(bind_addr: &str) -> Result<()> {
+pub fn init_global_sender() -> Result<()> {
     // Use a simple flag to track if we've already initialized
     let mut initialized = false;
+    let bind_addr = "127.0.0.1:24043";
 
-    unsafe {
-        INIT.call_once(|| {
-            match UdpSender::new(bind_addr) {
-                Ok(sender) => {
-                    log::info!("Initializing global UDP sender with address: {}", bind_addr);
-                    GLOBAL_UDP_SENDER = Some(sender);
+    INIT.call_once(|| {
+        match UdpSender::new(bind_addr) {
+            Ok(sender) => {
+                log::info!("Initializing global UDP sender with address: {}", bind_addr);
+                // OnceLock::set returns the error if there's already a value
+                if GLOBAL_UDP_SENDER.set(sender).is_ok() {
                     initialized = true;
-                }
-                Err(e) => {
-                    log::error!("Failed to initialize global UDP sender: {}", e);
-                    // Leave GLOBAL_UDP_SENDER as None
+                } else {
+                    // This should never happen as we're in the Once::call_once closure
+                    log::error!("Failed to set global UDP sender - this should not happen!");
                 }
             }
-        });
-    }
+            Err(e) => {
+                log::error!("Failed to initialize global UDP sender: {}", e);
+                // Leave GLOBAL_UDP_SENDER uninitialized
+            }
+        }
+    });
 
     if initialized {
         Ok(())
     } else {
         // If we've already called INIT.call_once(), then the global sender is either
         // already initialized or failed to initialize
-        unsafe {
-            match &GLOBAL_UDP_SENDER {
-                Some(_) => Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    "Global UDP sender is already initialized with a different address",
-                )),
-                None => Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Failed to initialize global UDP sender",
-                )),
-            }
+        match GLOBAL_UDP_SENDER.get() {
+            Some(_) => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Global UDP sender is already initialized with a different address",
+            )),
+            None => Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Failed to initialize global UDP sender",
+            )),
         }
     }
 }
@@ -235,32 +204,4 @@ pub fn switch_log(marker:&str, message: &str) {
         "[GWX]" => log_to_gateway(message),
         _ => log_to_normal(message),
     }
-}
-
-/// Example usage with direct instance creation:
-/// ```
-/// use router_core::system::udp_sender::UdpSender;
-///
-/// fn example() -> std::io::Result<()> {
-///     // Create a new UDP sender bound to any available port
-///     let sender = UdpSender::new_any_port()?;
-///     
-///     // Send a plain text message to a target (e.g., 127.0.0.1:8080)
-///     let bytes_sent = sender.send_text("Hello, UDP receiver!", "127.0.0.1:8080")?;
-///     println!("Sent {} bytes successfully", bytes_sent);
-///     
-///     Ok(())
-/// }
-/// ```
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_create_sender() {
-        let sender = UdpSender::new_any_port();
-        assert!(sender.is_ok());
-    }
-
-    // Note: Additional tests would require a proper test environment with UDP receivers
 }
