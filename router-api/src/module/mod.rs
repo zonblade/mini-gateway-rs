@@ -12,6 +12,8 @@
 //!   connection pooling, migrations, and query utilities.
 //! - `udp_log_fetcher`: Provides UDP socket-based logging infrastructure.
 //! - `udp_logger`: Implements multi-port UDP logging with proper port isolation.
+//! - `udp_log_db`: Provides a database pooling system for log messages with periodic flushing.
+//! - `udp_log_processor`: Processes log messages and sends them to the database pool.
 //!
 //! ## Usage
 //!
@@ -22,3 +24,5 @@
 pub mod database;
 pub mod udp_log_fetcher;
 pub mod udp_logger;
+pub mod udp_log_db;
+pub mod udp_log_processor;
