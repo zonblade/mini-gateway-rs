@@ -1,5 +1,5 @@
 [package]
-name    = "router-core"
+name = "router-core"
 version = "0.0.1"
 edition = "2021"
 
@@ -25,3 +25,17 @@ chrono      = "0.4.31"  # Added for timestamp formatting in custom logger
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dirs        = "6.0.0"
+
+# Performance optimization profiles
+[profile.release]
+opt-level = 3            # Maximum optimization
+lto = "fat"              # Link-Time Optimization for whole program optimization
+codegen-units = 1        # Maximize optimization opportunities (slower build)
+panic = "abort"          # Remove panic unwinding code
+strip = true             # Strip symbols from binary
+debug = false            # No debug symbols
+
+# Enable the faster system allocator
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 1

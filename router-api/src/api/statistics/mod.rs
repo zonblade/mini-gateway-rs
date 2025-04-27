@@ -36,8 +36,12 @@
 //! 3. Aggregate and analyze the data for reporting
 //! 4. Provide both real-time and historical views
 mod logs;
+mod logs_broadcast;
 
 use actix_web::web;
+use logs_broadcast::LogsBroadcaster;
+
+use super::users::{JwtAuth, RoleAuth};
 
 /// Configure statistics API routes
 /// 
@@ -47,17 +51,22 @@ use actix_web::web;
 /// # Arguments
 /// 
 /// * `cfg` - A mutable reference to the service configuration
-pub fn configure(_cfg: &mut web::ServiceConfig) {
+pub fn configure(cfg: &mut web::ServiceConfig) {
     // Statistics endpoints will be implemented here in the future
     // Example route configuration:
-    // cfg.service(
-    //     web::scope("/statistics")
-    //         .wrap(JwtAuth::new())
-    //         .wrap(RoleAuth::admin_or_staff())
-    //         .route("/overview", web::get().to(handlers::get_overview))
+
+    let sse_logs = LogsBroadcaster::create();
+    let sse_logs = web::Data::from(sse_logs);
+
+    cfg.service(
+        web::scope("/statistics")
+            // .wrap(JwtAuth::new())
+            // .wrap(RoleAuth::admin())
+            .app_data(sse_logs)
+            .service(logs::logs_stream)
     //         .route("/gateways/{id}", web::get().to(handlers::get_gateway_stats))
     //         .route("/proxies/{id}", web::get().to(handlers::get_proxy_stats))
     //         .route("/traffic", web::get().to(handlers::get_traffic_stats))
     //         .route("/errors", web::get().to(handlers::get_error_stats))
-    // );
+    );
 }

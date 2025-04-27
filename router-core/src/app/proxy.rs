@@ -1,5 +1,5 @@
 //! # Proxy Application Module
-//! 
+//!
 //! This module implements a TCP proxy that can route traffic based on host rules.
 //! It supports both plain HTTP and TLS connections, with the ability to make routing
 //! decisions based on HTTP Host headers or TLS SNI extensions.
@@ -62,41 +62,95 @@ enum DuplexEvent {
     UpstreamRead(usize),
 }
 
+/// Represents the type of network connection detected
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ConnectionType {
+    /// TLS connection (starts with 0x16)
+    Tls,
+    /// WebSocket upgrade request over HTTP
+    WebSocket,
+    /// Regular HTTP connection
+    Http,
+    /// Plain TCP connection (neither TLS nor HTTP)
+    Tcp,
+}
+
 impl ProxyApp {
+    fn log_status_switch(is_websocket: bool, is_tls: bool, message: String) {
+        match (is_websocket, is_tls) {
+            (true, true) => log::info!("{}", message.replace("CONN:", "CONN:WSS")),
+            (true, false) => log::info!("{}", message.replace("CONN:", "CONN:WS")),
+            (false, true) => log::info!("{}", message.replace("CONN:", "CONN:TLS")),
+            _ => log::info!("{}", message.replace("CONN:", "CONN:TCP")),
+        }
+    }
+
     // Helper function to handle read errors
     fn handle_read_error(e: std::io::Error, id: i32, is_upstream: bool) {
-        let prefix = if is_upstream { "upstream" } else { "downstream" };
+        let prefix = if is_upstream {
+            "upstream"
+        } else {
+            "downstream"
+        };
         let status = if is_upstream { "10" } else { "00" };
-        
+
         if let Some(os_err) = e.raw_os_error() {
             match os_err {
-                54 => log::info!("[PXY] |ID:{}, STATUS:{}, SIZE:0, COMMENT:CONNECTION_RESET |", id, status),
-                60 => log::info!("[PXY] |ID:{}, STATUS:{}, SIZE:0, COMMENT:OPERATION_TIMEOUT |", id, status),
+                54 => log::info!(
+                    "[PXY] |ID:{}, CONN:, STATUS:{}, SIZE:0, COMMENT:CONNECTION_RESET |",
+                    id,
+                    status
+                ),
+                60 => log::info!(
+                    "[PXY] |ID:{}, CONN:, STATUS:{}, SIZE:0, COMMENT:OPERATION_TIMEOUT |",
+                    id,
+                    status
+                ),
                 _ => log::error!("Error reading from {}: {} (code: {:?})", prefix, e, os_err),
             }
         } else {
             log::error!("Error reading from {}: {}", prefix, e);
         }
     }
-    
+
     // Helper function to handle timeout
     fn handle_timeout(id: i32, is_upstream: bool) {
         let status = if is_upstream { "10" } else { "00" };
-        log::info!("[PXY] |ID:{}, STATUS:{}, SIZE:0, COMMENT:READ_TIMEOUT |", id, status);
+        log::info!(
+            "[PXY] |ID:{}, CONN:, STATUS:{}, SIZE:0, COMMENT:READ_TIMEOUT |",
+            id,
+            status
+        );
     }
-    
+
     // Helper function to handle write errors
     fn handle_write_error(e: std::io::Error, id: i32, is_upstream: bool, is_flush: bool) {
-        let direction = if is_upstream { "upstream" } else { "downstream" };
+        let direction = if is_upstream {
+            "upstream"
+        } else {
+            "downstream"
+        };
         let operation = if is_flush { "flushing" } else { "writing" };
         let status_base = if is_upstream { "01" } else { "11" };
         let status_suffix = if is_flush { "F" } else { "X" };
-        
+
         if let Some(os_err) = e.raw_os_error() {
-            if os_err == 32 { // EPIPE - Broken pipe
-                log::info!("[PXY] |ID:{}, STATUS:{}{}, SIZE:0, COMMENT:BROKEN_PIPE |", id, status_base, status_suffix);
+            if os_err == 32 {
+                // EPIPE - Broken pipe
+                log::info!(
+                    "[PXY] |ID:{}, CONN:, STATUS:{}{}, SIZE:0, COMMENT:BROKEN_PIPE |",
+                    id,
+                    status_base,
+                    status_suffix
+                );
             } else {
-                log::error!("Error {} data to {}: {} (code: {:?})", operation, direction, e, os_err);
+                log::error!(
+                    "Error {} data to {}: {} (code: {:?})",
+                    operation,
+                    direction,
+                    e,
+                    os_err
+                );
             }
         } else {
             log::error!("Error {} data to {}: {}", operation, direction, e);
@@ -124,7 +178,10 @@ impl ProxyApp {
                         peer.sni = match rule.sni.clone() {
                             Some(sni) => sni,
                             None => {
-                                log::error!("SNI is required for TLS connections, skipping rule for {}", alt_source);
+                                log::error!(
+                                    "SNI is required for TLS connections, skipping rule for {}",
+                                    alt_source
+                                );
                                 continue;
                             }
                         };
@@ -146,7 +203,6 @@ impl ProxyApp {
             };
         }
 
-        
         let mut client_connectors = std::collections::HashMap::new();
         for rule in &redirects {
             if let Some(target) = &rule.alt_target {
@@ -163,6 +219,42 @@ impl ProxyApp {
         }
     }
 
+    /// # Detects the type of connection based on the initial bytes received
+    fn detect_connection_type(data: &[u8], len: usize) -> ConnectionType {
+        if len == 0 {
+            return ConnectionType::Tcp;
+        }
+
+        // Check for TLS handshake (0x16 = handshake record type)
+        if data[0] == 0x16 {
+            return ConnectionType::Tls;
+        }
+
+        // Check if it looks like HTTP (starts with common HTTP methods)
+        let http_methods = [
+            "GET ", "POST", "PUT ", "HEAD", "DELE", "OPTI", "PATC", "TRAC", "CONN",
+        ];
+        if let Ok(preview) = std::str::from_utf8(&data[..std::cmp::min(4, len)]) {
+            if http_methods
+                .iter()
+                .any(|&method| preview.starts_with(method))
+            {
+                // Further check if it's a WebSocket upgrade request
+                if let Ok(preview) = std::str::from_utf8(&data[..std::cmp::min(len, 1024)]) {
+                    if preview.contains("Upgrade: websocket")
+                        || preview.contains("Upgrade: WebSocket")
+                    {
+                        return ConnectionType::WebSocket;
+                    }
+                }
+                return ConnectionType::Http;
+            }
+        }
+
+        // Default to plain TCP if not identified as anything specific
+        ConnectionType::Tcp
+    }
+
     /// # Handle bidirectional data transfer
     ///
     /// Manages the duplex communication between the client and target server.
@@ -175,26 +267,28 @@ impl ProxyApp {
     ///
     /// ## Note
     /// This function runs until either connection closes or an error occurs.
-    async fn duplex(&self, mut server_session: Stream, mut client_session: Stream) {
+    async fn duplex(
+        &self,
+        mut server_session: Stream,
+        mut client_session: Stream,
+        is_websocket: bool,
+        is_tls: bool,
+    ) {
         let mut upstream_buf = [0; 8192];
         let mut downstream_buf = [0; 8192];
         // create identifier id
         let id = client_session.id();
-        
+
         // Set timeout for read operations (15 seconds)
         let timeout_duration = std::time::Duration::from_secs(120);
 
         loop {
-            let downstream_read = tokio::time::timeout(
-                timeout_duration, 
-                server_session.read(&mut upstream_buf)
-            );
-            let upstream_read = tokio::time::timeout(
-                timeout_duration,
-                client_session.read(&mut downstream_buf)
-            );
+            let downstream_read =
+                tokio::time::timeout(timeout_duration, server_session.read(&mut upstream_buf));
+            let upstream_read =
+                tokio::time::timeout(timeout_duration, client_session.read(&mut downstream_buf));
             let event: DuplexEvent;
-            
+
             select! {
                 result = downstream_read => match result {
                     Ok(Ok(n)) => event = DuplexEvent::DownstreamRead(n),
@@ -221,26 +315,39 @@ impl ProxyApp {
             }
             match event {
                 DuplexEvent::DownstreamRead(0) => {
-                    log::info!("[PXY] |ID:{}, STATUS:00, SIZE:0, COMMENT:- |", id);
+                    // this is end of the request
+                    Self::log_status_switch(
+                        is_websocket,
+                        is_tls,
+                        format!("[PXY] |ID:{}, CONN:, STATUS:00, SIZE:0, COMMENT:- |", id),
+                    );
                     debug!("downstream session closing");
                     return;
                 }
                 DuplexEvent::UpstreamRead(0) => {
-                    log::info!("[PXY] |ID:{}, STATUS:10, SIZE:0, COMMENT:- |", id);
+                    Self::log_status_switch(
+                        is_websocket,
+                        is_tls,
+                        format!("[PXY] |ID:{}, CONN:, STATUS:10, SIZE:0, COMMENT:- |", id),
+                    );
                     debug!("upstream session closing");
                     return;
                 }
                 DuplexEvent::DownstreamRead(n) => {
-                    log::info!("[PXY] |ID:{}, STATUS:01, SIZE:{}, COMMENT:- |", id, n);
+                    Self::log_status_switch(
+                        is_websocket,
+                        is_tls,
+                        format!("[PXY] |ID:{}, CONN:, STATUS:01, SIZE:{}, COMMENT:- |", id, n),
+                    );
                     match client_session.write_all(&upstream_buf[0..n]).await {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => {
                             Self::handle_write_error(e, id, true, false);
                             return;
                         }
                     }
                     match client_session.flush().await {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => {
                             Self::handle_write_error(e, id, true, true);
                             return;
@@ -248,16 +355,21 @@ impl ProxyApp {
                     };
                 }
                 DuplexEvent::UpstreamRead(n) => {
-                    log::info!("[PXY] |ID:{}, STATUS:11, SIZE:{}, COMMENT:- |", id, n);
+                    // start of the request
+                    Self::log_status_switch(
+                        is_websocket,
+                        is_tls,
+                        format!("[PXY] |ID:{}, CONN:, STATUS:11, SIZE:{}, COMMENT:- |", id, n),
+                    );
                     match server_session.write_all(&downstream_buf[0..n]).await {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => {
                             Self::handle_write_error(e, id, false, false);
                             return;
                         }
                     }
                     match server_session.flush().await {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => {
                             Self::handle_write_error(e, id, false, true);
                             return;
@@ -300,7 +412,9 @@ impl ServerApp for ProxyApp {
         log::debug!("#-------------------------------------#");
         log::debug!("#           Incoming Request          #");
         log::debug!("#-------------------------------------#");
-        let mut buf = [0; 8192]; // Increased buffer size for larger headers
+
+        // Read initial data from client
+        let mut buf = [0; 8192];
         let n = match io.read(&mut buf).await {
             Ok(n) => n,
             Err(e) => {
@@ -314,68 +428,45 @@ impl ServerApp for ProxyApp {
             return None;
         }
 
-        let preview = String::from_utf8_lossy(&buf[..std::cmp::min(n, 200)]);
-        let first_line = preview.lines().next().unwrap_or("Empty request");
-        log::debug!("Request preview : {}", first_line);
+        // Determine connection type
+        let conn_type = Self::detect_connection_type(&buf[..n], n);
+        let is_tls = conn_type == ConnectionType::Tls;
+        let is_websocket = conn_type == ConnectionType::WebSocket;
 
-        // In your process_new implementation, modify the host extraction:
-        // Determine if this is a TLS connection based on the first byte
-        let is_tls = n > 0 && buf[0] == 0x16;
-        log::debug!(
-            "Connection type : {}",
-            if is_tls { "TLS" } else { "Plain HTTP" }
-        );
+        log::debug!("Connection type: {:?}", conn_type);
 
-        // Extract the host header (only for non-TLS connections)
-        let host_header = if !is_tls {
-            preview.lines().find_map(|line| {
-                if line.to_lowercase().starts_with("host:") {
-                    Some(line[5..].trim().to_string())
-                } else {
-                    None
-                }
-            })
-        } else {
-            None
-        };
-
-        log::debug!("Host header     : {:?}", host_header);
-
-        // Check for WebSocket upgrade
-        let is_websocket = !is_tls
-            && preview
-                .lines()
-                .any(|line| line.to_lowercase().contains("upgrade: websocket"));
-        if is_websocket {
-            log::debug!("Upgrade request : WebSocket");
+        // Log request preview for HTTP-like connections
+        if conn_type == ConnectionType::Http || conn_type == ConnectionType::WebSocket {
+            let preview = String::from_utf8_lossy(&buf[..std::cmp::min(n, 200)]);
+            let first_line = preview.lines().next().unwrap_or("Empty request");
+            log::debug!("Request preview: {}", first_line);
         }
 
-        // Extract host information
-        let host_info = if is_tls {
-            // For TLS, try to extract SNI from the Client
-            extract_sni(&buf[0..n])
-        } else {
-            // For plain HTTP, extract Host header
-            preview.lines().find_map(|line| {
-                if line.to_lowercase().starts_with("host:") {
-                    Some(line[5..].trim().to_string())
-                } else {
-                    None
-                }
-            })
+        // Extract host information based on connection type
+        let host_info = match conn_type {
+            ConnectionType::Tls => extract_sni(&buf[0..n]),
+            ConnectionType::Http | ConnectionType::WebSocket => {
+                let preview = String::from_utf8_lossy(&buf[..std::cmp::min(n, 1024)]);
+                preview.lines().find_map(|line| {
+                    if line.to_lowercase().starts_with("host:") {
+                        Some(line[5..].trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+            }
+            ConnectionType::Tcp => None,
         };
 
-        log::debug!("Host info       : {:?}", host_info);
+        log::debug!("Host info: {:?}", host_info);
 
-        // Find matching redirect rule based on host info and TLS status
+        // Find matching redirect rule based on host info and connection type
         let proxy_to = if let Some(host) = host_info {
             // First try to find a rule with exact host match
-            let host_match = self.redirects
-                .iter()
-                .find(|rule| {
-                    rule.host.as_ref().map_or(false, |h| h == &host) && rule.alt_tls == is_tls
-                });
-            
+            let host_match = self.redirects.iter().find(|rule| {
+                rule.host.as_ref().map_or(false, |h| h == &host) && rule.alt_tls == is_tls
+            });
+
             if host_match.is_some() {
                 // We have a specific host match
                 host_match
@@ -400,7 +491,7 @@ impl ServerApp for ProxyApp {
         .unwrap_or_else(|| BasicPeer::new(DEFAULT_PORT.p500));
 
         let target_addr = format!("{}", proxy_to._address);
-        log::debug!("Proxying to     : {} (TLS: {})", target_addr, is_tls);
+        log::debug!("Proxying to: {} (TLS: {})", target_addr, is_tls);
 
         // Get the appropriate connector
         let connector = self.client_connectors.get(&target_addr).unwrap_or_else(|| {
@@ -409,7 +500,7 @@ impl ServerApp for ProxyApp {
                 .expect("Default connector should exist")
         });
 
-        // Increase timeout to at least 5 seconds
+        // Connect to the target server
         let mut client_session = match tokio::time::timeout(
             std::time::Duration::from_secs(5),
             connector.new_stream(&proxy_to),
@@ -427,6 +518,7 @@ impl ServerApp for ProxyApp {
             }
         };
 
+        // Forward the initial data to the target server
         match client_session.write_all(&buf[0..n]).await {
             Ok(_) => {}
             Err(e) => {
@@ -443,7 +535,8 @@ impl ServerApp for ProxyApp {
             }
         };
 
-        self.duplex(io, client_session).await;
+        // Establish bidirectional communication
+        self.duplex(io, client_session, is_websocket, is_tls).await;
         None
     }
 }
@@ -570,20 +663,20 @@ fn extract_sni(buf: &[u8]) -> Option<String> {
 /// In a production environment, a formal TLS parser should be used.
 fn find_sni_extension(buf: &[u8]) -> Option<usize> {
     // Minimum TLS Client Hello with SNI should be at least 45 bytes
-    // (5 byte record header + 4 byte handshake header + 2 byte version + 32 byte random + 
-    //  1 byte session ID length + 2 byte cipher suites length + 1 byte compression methods length + 
+    // (5 byte record header + 4 byte handshake header + 2 byte version + 32 byte random +
+    //  1 byte session ID length + 2 byte cipher suites length + 1 byte compression methods length +
     //  2 byte extensions length + 4 byte SNI extension header + 2 byte server name list length +
     //  1 byte name type + 2 byte hostname length)
     if buf.len() < 45 {
         return None;
     }
-    
+
     // This simplified implementation looks for the SNI extension pattern:
     // - Extension Type 0x0000 (SNI)
     // - Followed by a length field
     // - Followed by server name list length
     // - Followed by name type 0x00 (hostname)
-    
+
     // Search through the buffer for potential SNI extension
     // We're looking for the pattern: 0x00 0x00 (extension type) followed by length bytes
     // and then a server name list that starts with 0x00 (hostname indicator)
@@ -593,7 +686,7 @@ fn find_sni_extension(buf: &[u8]) -> Option<usize> {
         if buf[i] == 0x00 && buf[i + 1] == 0x00 && buf[i + 4] == 0x00 {
             // Extract extension length
             let ext_len = ((buf[i + 2] as usize) << 8) | (buf[i + 3] as usize);
-            
+
             // Sanity check the length
             if ext_len > 0 && ext_len < 1000 && i + 4 + ext_len <= buf.len() {
                 // The actual hostname length starts 3 bytes after the name type
@@ -601,7 +694,7 @@ fn find_sni_extension(buf: &[u8]) -> Option<usize> {
             }
         }
     }
-    
+
     // Fallback to the original simplified method which may catch some cases
     // that the more specific pattern above misses
     for i in 0..buf.len() - 4 {
@@ -609,6 +702,6 @@ fn find_sni_extension(buf: &[u8]) -> Option<usize> {
             return Some(i + 3);
         }
     }
-    
+
     None
 }

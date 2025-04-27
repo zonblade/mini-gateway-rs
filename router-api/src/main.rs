@@ -97,7 +97,7 @@ use std::sync::{Arc, Mutex};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
-        std::env::set_var("RUST_LOG", "info");
+        std::env::set_var("RUST_LOG", "debug");
         env_logger::init();
         config::init();
     }
@@ -120,36 +120,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::info!("Started proxy log consumer thread");
             loop {
                 match consumer.recv() {
-                    Ok(msg) => log::info!("Proxy log: {}", msg.message),
+                    Ok(msg) => {
+
+                        let scoped_format = {
+                            let splitted = msg.message.clone()
+                                .split(',')
+                                .into_iter() // Take until we hit an empty section
+                                .map(|s| {
+                                    let data = s
+                                        .trim()
+                                        .split(':')
+                                        .into_iter()
+                                        .map(|s| s.trim().to_string())
+                                        .collect::<Vec<String>>();
+                                    (data[0].clone(), data[1].clone())
+                                })
+                                .collect::<Vec<(String, String)>>();
+
+                            module::udp_log_fetcher::LogMessageFormatted {
+                                id: splitted
+                                    .iter()
+                                    .find(|(k, _)| k == "ID")
+                                    .map_or("".to_string(), |(_, v)| v.clone()),
+                                connection_type: splitted
+                                    .iter()
+                                    .find(|(k, _)| k == "CONN")
+                                    .map_or("".to_string(), |(_, v)| v.clone()),
+                                status: splitted
+                                    .iter()
+                                    .find(|(k, _)| k == "STATUS")
+                                    .map_or("".to_string(), |(_, v)| v.clone()),
+                                packet_size: splitted
+                                    .iter()
+                                    .find(|(k, _)| k == "SIZE")
+                                    .map_or(0, |(_, v)| v.parse().unwrap_or(0)),
+                                comment: splitted
+                                    .iter()
+                                    .find(|(k, _)| k == "COMMENT")
+                                    .map_or("".to_string(), |(_, v)| v.clone()),
+                            }
+                        };
+                        log::info!("{:?}", scoped_format)
+                    },
                     Err(_) => break,
                 }
             }
         });
     }
 
-    if let Some(consumer) = gateway_consumer {
-        std::thread::spawn(move || {
-            log::info!("Started gateway log consumer thread");
-            loop {
-                match consumer.recv() {
-                    Ok(msg) => log::info!("Gateway log: {}", msg.message),
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    // if let Some(consumer) = gateway_consumer {
+    //     std::thread::spawn(move || {
+    //         log::info!("Started gateway log consumer thread");
+    //         loop {
+    //             match consumer.recv() {
+    //                 Ok(msg) => log::info!("Gateway log: {}", msg.message),
+    //                 Err(_) => break,
+    //             }
+    //         }
+    //     });
+    // }
 
-    if let Some(consumer) = normal_consumer {
-        std::thread::spawn(move || {
-            log::info!("Started normal log consumer thread");
-            loop {
-                match consumer.recv() {
-                    Ok(msg) => log::info!("Normal log: {}", msg.message),
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    // if let Some(consumer) = normal_consumer {
+    //     std::thread::spawn(move || {
+    //         log::info!("Started normal log consumer thread");
+    //         loop {
+    //             match consumer.recv() {
+    //                 Ok(msg) => log::info!("Normal log: {}", msg.message),
+    //                 Err(_) => break,
+    //             }
+    //         }
+    //     });
+    // }
 
     // Parse command line arguments using clap
     let matches = clap::Command::new("Router API")
