@@ -413,7 +413,7 @@ impl ProxyHttp for GatewayApp {
         let body_size = session.body_bytes_sent();
         
         log::info!(
-            "[GWX] | PATH:{}, STATUS:{}, SIZE:{}, COMMENT:|",
+            "[GWX] | ID:{}, CONN:TLS/TCP, STATUS:{}, SIZE:{}, COMMENT:|",
             path,
             response_code,
             body_size,

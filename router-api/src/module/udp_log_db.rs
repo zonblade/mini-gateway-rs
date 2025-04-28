@@ -93,8 +93,19 @@ impl UdpLogDb {
 
     /// Process a raw log message into a formatted one
     pub fn process_message(&self, log_message: &LogMessage) -> Option<LogMessageFormatted> {
+
+        let msg_inner = log_message.message.split('|')
+            .collect::<Vec<&str>>();
+
+        if msg_inner.len() == 0 {
+            log::warn!("Invalid message format, skipping record");
+            return None;
+        }
+
+        let msg_inner = msg_inner[1].trim();
+
         // Parse the message format
-        let parts: HashMap<String, String> = log_message.message
+        let parts: HashMap<String, String> = msg_inner
             .split(',')
             .filter_map(|part| {
                 let kv: Vec<&str> = part.trim().splitn(2, ':').collect();
