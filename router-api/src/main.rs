@@ -1,11 +1,11 @@
 //! # Router API
-//! 
+//!
 //! This module provides a RESTful API service for managing the mini-gateway-rs routing system.
 //! The API allows for comprehensive management of users, proxies, gateway nodes, and configuration
 //! settings, as well as monitoring service statistics and health.
-//! 
+//!
 //! ## Architecture
-//! 
+//!
 //! The API server is built with the following components:
 //! - **Actix Web**: High-performance HTTP server framework for handling REST requests
 //! - **SQLite Database**: Persistent storage for configuration, user data, and routing rules
@@ -13,9 +13,9 @@
 //! - **CORS Support**: Configurable cross-origin request security
 //! - **JWT Authentication**: Role-based access control (admin, staff, user)
 //! - **Registry Synchronization**: Automatic sync of proxy and gateway nodes with central registry
-//! 
+//!
 //! ## API Endpoints
-//! 
+//!
 //! The server provides the following endpoint categories:
 //! - `/api/v1/users` - User management (create, read, update, delete)
 //! - `/api/v1/proxies` - Proxy configuration and status
@@ -23,30 +23,30 @@
 //! - `/api/v1/routes` - Routing rules and policies
 //! - `/api/v1/stats` - Service performance and usage metrics
 //! - `/api/v1/health` - Health checks and system status
-//! 
+//!
 //! ## Authentication
-//! 
+//!
 //! The API uses JWT tokens for authentication with the following roles:
 //! - **Admin**: Full access to all endpoints and operations
 //! - **Staff**: Access to monitoring and limited configuration
 //! - **User**: Access only to assigned resources and read operations
-//! 
+//!
 //! ## Configuration
-//! 
+//!
 //! Server configuration is loaded from:
 //! - Environment variables
 //! - Configuration files in the working directory
 //! - Default values for development environments
-//! 
+//!
 //! ## Network
-//! 
+//!
 //! By default, the service listens on port 24042 on all network interfaces (0.0.0.0).
 //! This can be configured through environment variables or config files.
 
 mod api;
 mod client;
-mod module;
 mod config;
+mod module;
 
 use actix_cors::Cors;
 use actix_web::http::header;
@@ -102,95 +102,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config::init();
     }
 
-    // Initialize the multi-port UDP logger with proper port isolation
-    log::info!("Starting multi-port UDP logger...");
-    match module::udp_logger::initialize_udp_logger("127.0.0.1", module::udp_logger::LogPorts::default()) {
-        Ok(_) => log::info!("UDP logger started successfully on ports 24401, 24402, and 24403"),
-        Err(e) => log::error!("Failed to start UDP logger: {}", e),
+    {
+        // Initialize the multi-port UDP logger with proper port isolation
+        log::info!("Starting multi-port UDP logger...");
+        match module::udp_logger::initialize_udp_logger(
+            "127.0.0.1",
+            module::udp_logger::LogPorts::default(),
+        ) {
+            Ok(_) => log::info!("UDP logger started successfully on ports 24401, 24402, and 24403"),
+            Err(e) => log::error!("Failed to start UDP logger: {}", e),
+        }
+
+        module::udp_log::common::init();
+        module::udp_log::proxy::init();
+        module::udp_log::gateway::init();
+
+        log::info!("UDP logger initialized successfully");
     }
-
-    // Get consumers for each specific port type
-    let proxy_consumer = module::udp_logger::get_proxy_log_consumer();
-    let gateway_consumer = module::udp_logger::get_gateway_log_consumer();
-    let normal_consumer = module::udp_logger::get_normal_log_consumer();
-
-    // // Optional: Spawn threads to process messages from each consumer
-    if let Some(consumer) = proxy_consumer {
-        std::thread::spawn(move || {
-            log::info!("Started proxy log consumer thread");
-            loop {
-                match consumer.recv() {
-                    Ok(msg) => {
-
-                        let scoped_format = {
-                            let splitted = msg.message.clone()
-                                .split(',')
-                                .into_iter() // Take until we hit an empty section
-                                .map(|s| {
-                                    let data = s
-                                        .trim()
-                                        .split(':')
-                                        .into_iter()
-                                        .map(|s| s.trim().to_string())
-                                        .collect::<Vec<String>>();
-                                    (data[0].clone(), data[1].clone())
-                                })
-                                .collect::<Vec<(String, String)>>();
-
-                            module::udp_log_fetcher::LogMessageFormatted {
-                                id: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "ID")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                                connection_type: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "CONN")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                                status: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "STATUS")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                                packet_size: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "SIZE")
-                                    .map_or(0, |(_, v)| v.parse().unwrap_or(0)),
-                                comment: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "COMMENT")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                            }
-                        };
-                        log::info!("{:?}", scoped_format)
-                    },
-                    Err(_) => break,
-                }
-            }
-        });
-    }
-
-    // if let Some(consumer) = gateway_consumer {
-    //     std::thread::spawn(move || {
-    //         log::info!("Started gateway log consumer thread");
-    //         loop {
-    //             match consumer.recv() {
-    //                 Ok(msg) => log::info!("Gateway log: {}", msg.message),
-    //                 Err(_) => break,
-    //             }
-    //         }
-    //     });
-    // }
-
-    // if let Some(consumer) = normal_consumer {
-    //     std::thread::spawn(move || {
-    //         log::info!("Started normal log consumer thread");
-    //         loop {
-    //             match consumer.recv() {
-    //                 Ok(msg) => log::info!("Normal log: {}", msg.message),
-    //                 Err(_) => break,
-    //             }
-    //         }
-    //     });
-    // }
 
     // Parse command line arguments using clap
     let matches = clap::Command::new("Router API")
@@ -202,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .long("ip")
                 .help("IP address to bind the server to")
                 .value_name("IP")
-                .default_value("0.0.0.0")
+                .default_value("0.0.0.0"),
         )
         .arg(
             clap::Arg::new("port")
@@ -210,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .help("Port number to bind the server to")
                 .value_name("PORT")
                 .default_value("24042")
-                .value_parser(clap::value_parser!(u16))
+                .value_parser(clap::value_parser!(u16)),
         )
         .get_matches();
 
@@ -218,9 +146,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ip = matches.get_one::<String>("ip").unwrap();
     let port = matches.get_one::<u16>("port").unwrap();
     let bind_address = format!("{}:{}", ip, port);
-    
+
     log::info!("Starting API server on {}...", bind_address);
-    
+
     // Create a thread-safe client wrapped in Arc<Mutex<>> to safely share
     // across multiple threads and request handlers
     let client = Arc::new(Mutex::new(Client::new()));
