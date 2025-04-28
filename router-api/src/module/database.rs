@@ -104,6 +104,7 @@ pub struct Database {
     connection: Arc<Mutex<Connection>>,
 }
 
+#[allow(dead_code)]
 impl Database {
     /// Creates a new database connection to the specified path.
     ///
@@ -520,6 +521,7 @@ impl Database {
 ///     // Example usage
 /// }
 /// ```
+#[allow(dead_code)]
 pub struct Query<T> {
     /// The SQL query string.
     sql: String,
@@ -531,6 +533,7 @@ pub struct Query<T> {
     _marker: std::marker::PhantomData<T>,
 }
 
+#[allow(dead_code)]
 impl<T> Query<T> {
     /// Creates a new query with the given SQL statement.
     ///

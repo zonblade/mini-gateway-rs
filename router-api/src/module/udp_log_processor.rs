@@ -12,6 +12,7 @@ pub struct UdpLogProcessor {
     running: bool,
 }
 
+#[allow(dead_code)]
 impl UdpLogProcessor {
     /// Create a new UDP log processor
     pub fn new(receiver: Receiver<LogMessage>, db_pool: UdpLogDb) -> Self {
@@ -41,9 +42,9 @@ impl UdpLogProcessor {
                                 if formatted.id.ends_with("11") { "connected" } else { "disconnected" }
                             );
                         }
-
+                        let timestamp = std::time::SystemTime::now();
                         // Add the log to the pool
-                        self.db_pool.add_log(&log_message, &formatted);
+                        self.db_pool.add_log(timestamp, &formatted);
                     }
                 },
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -72,6 +73,7 @@ impl UdpLogProcessor {
 }
 
 /// Initialize the database pooling system and start a processor
+#[allow(dead_code)]
 pub fn start_log_processing(receiver: Receiver<LogMessage>) -> thread::JoinHandle<()> {
     // Initialize the database pooling system
     let db_pool = crate::module::udp_log_db::init();

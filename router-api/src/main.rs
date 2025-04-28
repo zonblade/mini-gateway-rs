@@ -53,7 +53,6 @@ use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpServer};
 use api::sync;
 use client::Client;
-use module::udp_log_fetcher;
 use std::sync::{Arc, Mutex};
 
 /// Main entry point for the Router API server.

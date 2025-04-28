@@ -91,7 +91,7 @@ pub fn get_normal_log_consumer() -> Option<Receiver<LogMessage>> {
 }
 
 /// Shutdown all UDP listeners
-#[allow(static_mut_refs)]
+#[allow(static_mut_refs, dead_code)]
 pub fn shutdown_udp_logger() {
     unsafe {
         if let Some(fetcher_arc) = &MULTI_PORT_FETCHER {

@@ -7,6 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct LogMessage {
     pub source_ip: String,
     pub source_port: u16,
@@ -41,6 +42,7 @@ pub struct UdpLogFetcher {
     current_queue_size: Arc<RwLock<usize>>, // Track current queue size
 }
 
+#[allow(dead_code)]
 impl UdpLogFetcher {
     /// Create a new UDP log fetcher with default queue size
     pub fn new() -> Self {
@@ -138,7 +140,7 @@ impl UdpLogFetcher {
                                     let mut size = queue_size_tracker.write().unwrap();
                                     *size = (*size + 1).min(queue_capacity);
                                 }
-                                Err(e) => {
+                                Err(_e) => {
                                     // Count dropped messages due to full queue
                                     dropped_count += 1;
 
@@ -224,6 +226,7 @@ pub struct MultiPortUdpLogFetcher {
     running: Arc<RwLock<bool>>,
 }
 
+#[allow(dead_code)]
 impl MultiPortUdpLogFetcher {
     /// Create a new multi-port UDP log fetcher
     pub fn new() -> Self {
@@ -240,7 +243,7 @@ impl MultiPortUdpLogFetcher {
             return Err(format!("Port {} already added", port));
         }
 
-        let mut fetcher = UdpLogFetcher::with_queue_size(queue_size);
+        let fetcher = UdpLogFetcher::with_queue_size(queue_size);
         self.port_map.push(port);
         self.fetchers.push(fetcher);
 

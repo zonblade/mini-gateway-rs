@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime};
-use crossbeam_channel::{bounded, Receiver, Sender};
 use log;
 
 /// Structure to hold log data before saving to database
@@ -25,6 +24,7 @@ pub struct UdpLogDb {
     table_name: Arc<String>,
 }
 
+#[allow(dead_code)]
 impl UdpLogDb {
     /// Create a new UDP log database pooler with default 5-second flush interval and default table name "logs"
     pub fn new() -> Self {
@@ -77,14 +77,14 @@ impl UdpLogDb {
     }
 
     /// Add a log message to the pool
-    pub fn add_log(&self, log_message: &LogMessage, formatted: &LogMessageFormatted) {
+    pub fn add_log(&self, timestamp: SystemTime, formatted: &LogMessageFormatted) {
         let entry = LogEntry {
             id: formatted.id.clone(),
             connection_type: formatted.connection_type.clone(),
             packet_size: formatted.packet_size,
             status: formatted.status.clone(),
             comment: formatted.comment.clone(),
-            timestamp: log_message.timestamp,
+            timestamp,
         };
 
         let mut pool = self.log_pool.lock().unwrap();
@@ -108,7 +108,7 @@ impl UdpLogDb {
 
         // Extract the required fields
         let id = parts.get("ID").cloned().unwrap_or_default();
-        let connection_type = parts.get("CONN").cloned().unwrap_or_default();
+        let connection_type = parts.get("CONN").cloned().unwrap_or("-".to_string());
         
         // Parse packet size, default to 0 if not present or not parseable
         let packet_size = parts.get("SIZE")
@@ -133,6 +133,7 @@ impl UdpLogDb {
     }
 
     /// Flush the log pool to the database
+    #[allow(deprecated)]
     fn flush_to_db(&self) -> Result<usize, DatabaseError> {
         let mut pool = self.log_pool.lock().unwrap();
         if pool.is_empty() {
@@ -279,6 +280,7 @@ impl UdpLogDb {
 }
 
 /// Initialize a new UDP log database pooler with default settings and start it
+#[allow(dead_code)]
 pub fn init() -> UdpLogDb {
     let db_pool = UdpLogDb::new();
     
@@ -291,6 +293,7 @@ pub fn init() -> UdpLogDb {
 }
 
 /// Initialize a new UDP log database pooler with a custom table name and start it
+#[allow(dead_code)]
 pub fn init_with_table(table_name: &str) -> UdpLogDb {
     let db_pool = UdpLogDb::with_table_name(table_name);
     

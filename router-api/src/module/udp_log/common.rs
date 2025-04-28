@@ -1,7 +1,6 @@
-use crate::module::{udp_log_fetcher, udp_logger};
+use crate::module::udp_logger;
 
-
-pub fn init(){
+pub fn init() {
     let normal_consumer = udp_logger::get_normal_log_consumer();
 
     // // Optional: Spawn threads to process messages from each consumer
@@ -11,47 +10,8 @@ pub fn init(){
             loop {
                 match consumer.recv() {
                     Ok(msg) => {
-
-                        let scoped_format = {
-                            let splitted = msg.message.clone()
-                                .split(',')
-                                .into_iter() // Take until we hit an empty section
-                                .map(|s| {
-                                    let data = s
-                                        .trim()
-                                        .split(':')
-                                        .into_iter()
-                                        .map(|s| s.trim().to_string())
-                                        .collect::<Vec<String>>();
-                                    (data[0].clone(), data[1].clone())
-                                })
-                                .collect::<Vec<(String, String)>>();
-
-                            udp_log_fetcher::LogMessageFormatted {
-                                id: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "ID")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                                connection_type: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "CONN")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                                status: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "STATUS")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                                packet_size: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "SIZE")
-                                    .map_or(0, |(_, v)| v.parse().unwrap_or(0)),
-                                comment: splitted
-                                    .iter()
-                                    .find(|(k, _)| k == "COMMENT")
-                                    .map_or("".to_string(), |(_, v)| v.clone()),
-                            }
-                        };
-                        log::info!("{:?}", scoped_format)
-                    },
+                        log::info!("{:?}", msg.message)
+                    }
                     Err(_) => break,
                 }
             }

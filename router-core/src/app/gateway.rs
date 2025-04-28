@@ -71,12 +71,11 @@ struct RedirectRule {
 }
 
 // Static map to hold redirect rules for different sources
-static REDIRECT_RULES: LazyLock<RwLock<HashMap<String, Vec<RedirectRule>>>> = 
+static REDIRECT_RULES: LazyLock<RwLock<HashMap<String, Vec<RedirectRule>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 // Static to hold the saved ID for config versioning
-static SAVED_CONFIG_ID: LazyLock<RwLock<String>> = 
-    LazyLock::new(|| RwLock::new(String::new()));
+static SAVED_CONFIG_ID: LazyLock<RwLock<String>> = LazyLock::new(|| RwLock::new(String::new()));
 
 /// # Gateway Application
 ///
@@ -110,7 +109,7 @@ static SAVED_CONFIG_ID: LazyLock<RwLock<String>> =
 pub struct GatewayApp {
     source: String,
     last_check_time: RwLock<Instant>, // Use RwLock for thread-safe interior mutability
-    check_interval: Duration, // Interval between configuration checks
+    check_interval: Duration,         // Interval between configuration checks
 }
 
 impl GatewayApp {
@@ -153,7 +152,7 @@ impl GatewayApp {
         let config_id = config::RoutingData::GatewayID.get();
 
         log::debug!("Current config ID: {}", config_id);
-        
+
         {
             // First use a read lock to check if update is needed
             let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
@@ -189,7 +188,7 @@ impl GatewayApp {
         log::debug!("Redirect rules loaded: {}", redirects.len());
 
         if redirects.is_empty() {
-           log::debug!("No redirect rules found");
+            log::debug!("No redirect rules found");
             return;
         }
 
@@ -209,7 +208,7 @@ impl GatewayApp {
             // Store rules for this source
             rules_map.insert(self.source.clone(), source_rules);
         }
-        
+
         {
             // Lock the SAVED_CONFIG_ID for writing
             let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
@@ -222,11 +221,9 @@ impl GatewayApp {
     fn get_rules(&self) -> Vec<RedirectRule> {
         // Only need read access here
         let rules_map = REDIRECT_RULES.read().unwrap();
-        rules_map.get(&self.source)
-            .cloned()
-            .unwrap_or_default()
+        rules_map.get(&self.source).cloned().unwrap_or_default()
     }
-    
+
     // Check if we should refresh configuration based on time interval and update the timestamp
     fn should_check_config(&self) -> bool {
         let now = Instant::now();
@@ -234,13 +231,13 @@ impl GatewayApp {
             let last_check = self.last_check_time.read().unwrap();
             now.duration_since(*last_check) >= self.check_interval
         };
-        
+
         if should_update {
             // Update the timestamp using RwLock interior mutability
             let mut last_check = self.last_check_time.write().unwrap();
             *last_check = now;
         }
-        
+
         should_update
     }
 }
@@ -302,12 +299,12 @@ impl ProxyHttp for GatewayApp {
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
         let path = session.req_header().uri.path();
-        
+
         // Only check for config changes periodically using our interior mutability pattern
         if self.should_check_config() {
             self.populate();
         }
-        
+
         // Get the rules for this source
         let rules = self.get_rules();
 
@@ -317,45 +314,45 @@ impl ProxyHttp for GatewayApp {
                 if let Some(alt_target) = &rule.alt_target {
                     // Start with target pattern - avoid clone by using a reference when possible
                     let target_ref = &rule.target;
-                    
+
                     // Check if we need replacements at all
                     let needs_replacement = target_ref.contains('$');
-                    
+
                     // Only allocate and process if replacements are needed
                     let final_path = if needs_replacement {
                         let mut new_path = target_ref.to_string();
                         // Pre-compute capture group references to avoid multiple format! calls
                         let mut replacements = Vec::with_capacity(captures.len() - 1);
-                        
+
                         for i in 1..captures.len() {
                             if let Some(capture) = captures.get(i) {
                                 replacements.push((format!("${}", i), capture.as_str()));
                             }
                         }
-                        
+
                         // Do all replacements in one pass
                         for (pattern, replacement) in replacements {
                             new_path = new_path.replace(&pattern, replacement);
                         }
-                        
+
                         new_path
                     } else {
                         target_ref.to_string()
                     };
-                    
+
                     // Avoid cloning the URI if possible, work directly with the session's URI
                     let uri_ref = &mut session.req_header_mut().uri;
 
                     // Get the original query without allocating when possible
                     let query_opt = uri_ref.query();
-                    
+
                     // Construct the final path and query
                     let new_path_and_query = if let Some(query) = query_opt {
                         format!("{}?{}", final_path, query)
                     } else {
                         final_path
                     };
-                    
+
                     // Rebuild the URI with the new path and query
                     let mut parts = uri_ref.clone().into_parts();
                     parts.path_and_query = Some(
@@ -363,7 +360,7 @@ impl ProxyHttp for GatewayApp {
                             .expect("Valid URI"),
                     );
                     *uri_ref = http::Uri::from_parts(parts).expect("Valid URI");
-                    
+
                     // Create the peer directly with the correct String type
                     let addr_str = alt_target._address.to_string();
                     let new_peer = HttpPeer::new(addr_str, false, String::new());
@@ -388,7 +385,9 @@ impl ProxyHttp for GatewayApp {
     ///
     /// ## Logging Features
     ///
+    /// - Extracts and logs the request path
     /// - Extracts and logs the HTTP response status code
+    /// - Extracts and logs the response body size in bytes
     /// - Provides a placeholder for additional metric collection
     ///   (e.g., Prometheus counters, latency metrics)
     ///
@@ -406,7 +405,18 @@ impl ProxyHttp for GatewayApp {
         let response_code = session
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
-       log::info!("[GWX] Response code: {}", response_code);
-        // Insert any additional metric logging here (e.g., Prometheus counters)
+
+        // Extract the request path
+        let path = session.req_header().uri.path().to_string();
+        // remove query parameters from the path
+        let path = path.split('?').next().unwrap_or(path.as_str()).to_string();
+        let body_size = session.body_bytes_sent();
+        
+        log::info!(
+            "[GWX] | PATH:{}, STATUS:{}, SIZE:{}, COMMENT:|",
+            path,
+            response_code,
+            body_size,
+        );
     }
 }
