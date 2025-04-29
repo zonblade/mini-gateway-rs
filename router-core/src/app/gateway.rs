@@ -39,6 +39,7 @@ use std::hash::{Hash, Hasher};
 use std::borrow::Cow;
 use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::HashSet;
 
 // Number of cache shards to reduce lock contention
 const CACHE_SHARDS: usize = 32; // Increased from 16 to 32 for better sharding
@@ -55,19 +56,26 @@ struct ShardedCache<K, V> {
     shards: Vec<RwLock<LruCache<K, V>>>,
     total_hits: AtomicUsize,
     total_misses: AtomicUsize,
+    // Track last eviction time per shard to distribute evictions
+    last_evictions: Vec<RwLock<Instant>>,
 }
 
 impl<K: Hash + Eq + Clone, V: Clone> ShardedCache<K, V> {
     fn new(shard_capacity: usize) -> Self {
         let mut shards = Vec::with_capacity(CACHE_SHARDS);
-        for _ in 0..CACHE_SHARDS {
+        let mut last_evictions = Vec::with_capacity(CACHE_SHARDS);
+        
+        for i in 0..CACHE_SHARDS {
             shards.push(RwLock::new(LruCache::new(shard_capacity)));
+            // Stagger initial eviction times to avoid simultaneous evictions across shards
+            last_evictions.push(RwLock::new(Instant::now() - Duration::from_millis((i * 100) as u64)));
         }
         
         Self {
             shards,
             total_hits: AtomicUsize::new(0),
             total_misses: AtomicUsize::new(0),
+            last_evictions,
         }
     }
     
@@ -99,6 +107,22 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedCache<K, V> {
         
         // Get a write lock on only that shard (other shards remain available)
         if let Ok(mut shard) = self.shards[shard_index].write() {
+            // Check if eviction might be needed
+            if shard.is_near_capacity() {
+                // Time-based gradual eviction to avoid spikes
+                if let Ok(mut last_time) = self.last_evictions[shard_index].write() {
+                    let now = Instant::now();
+                    let elapsed = now.duration_since(*last_time);
+                    
+                    // Only perform eviction if sufficient time has passed (100ms minimum)
+                    if elapsed > Duration::from_millis(100) {
+                        // Evict just a few items (max 2) to spread out the eviction work
+                        shard.evict_oldest(2);
+                        *last_time = now;
+                    }
+                }
+            }
+            
             // Insert into the cache
             shard.insert(key, value);
         }
@@ -119,6 +143,16 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedCache<K, V> {
             }
         }
         log::debug!("Cleared all entries from route cache");
+    }
+    
+    // Partial clear - only clear entries that match a predicate
+    fn clear_matching<F>(&self, predicate: F) where F: Fn(&K) -> bool + Send + Sync {
+        for shard in &self.shards {
+            if let Ok(mut shard_guard) = shard.write() {
+                shard_guard.clear_matching(&predicate);
+            }
+        }
+        log::debug!("Selectively cleared matching entries from route cache");
     }
     
     // Get cache hit rate statistics
@@ -176,28 +210,52 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
             return;
         }
         
-        // If we're at capacity, remove oldest entry - optimized eviction policy
+        // If we need to evict, call the evict_oldest method
         if self.cache.len() >= self.capacity {
-            // Find oldest entries for batch removal
-            // Clone the keys to avoid borrow checker issues
-            let mut entries: Vec<(K, Instant)> = self.cache
-                .iter()
-                .map(|(k, (_, t))| (k.clone(), *t))
-                .collect();
-            
-            let remove_count = (self.capacity / 20).max(1); // Remove at least 5% or 1 entry
-            
-            // Partial sort - much faster than full sort for large caches
-            entries.sort_unstable_by_key(|(_, timestamp)| *timestamp);
-            
-            // Remove the oldest entries - need to clone the keys to avoid borrowing issues
-            for (key, _) in entries.into_iter().take(remove_count) {
-                self.cache.remove(&key);
-            }
+            self.evict_oldest(1); // Evict at least one entry
         }
         
         // Now insert the new entry
         self.cache.insert(key, (value, Instant::now()));
+    }
+    
+    // Check if cache is near capacity
+    #[inline]
+    fn is_near_capacity(&self) -> bool {
+        self.cache.len() >= (self.capacity * 90) / 100 // 90% full
+    }
+    
+    // Evict a specific number of the oldest entries
+    #[inline]
+    fn evict_oldest(&mut self, count: usize) {
+        if count == 0 || self.cache.is_empty() {
+            return;
+        }
+        
+        // Find the oldest entries
+        let mut entries: Vec<(K, Instant)> = self.cache
+            .iter()
+            .map(|(k, (_, t))| (k.clone(), *t))
+            .collect();
+        
+        // Only sort as many entries as we need to evict
+        if entries.len() > count {
+            // Use partial_sort to only sort the oldest 'count' entries - more efficient
+            entries.sort_by_key(|(_, timestamp)| *timestamp);
+            entries.truncate(count);
+        } else {
+            entries.sort_by_key(|(_, timestamp)| *timestamp);
+        }
+        
+        // Remove the oldest entries
+        for (key, _) in entries {
+            self.cache.remove(&key);
+        }
+    }
+    
+    // Clear entries matching a predicate
+    fn clear_matching<F>(&mut self, predicate: &F) where F: Fn(&K) -> bool {
+        self.cache.retain(|k, _| !predicate(k));
     }
     
     // Get cache hit rate statistics
@@ -364,26 +422,34 @@ impl GatewayApp {
         log::debug!("Populating redirect rules for source: {}", self.source);
         // Get read access to check if we need to update
         let config_id = config::RoutingData::GatewayID.get();
+        let current_rules_map: HashMap<String, Vec<RedirectRule>>;
+        let saved_id: String;
 
         log::debug!("Current config ID: {}", config_id);
 
         // Fast path: First use a read lock to check if update is needed
         {
             let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
-            if *saved_id_guard == config_id {
+            saved_id = saved_id_guard.clone();
+            
+            if saved_id == config_id {
                 log::debug!("No changes in routing rules, skipping population");
                 return;
             }
+            
+            // Store current rules for incremental update
+            let rules_map = REDIRECT_RULES.read().unwrap();
+            if rules_map.contains_key(&self.source) {
+                current_rules_map = rules_map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+            } else {
+                current_rules_map = HashMap::new();
+            }
         }
 
-        // Clear the route cache since configuration is changing
-        self.route_cache.clear();
-        log::debug!("Updating redirect rules for source: {}", self.source);
-
         let node = config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
-        
-        // Get current config ID for later saving
-        let config_id = config::RoutingData::GatewayID.get();
         
         // Create empty rules vector for this source - will be used if no valid rules are found
         let empty_rules = Vec::new();
@@ -393,6 +459,12 @@ impl GatewayApp {
             Some(rules) => rules,
             None => {
                 log::debug!("No redirect rules found in configuration");
+                
+                // Only selectively clear cache if previous rules existed
+                if current_rules_map.contains_key(&self.source) {
+                    // Clear cache for this source as all rules are gone
+                    self.route_cache.clear();
+                }
                 
                 // Update SAVED_CONFIG_ID even when no rules are found
                 // First clear any existing rules for this source
@@ -415,6 +487,12 @@ impl GatewayApp {
         if rules.is_empty() {
             log::debug!("Empty redirect rules array");
             
+            // Only selectively clear cache if previous rules existed
+            if current_rules_map.contains_key(&self.source) {
+                // Clear cache for this source as all rules are gone
+                self.route_cache.clear();
+            }
+            
             // Update SAVED_CONFIG_ID even when rules are empty
             // First clear any existing rules for this source
             {
@@ -436,6 +514,8 @@ impl GatewayApp {
         let mut redirects = Vec::with_capacity(rules.len());
 
         // Process gateway rules
+        let mut host_patterns: HashSet<String> = HashSet::new();
+        
         for rule in rules {
             // Skip invalid patterns early
             let pattern = match Regex::new(&rule.path_listen) {
@@ -455,6 +535,9 @@ impl GatewayApp {
             let alt_target = rule.addr_target.clone();
             let has_replacements = rule.path_target.contains('$');
             
+            // Track host patterns for cache invalidation
+            host_patterns.insert(rule.path_listen.clone());
+            
             redirects.push(RedirectRule {
                 pattern,
                 fast_matcher,
@@ -470,6 +553,12 @@ impl GatewayApp {
 
         if redirects.is_empty() {
             log::debug!("No valid redirect rules found");
+            
+            // Only selectively clear cache if previous rules existed
+            if current_rules_map.contains_key(&self.source) {
+                // Clear cache for this source as all rules are gone
+                self.route_cache.clear();
+            }
             
             // Update SAVED_CONFIG_ID even when no valid rules are found
             // First clear any existing rules for this source
@@ -498,6 +587,12 @@ impl GatewayApp {
         if source_rules.is_empty() {
             log::debug!("No redirect rules found for source: {}", self.source);
             
+            // Only selectively clear cache if previous rules existed
+            if current_rules_map.contains_key(&self.source) {
+                // Clear cache for this source as all rules are gone
+                self.route_cache.clear();
+            }
+            
             // Update SAVED_CONFIG_ID even when no rules match this source
             // First clear any existing rules for this source
             {
@@ -519,6 +614,30 @@ impl GatewayApp {
         // Use unstable sort for better performance since we don't need stability
         source_rules.sort_unstable_by_key(|rule| rule.priority);
 
+        // Determine if we need full cache clear or selective invalidation
+        let need_full_clear = if let Some(old_rules) = current_rules_map.get(&self.source) {
+            // Check if rule count changed significantly
+            if (old_rules.len() as i32 - source_rules.len() as i32).abs() > 5 {
+                true
+            } else {
+                // Check if priority ordering changed significantly
+                // This is a heuristic: if many rules changed priority, we should clear the cache
+                let old_paths: Vec<String> = old_rules.iter()
+                    .map(|r| r.target.clone())
+                    .collect();
+                
+                let new_paths: Vec<String> = source_rules.iter()
+                    .map(|r| r.target.clone())
+                    .collect();
+                
+                // If paths are very different, do a full clear
+                old_paths.len() / 2 < old_paths.iter().filter(|p| !new_paths.contains(p)).count()
+            }
+        } else {
+            // No previous rules, no need for a full clear
+            false
+        };
+
         // Now acquire write locks to update the data
         {
             // Lock the REDIRECT_RULES for writing
@@ -532,6 +651,35 @@ impl GatewayApp {
             let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
             // Update saved ID to indicate we've processed this configuration
             *saved_id_guard = config_id.clone();
+        }
+
+        // Clear cache when appropriate
+        if need_full_clear {
+            log::debug!("Configuration changed significantly, clearing entire route cache");
+            self.route_cache.clear();
+        } else {
+            // Selective cache invalidation - invalidate entries that could be affected by pattern changes
+            log::debug!("Configuration changed incrementally, selectively clearing route cache");
+            
+            // We can be more clever here, but for now just invalidate cache based on hostname patterns
+            // In a more advanced implementation, we could track which rules changed and only invalidate
+            // those cache entries that match the changed rules
+            
+            // This is a simple approach - for paths looking like /api/.* or similar,
+            // we strip the regex parts and use that as a prefix check
+            let patterns_for_invalidation: Vec<String> = host_patterns.into_iter()
+                .map(|p| p.replace("(.*)", "").replace(".*", "").replace("[^/]+", ""))
+                .collect();
+            
+            self.route_cache.clear_matching(|key: &String| {
+                // Check if any pattern is a prefix of this cache key
+                for pattern in &patterns_for_invalidation {
+                    if !pattern.is_empty() && key.starts_with(pattern) {
+                        return true;
+                    }
+                }
+                false
+            });
         }
 
         log::debug!("Saved config ID: {}", config_id);

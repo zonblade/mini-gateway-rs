@@ -22,6 +22,7 @@ use crate::config::{self, ProxyNode, DEFAULT_PORT};
 use bytes::BytesMut;
 use std::cell::RefCell;
 use std::thread_local;
+use std::time::{Duration, Instant};
 
 // Thread-local buffer pool for efficient buffer reuse
 thread_local! {
@@ -32,6 +33,7 @@ thread_local! {
 const DEFAULT_BUFFER_SIZE: usize = 16384; // 16KB instead of 8KB for more efficient chunking
 const FLUSH_THRESHOLD: usize = 8192;     // Only flush when buffers reach this threshold
 const SOCKET_TIMEOUT_SECS: u64 = 60;     // Reduce from 120s to be more responsive to network changes
+const BUFFER_POOL_SIZE: usize = 64;      // Increased pool size to reduce allocations
 
 /// Buffer pool implementation that uses thread-local storage to avoid mutex contention
 struct BufferPool;
@@ -40,19 +42,38 @@ impl BufferPool {
     fn get() -> BytesMut {
         TLS_BUFFER_POOL.with(|pool| {
             let mut pool = pool.borrow_mut();
-            pool.pop().unwrap_or_else(|| BytesMut::with_capacity(DEFAULT_BUFFER_SIZE))
+            pool.pop().unwrap_or_else(|| {
+                // When creating a new buffer, use exact capacity to reduce memory fragmentation
+                BytesMut::with_capacity(DEFAULT_BUFFER_SIZE)
+            })
         })
     }
 
     fn put(mut buf: BytesMut) {
-        // Clear buffer but keep capacity
-        buf.clear();
-        
+        // Only keep buffers that match our expected size to avoid fragmentation
+        if buf.capacity() == DEFAULT_BUFFER_SIZE {
+            // Clear buffer but keep capacity
+            buf.clear();
+            
+            TLS_BUFFER_POOL.with(|pool| {
+                let mut pool = pool.borrow_mut();
+                // Increased pool size limit to handle more concurrent connections
+                if pool.len() < BUFFER_POOL_SIZE {
+                    pool.push(buf);
+                }
+            });
+        }
+        // Otherwise let it be dropped and garbage-collected
+    }
+    
+    /// Initialize the buffer pool with pre-allocated buffers
+    /// Call this during application startup to avoid allocation spikes during operation
+    fn init() {
         TLS_BUFFER_POOL.with(|pool| {
             let mut pool = pool.borrow_mut();
-            // Limit the number of stored buffers to prevent memory bloat
-            if pool.len() < 32 {
-                pool.push(buf);
+            // Pre-allocate half the pool size
+            for _ in 0..(BUFFER_POOL_SIZE / 2) {
+                pool.push(BytesMut::with_capacity(DEFAULT_BUFFER_SIZE));
             }
         });
     }
@@ -107,6 +128,148 @@ enum ConnectionType {
     Http,
     /// Plain TCP connection (neither TLS nor HTTP)
     Tcp,
+}
+
+/// # Connection Configuration
+/// 
+/// Manages dynamic configuration for connections based on connection type
+/// and runtime behavior analysis.
+struct ConnectionConfig {
+    // Base buffer size - either default or from config
+    buffer_size: usize,
+    // Timeout for socket operations
+    timeout_secs: u64,
+    // Whether to use adaptive buffering
+    adaptive_buffer: bool,
+    // Traffic history for adaptive sizing
+    traffic_history: Vec<usize>,
+    // Maximum size for adaptive buffers
+    max_buffer_size: usize,
+    // Minimum size for adaptive buffers
+    min_buffer_size: usize,
+    // Last resize timestamp to limit frequency of buffer resizing
+    last_resize: Instant,
+    // Resize cooldown period
+    resize_cooldown: Duration,
+}
+
+impl ConnectionConfig {
+    // Create a new connection config, potentially using values from the proxy node config
+    fn new(proxy_node: Option<&ProxyNode>, conn_type: ConnectionType) -> Self {
+        let default_buffer_size = match conn_type {
+            ConnectionType::Tls => DEFAULT_BUFFER_SIZE * 2, // TLS connections often have larger payloads
+            ConnectionType::WebSocket => DEFAULT_BUFFER_SIZE, // WebSockets benefit from standard buffers
+            ConnectionType::Http => DEFAULT_BUFFER_SIZE, // HTTP uses standard buffer size
+            ConnectionType::Tcp => DEFAULT_BUFFER_SIZE / 2, // Plain TCP often has smaller messages
+        };
+        
+        let default_timeout = match conn_type {
+            ConnectionType::WebSocket => SOCKET_TIMEOUT_SECS * 2, // WebSockets need longer timeouts
+            ConnectionType::Tls => SOCKET_TIMEOUT_SECS,
+            ConnectionType::Http => SOCKET_TIMEOUT_SECS,
+            ConnectionType::Tcp => SOCKET_TIMEOUT_SECS / 2, // TCP connections can use shorter timeouts
+        };
+        
+        if let Some(node) = proxy_node {
+            // Use custom values from proxy node config if available
+            ConnectionConfig {
+                buffer_size: node.buffer_size.unwrap_or(default_buffer_size),
+                timeout_secs: node.timeout_secs.unwrap_or(default_timeout),
+                adaptive_buffer: node.adaptive_buffer,
+                traffic_history: Vec::with_capacity(10),
+                max_buffer_size: 65536, // 64KB max
+                min_buffer_size: 4096,  // 4KB min
+                last_resize: Instant::now(),
+                resize_cooldown: Duration::from_secs(1), // Only resize once per second at most
+            }
+        } else {
+            // Use default values
+            ConnectionConfig {
+                buffer_size: default_buffer_size,
+                timeout_secs: default_timeout,
+                adaptive_buffer: false,
+                traffic_history: Vec::with_capacity(10),
+                max_buffer_size: 65536, // 64KB max
+                min_buffer_size: 4096,  // 4KB min
+                last_resize: Instant::now(),
+                resize_cooldown: Duration::from_secs(1), // Only resize once per second at most
+            }
+        }
+    }
+    
+    // Update buffer size based on traffic patterns
+    fn update_buffer_size(&mut self, bytes_transferred: usize) {
+        if !self.adaptive_buffer {
+            return;
+        }
+        
+        // Add current transfer to history
+        self.traffic_history.push(bytes_transferred);
+        
+        // Only keep the last 10 transfers
+        if self.traffic_history.len() > 10 {
+            self.traffic_history.remove(0);
+        }
+        
+        // Check cooldown period to avoid frequent resizing
+        let now = Instant::now();
+        if now.duration_since(self.last_resize) < self.resize_cooldown {
+            return;
+        }
+        
+        // Calculate average transfer size if we have enough data
+        if self.traffic_history.len() >= 3 {
+            let avg_transfer = self.traffic_history.iter().sum::<usize>() / self.traffic_history.len();
+            
+            // Adjust buffer size based on recent traffic
+            // If transfers are consistently large, increase buffer size
+            // If transfers are small, decrease buffer size to save memory
+            let new_size = if avg_transfer > self.buffer_size / 2 {
+                // Increase buffer size if transfers are large
+                (self.buffer_size * 3) / 2
+            } else if avg_transfer < self.buffer_size / 4 && self.buffer_size > self.min_buffer_size {
+                // Decrease buffer size if transfers are small
+                self.buffer_size / 2
+            } else {
+                // No change needed
+                self.buffer_size
+            };
+            
+            // Clamp to min/max values
+            let new_size = new_size.min(self.max_buffer_size).max(self.min_buffer_size);
+            
+            // Only update if actually changed
+            if new_size != self.buffer_size {
+                // Update resize timestamp
+                self.last_resize = now;
+                self.buffer_size = new_size;
+            }
+        }
+    }
+    
+    // Get the current buffer size - adjusted to standard sizes to reduce fragmentation
+    fn get_buffer_size(&self) -> usize {
+        // Round to nearest power of 2 to reduce memory fragmentation
+        let mut size = self.buffer_size;
+        let mut power = 12; // Start at 4KB (2^12)
+        
+        while (1 << power) < size {
+            power += 1;
+        }
+        
+        1 << power // Return power of 2 value
+    }
+    
+    // Get the current timeout duration
+    fn get_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.timeout_secs)
+    }
+    
+    // Get the flush threshold based on current buffer size
+    fn get_flush_threshold(&self) -> usize {
+        // Flush when buffer is half full
+        self.buffer_size / 2
+    }
 }
 
 impl ProxyApp {
@@ -233,6 +396,9 @@ impl ProxyApp {
     /// ## Returns
     /// A new ProxyApp instance with configured redirect rules and connection handlers
     pub fn new(alt_source: &str) -> Self {
+        // Initialize buffer pool with pre-allocated buffers to avoid allocation during processing
+        BufferPool::init();
+        
         let node = config::RoutingData::ProxyRouting.xget::<Vec<ProxyNode>>();
         let mut host_rules = std::collections::HashMap::new();
         let mut catch_all_rules = std::collections::HashMap::new();
@@ -283,11 +449,22 @@ impl ProxyApp {
             if let Some(target) = &rule.alt_target {
                 let addr = format!("{}", target);
                 if !client_connectors.contains_key(&addr) {
-                    client_connectors.insert(addr, TransportConnector::new(None));
+                    // Create connector with optimized settings
+                    let mut connector = TransportConnector::new(None);
+                    // Set TCP keepalive to maintain connections
+                    connector.set_tcp_keepalive(Some(Duration::from_secs(30)));
+                    // Set TCP nodelay to reduce latency
+                    connector.set_tcp_nodelay(true);
+                    client_connectors.insert(addr, connector);
                 }
             }
         }
-        client_connectors.insert("default".to_string(), TransportConnector::new(None));
+        
+        // Create default connector with optimized settings
+        let mut default_connector = TransportConnector::new(None);
+        default_connector.set_tcp_keepalive(Some(Duration::from_secs(30)));
+        default_connector.set_tcp_nodelay(true);
+        client_connectors.insert("default".to_string(), default_connector);
 
         ProxyApp {
             client_connectors,
@@ -589,8 +766,28 @@ impl ProxyApp {
                 log::warn!("Failed to set TCP_NODELAY: {}", e);
             }
             
-            // Note: We don't use socket.set_send_buffer_size and set_keepalive directly
-            // as they're not available on TcpStream, but Tokio provides the nodelay option
+            // Set keep-alive for persistent connections
+            if let Err(e) = socket.set_keepalive(Some(Duration::from_secs(30))) {
+                log::warn!("Failed to set TCP_KEEPALIVE: {}", e);
+            }
+            
+            // Optimize socket buffer sizes if available
+            #[cfg(target_family = "unix")]
+            {
+                use std::os::unix::io::{AsRawFd, FromRawFd};
+                if let Ok(fd) = socket.as_raw_fd() {
+                    // Safe because we're only setting options on the fd, not taking ownership
+                    unsafe {
+                        let sock = std::net::TcpStream::from_raw_fd(fd);
+                        // Try to set send buffer size (8MB)
+                        let _ = sock.set_send_buffer_size(8 * 1024 * 1024);
+                        // Try to set recv buffer size (8MB)
+                        let _ = sock.set_recv_buffer_size(8 * 1024 * 1024);
+                        // Leak the fd to avoid closing it
+                        let _ = sock.into_raw_fd();
+                    }
+                }
+            }
         }
     }
 }
@@ -924,115 +1121,5 @@ impl StreamSocketExt for Stream {
         // in a way that allows us to set socket options. For now, we'll just return None
         // and the optimize_tcp_socket function will silently skip setting options.
         None
-    }
-}
-
-// Connection configuration that can adapt to different traffic patterns
-struct ConnectionConfig {
-    // Base buffer size - either default or from config
-    buffer_size: usize,
-    // Timeout for socket operations
-    timeout_secs: u64,
-    // Whether to use adaptive buffering
-    adaptive_buffer: bool,
-    // Traffic history for adaptive sizing
-    traffic_history: Vec<usize>,
-    // Maximum size for adaptive buffers
-    max_buffer_size: usize,
-    // Minimum size for adaptive buffers
-    min_buffer_size: usize,
-}
-
-impl ConnectionConfig {
-    // Create a new connection config, potentially using values from the proxy node config
-    fn new(proxy_node: Option<&ProxyNode>, conn_type: ConnectionType) -> Self {
-        let default_buffer_size = match conn_type {
-            ConnectionType::Tls => DEFAULT_BUFFER_SIZE * 2, // TLS connections often have larger payloads
-            ConnectionType::WebSocket => DEFAULT_BUFFER_SIZE, // WebSockets benefit from standard buffers
-            ConnectionType::Http => DEFAULT_BUFFER_SIZE, // HTTP uses standard buffer size
-            ConnectionType::Tcp => DEFAULT_BUFFER_SIZE / 2, // Plain TCP often has smaller messages
-        };
-        
-        let default_timeout = match conn_type {
-            ConnectionType::WebSocket => SOCKET_TIMEOUT_SECS * 2, // WebSockets need longer timeouts
-            ConnectionType::Tls => SOCKET_TIMEOUT_SECS,
-            ConnectionType::Http => SOCKET_TIMEOUT_SECS,
-            ConnectionType::Tcp => SOCKET_TIMEOUT_SECS / 2, // TCP connections can use shorter timeouts
-        };
-        
-        if let Some(node) = proxy_node {
-            // Use custom values from proxy node config if available
-            ConnectionConfig {
-                buffer_size: node.buffer_size.unwrap_or(default_buffer_size),
-                timeout_secs: node.timeout_secs.unwrap_or(default_timeout),
-                adaptive_buffer: node.adaptive_buffer,
-                traffic_history: Vec::with_capacity(10),
-                max_buffer_size: 65536, // 64KB max
-                min_buffer_size: 4096,  // 4KB min
-            }
-        } else {
-            // Use default values
-            ConnectionConfig {
-                buffer_size: default_buffer_size,
-                timeout_secs: default_timeout,
-                adaptive_buffer: false,
-                traffic_history: Vec::with_capacity(10),
-                max_buffer_size: 65536, // 64KB max
-                min_buffer_size: 4096,  // 4KB min
-            }
-        }
-    }
-    
-    // Update buffer size based on traffic patterns
-    fn update_buffer_size(&mut self, bytes_transferred: usize) {
-        if !self.adaptive_buffer {
-            return;
-        }
-        
-        // Add current transfer to history
-        self.traffic_history.push(bytes_transferred);
-        
-        // Only keep the last 10 transfers
-        if self.traffic_history.len() > 10 {
-            self.traffic_history.remove(0);
-        }
-        
-        // Calculate average transfer size if we have enough data
-        if self.traffic_history.len() >= 3 {
-            let avg_transfer = self.traffic_history.iter().sum::<usize>() / self.traffic_history.len();
-            
-            // Adjust buffer size based on recent traffic
-            // If transfers are consistently large, increase buffer size
-            // If transfers are small, decrease buffer size to save memory
-            if avg_transfer > self.buffer_size / 2 {
-                // Increase buffer size if transfers are large
-                self.buffer_size = (self.buffer_size * 3) / 2;
-                if self.buffer_size > self.max_buffer_size {
-                    self.buffer_size = self.max_buffer_size;
-                }
-            } else if avg_transfer < self.buffer_size / 4 && self.buffer_size > self.min_buffer_size {
-                // Decrease buffer size if transfers are small
-                self.buffer_size = self.buffer_size / 2;
-                if self.buffer_size < self.min_buffer_size {
-                    self.buffer_size = self.min_buffer_size;
-                }
-            }
-        }
-    }
-    
-    // Get the current buffer size
-    fn get_buffer_size(&self) -> usize {
-        self.buffer_size
-    }
-    
-    // Get the current timeout duration
-    fn get_timeout(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.timeout_secs)
-    }
-    
-    // Get the flush threshold based on current buffer size
-    fn get_flush_threshold(&self) -> usize {
-        // Flush when buffer is half full
-        self.buffer_size / 2
     }
 }

@@ -26,6 +26,8 @@ use pingora::{
     services::Service,
 };
 use std::thread;
+use std::time::Duration;
+use tokio::time::sleep;
 
 /// Initialize and run all server components.
 ///
@@ -86,26 +88,42 @@ pub fn init() {
 
             let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
 
-            // Create a gateway service for each address
-            for addr in addr.iter() {
-                log::info!("Creating gateway service for address: {}", addr);
-                let mut my_gateway_service = pingora::proxy::http_proxy_service(
-                    &my_server.configuration,
-                    GatewayApp::new(addr),
-                );
-                my_gateway_service.add_tcp(addr);
-                my_gateway.push(Box::new(my_gateway_service));
+            // Create a gateway service for each address with staggered initialization
+            for (idx, addr) in addr.iter().enumerate() {
+                // Stagger the initialization to prevent resource spikes
+                if idx > 0 {
+                    // Small delay between service initializations to spread resource allocation
+                    // Use a non-async sleep for this thread initialization context
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                
+                // Initialize the gateway service
+                let service = init_gateway_service(addr, &my_server);
+                my_gateway.push(service);
+                
+                log::info!("Gateway service {} initialized", idx + 1);
             }
+            
             log::info!("Gateway services created: {}", my_gateway.len());
-            // Add all gateway services to the server and run
+            
+            // Add all gateway services to the server and run with optimal settings
             my_server.add_services(my_gateway);
-            my_server.run(RunArgs::default());
+            
+            // Run the server with optimized settings
+            let mut args = RunArgs::default();
+            // Set graceful shutdown timeout to a reasonable value
+            args.graceful_shutdown_timeout = Duration::from_secs(30);
+            my_server.run(args);
         });
         server_threads.push(handle);
     }
 
-    // Non-TLS Proxy server thread - Handles regular HTTP traffic
+    // Proxy Service Thread - Handles TCP proxying based on SNI/Host
     {
+        // Add a small delay before initializing the proxy service
+        // to avoid concurrent resource allocation with the gateway service
+        std::thread::sleep(Duration::from_millis(500));
+        
         let handle = thread::spawn(|| {
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
@@ -115,26 +133,47 @@ pub fn init() {
                 .unwrap_or(vec![]);
             // filter only for tls = false
             node.retain(|x| x.tls == false);
+            
+            // Pre-allocate the vector with the right capacity
+            let mut proxies: Vec<Box<dyn Service>> = Vec::with_capacity(node.len());
 
-            // Create proxy service for non-TLS traffic
-            let mut proxies: Vec<Box<dyn Service>> = vec![];
-
-            for proxy in node {
-                let proxy_set = service::proxy::proxy_service(&proxy.addr_listen);
-                proxies.push(Box::new(proxy_set));
+            // Initialize services with staggered startup
+            for (idx, proxy) in node.iter().enumerate() {
+                // Stagger service initialization
+                if idx > 0 {
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                
+                let proxy_app = ProxyApp::new(&proxy.addr_listen);
+                let mut proxy_service = 
+                    pingora::proxy::tcp_proxy_service(&my_server.configuration, proxy_app);
+                
+                // Use optimized buffer sizes when adding TCP listeners
+                proxy_service.add_tcp_listener(&proxy.addr_listen, 
+                    Some(8 * 1024 * 1024), // Send buffer
+                    Some(8 * 1024 * 1024)  // Receive buffer
+                );
+                
+                proxies.push(Box::new(proxy_service));
+                log::info!("Proxy service initialized for: {}", proxy.addr_listen);
             }
-
+            
             // Add all proxy services to the server
             my_server.add_services(proxies);
-
-            // This call blocks until the process receives SIGINT (or another interrupt)
-            my_server.run(RunArgs::default());
+            
+            // Run with optimized settings
+            let mut args = RunArgs::default();
+            args.graceful_shutdown_timeout = Duration::from_secs(30);
+            my_server.run(args);
         });
         server_threads.push(handle);
     }
 
-    // TLS Proxy server thread - Handles HTTPS traffic with TLS termination
+    // TLS Proxy Service Thread - Handles TLS termination and proxying
     {
+        // Add another small delay before initializing the TLS service
+        std::thread::sleep(Duration::from_millis(500));
+        
         let handle = thread::spawn(|| {
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
@@ -142,13 +181,19 @@ pub fn init() {
             let mut node = config::RoutingData::ProxyRouting
                 .xget::<Vec<ProxyNode>>()
                 .unwrap_or(vec![]);
-            // filter only for tls = false
+            // filter only for tls = true
             node.retain(|x| x.tls == true);
 
+            // Pre-allocate the vector with the right capacity
+            let mut proxies: Vec<Box<dyn Service>> = Vec::with_capacity(node.len());
 
-            let mut proxies: Vec<Box<dyn Service>> = vec![];
-
-            for proxy in node {
+            // Initialize services with staggered startup
+            for (idx, proxy) in node.iter().enumerate() {
+                // Stagger service initialization
+                if idx > 0 {
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                
                 let tls_pem = match proxy.tls_pem {
                     Some(ref pem) => pem,
                     None => {
@@ -167,22 +212,27 @@ pub fn init() {
                     &proxy.addr_listen,
                     &tls_pem,
                     &tls_key,
-
                 );
                 proxies.push(Box::new(proxy_set));
+                log::info!("TLS Proxy service initialized for: {}", proxy.addr_listen);
             }
             
             // Add all proxy services to the server
             my_server.add_services(proxies);
 
-            // This call blocks until the process receives SIGINT (or another interrupt)
-            my_server.run(RunArgs::default());
+            // Run with optimized settings
+            let mut args = RunArgs::default();
+            args.graceful_shutdown_timeout = Duration::from_secs(30);
+            my_server.run(args);
         });
         server_threads.push(handle);
     }
 
     // Default Page servers - Handle error conditions and security monitoring
     {
+        // Add a final delay before initializing the auxiliary services
+        std::thread::sleep(Duration::from_millis(500));
+        
         // 404 Not Found error page server
         let handle404: thread::JoinHandle<()> = thread::spawn(|| {
             // Create a TCP listener for the default 404 page
@@ -206,11 +256,42 @@ pub fn init() {
         server_threads.push(handle_tls);
     }
 
-    // Wait for all server threads to complete (typically on shutdown)
+    // Wait for all server threads to complete (this will block forever unless interrupted)
     for handle in server_threads {
-        log::debug!("Waiting for server thread to finish...");
         if let Err(e) = handle.join() {
-            log::debug!("Server thread failed: {:?}", e);
+            log::error!("Server thread panicked: {:?}", e);
         }
     }
+}
+
+/// # Initialize Gateway Service
+/// 
+/// Initializes a gateway service with optimized settings and staggered startup
+/// to prevent concurrent resource allocation spikes.
+/// 
+/// ## Parameters
+/// 
+/// * `addr` - The address this gateway service will listen on
+/// * `my_server` - The Pingora server instance to add the service to
+/// 
+/// ## Returns
+/// 
+/// Box containing the initialized gateway service
+fn init_gateway_service(addr: &str, my_server: &pingora::server::Server) -> Box<dyn pingora::services::Service> {
+    log::info!("Creating gateway service for address: {}", addr);
+    
+    // Create a new gateway app with the address
+    let gateway_app = GatewayApp::new(addr);
+    
+    // Create the gateway service with optimized settings
+    let mut gateway_service = pingora::proxy::http_proxy_service(
+        &my_server.configuration,
+        gateway_app,
+    );
+    
+    // Add TCP listener with specific buffer sizes
+    gateway_service.add_tcp_listener(addr, Some(8 * 1024 * 1024), Some(8 * 1024 * 1024));
+    
+    // Return the service as a boxed trait object
+    Box::new(gateway_service)
 }
