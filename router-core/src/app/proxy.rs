@@ -441,12 +441,51 @@ impl ProxyApp {
         // Create identifier id
         let id = client_session.id();
 
+        // We'll use these variables to track pending flushes
+        let mut upstream_pending_flush = PendingFlush::None;
+        let mut downstream_pending_flush = PendingFlush::None;
+
         loop {
-            // Use dynamic timeouts from config
+            // Update timeouts dynamically based on current flush state
+            let upstream_timeout = if matches!(upstream_pending_flush, PendingFlush::None) {
+                upstream_config.get_timeout()
+            } else {
+                // Use shorter timeout when we have pending flushes
+                std::time::Duration::from_millis(50)
+            };
+            
+            let downstream_timeout = if matches!(downstream_pending_flush, PendingFlush::None) {
+                downstream_config.get_timeout()
+            } else {
+                // Use shorter timeout when we have pending flushes
+                std::time::Duration::from_millis(50)
+            };
+            
+            // Check if we need to execute a pending flush before reading more data
+            if !matches!(upstream_pending_flush, PendingFlush::None) {
+                if let Err(e) = client_session.flush().await {
+                    Self::handle_write_error(e, id, true, true);
+                    return;
+                }
+                upstream_accumulated = 0;
+                upstream_pending_flush = PendingFlush::None;
+            }
+            
+            if !matches!(downstream_pending_flush, PendingFlush::None) {
+                if let Err(e) = server_session.flush().await {
+                    Self::handle_write_error(e, id, false, true);
+                    return;
+                }
+                downstream_accumulated = 0;
+                downstream_pending_flush = PendingFlush::None;
+            }
+            
+            // Read data with dynamic timeouts
             let downstream_read = 
-                tokio::time::timeout(downstream_config.get_timeout(), server_session.read_buf(&mut upstream_buf));
+                tokio::time::timeout(downstream_timeout, server_session.read_buf(&mut upstream_buf));
             let upstream_read = 
-                tokio::time::timeout(upstream_config.get_timeout(), client_session.read_buf(&mut downstream_buf));
+                tokio::time::timeout(upstream_timeout, client_session.read_buf(&mut downstream_buf));
+            
             let event: DuplexEvent;
 
             select! {
@@ -457,6 +496,25 @@ impl ProxyApp {
                         return;
                     },
                     Err(_) => {
+                        // A timeout may just mean we need to flush pending data
+                        if !matches!(upstream_pending_flush, PendingFlush::None) {
+                            if let Err(e) = client_session.flush().await {
+                                Self::handle_write_error(e, id, true, true);
+                            }
+                            upstream_accumulated = 0;
+                            upstream_pending_flush = PendingFlush::None;
+                            continue;
+                        }
+                        
+                        if !matches!(downstream_pending_flush, PendingFlush::None) {
+                            if let Err(e) = server_session.flush().await {
+                                Self::handle_write_error(e, id, false, true);
+                            }
+                            downstream_accumulated = 0;
+                            downstream_pending_flush = PendingFlush::None;
+                            continue;
+                        }
+                        
                         Self::handle_timeout(id, false);
                         return;
                     }
@@ -468,6 +526,25 @@ impl ProxyApp {
                         return;
                     },
                     Err(_) => {
+                        // A timeout may just mean we need to flush pending data
+                        if !matches!(upstream_pending_flush, PendingFlush::None) {
+                            if let Err(e) = client_session.flush().await {
+                                Self::handle_write_error(e, id, true, true);
+                            }
+                            upstream_accumulated = 0;
+                            upstream_pending_flush = PendingFlush::None;
+                            continue;
+                        }
+                        
+                        if !matches!(downstream_pending_flush, PendingFlush::None) {
+                            if let Err(e) = server_session.flush().await {
+                                Self::handle_write_error(e, id, false, true);
+                            }
+                            downstream_accumulated = 0;
+                            downstream_pending_flush = PendingFlush::None;
+                            continue;
+                        }
+                        
                         Self::handle_timeout(id, true);
                         return;
                     }
@@ -518,20 +595,32 @@ impl ProxyApp {
                         }
                     }
                     
-                    // Only flush if we've accumulated enough data or it's likely the last part of a response
-                    // Use the dynamic flush threshold from the config
-                    let should_flush = upstream_accumulated >= upstream_config.get_flush_threshold() || 
-                                       n < upstream_config.get_buffer_size() / 2;
-                                       
-                    if should_flush {
-                        match client_session.flush().await {
-                            Ok(_) => {
-                                upstream_accumulated = 0; // Reset accumulator after flush
-                            },
-                            Err(e) => {
-                                Self::handle_write_error(e, id, true, true);
-                                return;
+                    // Use progressive watermark-based flushing decisions
+                    let flush_decision = upstream_config.should_flush(upstream_accumulated, n);
+                    
+                    match flush_decision {
+                        FlushDecision::Immediate => {
+                            // Flush immediately
+                            match client_session.flush().await {
+                                Ok(_) => {
+                                    upstream_accumulated = 0;
+                                },
+                                Err(e) => {
+                                    Self::handle_write_error(e, id, true, true);
+                                    return;
+                                }
                             }
+                        },
+                        FlushDecision::Soon => {
+                            // Schedule a flush soon (will happen after next read or timeout)
+                            upstream_pending_flush = PendingFlush::Soon;
+                        },
+                        FlushDecision::Eventually => {
+                            // Schedule a flush eventually (if no more data arrives)
+                            upstream_pending_flush = PendingFlush::Eventually;
+                        },
+                        FlushDecision::NotYet => {
+                            // Do nothing, continue buffering
                         }
                     }
                 }
@@ -560,20 +649,32 @@ impl ProxyApp {
                         }
                     }
                     
-                    // Only flush if we've accumulated enough data or it's the last part of a response
-                    // Use the dynamic flush threshold from the config
-                    let should_flush = downstream_accumulated >= downstream_config.get_flush_threshold() || 
-                                       n < downstream_config.get_buffer_size() / 2;
-                                       
-                    if should_flush {
-                        match server_session.flush().await {
-                            Ok(_) => {
-                                downstream_accumulated = 0; // Reset accumulator after flush
-                            },
-                            Err(e) => {
-                                Self::handle_write_error(e, id, false, true);
-                                return;
+                    // Use progressive watermark-based flushing decisions
+                    let flush_decision = downstream_config.should_flush(downstream_accumulated, n);
+                    
+                    match flush_decision {
+                        FlushDecision::Immediate => {
+                            // Flush immediately
+                            match server_session.flush().await {
+                                Ok(_) => {
+                                    downstream_accumulated = 0;
+                                },
+                                Err(e) => {
+                                    Self::handle_write_error(e, id, false, true);
+                                    return;
+                                }
                             }
+                        },
+                        FlushDecision::Soon => {
+                            // Schedule a flush soon (will happen after next read or timeout)
+                            downstream_pending_flush = PendingFlush::Soon;
+                        },
+                        FlushDecision::Eventually => {
+                            // Schedule a flush eventually (if no more data arrives)
+                            downstream_pending_flush = PendingFlush::Eventually;
+                        },
+                        FlushDecision::NotYet => {
+                            // Do nothing, continue buffering
                         }
                     }
                 }
@@ -931,6 +1032,8 @@ impl StreamSocketExt for Stream {
 struct ConnectionConfig {
     // Base buffer size - either default or from config
     buffer_size: usize,
+    // Current buffer size after adaptation
+    current_buffer_size: usize,
     // Timeout for socket operations
     timeout_secs: u64,
     // Whether to use adaptive buffering
@@ -941,6 +1044,12 @@ struct ConnectionConfig {
     max_buffer_size: usize,
     // Minimum size for adaptive buffers
     min_buffer_size: usize,
+    // Watermark levels for progressive flushing (low, medium, high)
+    watermarks: (usize, usize, usize),
+    // Time of last buffer size adjustment
+    last_adjustment: std::time::Instant,
+    // Smoothing factor for gradual changes (0.0-1.0)
+    smoothing_factor: f32,
 }
 
 impl ConnectionConfig {
@@ -960,30 +1069,46 @@ impl ConnectionConfig {
             ConnectionType::Tcp => SOCKET_TIMEOUT_SECS / 2, // TCP connections can use shorter timeouts
         };
         
+        // Create watermarks for progressive flushing based on connection type
+        let watermarks = match conn_type {
+            ConnectionType::Tls => (4096, 8192, 16384),         // TLS: more gradual flushing
+            ConnectionType::WebSocket => (2048, 8192, 16384),   // WebSocket: early flush for interactivity
+            ConnectionType::Http => (4096, 8192, 12288),        // HTTP: balanced flushing
+            ConnectionType::Tcp => (2048, 4096, 8192),          // TCP: more frequent flushing
+        };
+        
         if let Some(node) = proxy_node {
             // Use custom values from proxy node config if available
             ConnectionConfig {
                 buffer_size: node.buffer_size.unwrap_or(default_buffer_size),
+                current_buffer_size: node.buffer_size.unwrap_or(default_buffer_size),
                 timeout_secs: node.timeout_secs.unwrap_or(default_timeout),
                 adaptive_buffer: node.adaptive_buffer,
                 traffic_history: Vec::with_capacity(10),
                 max_buffer_size: 65536, // 64KB max
                 min_buffer_size: 4096,  // 4KB min
+                watermarks,
+                last_adjustment: std::time::Instant::now(),
+                smoothing_factor: 0.3, // Lower value = more gradual changes
             }
         } else {
             // Use default values
             ConnectionConfig {
                 buffer_size: default_buffer_size,
+                current_buffer_size: default_buffer_size,
                 timeout_secs: default_timeout,
-                adaptive_buffer: false,
+                adaptive_buffer: true, // Enable adaptive buffering by default
                 traffic_history: Vec::with_capacity(10),
                 max_buffer_size: 65536, // 64KB max
                 min_buffer_size: 4096,  // 4KB min
+                watermarks,
+                last_adjustment: std::time::Instant::now(),
+                smoothing_factor: 0.3, // Lower value = more gradual changes
             }
         }
     }
     
-    // Update buffer size based on traffic patterns
+    // Update buffer size based on traffic patterns with smoothing
     fn update_buffer_size(&mut self, bytes_transferred: usize) {
         if !self.adaptive_buffer {
             return;
@@ -997,32 +1122,58 @@ impl ConnectionConfig {
             self.traffic_history.remove(0);
         }
         
+        // Only adjust buffer size every 100ms to avoid too frequent changes
+        // This helps create more gradual patterns
+        let now = std::time::Instant::now();
+        if now.duration_since(self.last_adjustment).as_millis() < 100 {
+            return;
+        }
+        self.last_adjustment = now;
+        
         // Calculate average transfer size if we have enough data
         if self.traffic_history.len() >= 3 {
             let avg_transfer = self.traffic_history.iter().sum::<usize>() / self.traffic_history.len();
             
-            // Adjust buffer size based on recent traffic
-            // If transfers are consistently large, increase buffer size
-            // If transfers are small, decrease buffer size to save memory
-            if avg_transfer > self.buffer_size / 2 {
-                // Increase buffer size if transfers are large
-                self.buffer_size = (self.buffer_size * 3) / 2;
-                if self.buffer_size > self.max_buffer_size {
-                    self.buffer_size = self.max_buffer_size;
-                }
-            } else if avg_transfer < self.buffer_size / 4 && self.buffer_size > self.min_buffer_size {
-                // Decrease buffer size if transfers are small
-                self.buffer_size = self.buffer_size / 2;
-                if self.buffer_size < self.min_buffer_size {
-                    self.buffer_size = self.min_buffer_size;
-                }
+            // Calculate target buffer size based on traffic pattern
+            let target_buffer_size = if avg_transfer > self.current_buffer_size / 2 {
+                // Increase buffer size if transfers are large, but gradually
+                let new_size = self.current_buffer_size + (avg_transfer / 2);
+                std::cmp::min(new_size, self.max_buffer_size)
+            } else if avg_transfer < self.current_buffer_size / 4 && self.current_buffer_size > self.min_buffer_size {
+                // Decrease buffer size if transfers are small, but gradually
+                let new_size = self.current_buffer_size - (self.current_buffer_size / 8);
+                std::cmp::max(new_size, self.min_buffer_size)
+            } else {
+                // No change needed
+                self.current_buffer_size
+            };
+            
+            // Apply smoothing to create gradual transitions
+            let diff = if target_buffer_size > self.current_buffer_size {
+                target_buffer_size - self.current_buffer_size
+            } else {
+                self.current_buffer_size - target_buffer_size
+            };
+            
+            // Apply change gradually based on smoothing factor
+            if target_buffer_size > self.current_buffer_size {
+                self.current_buffer_size += (diff as f32 * self.smoothing_factor) as usize;
+            } else if target_buffer_size < self.current_buffer_size {
+                self.current_buffer_size -= (diff as f32 * self.smoothing_factor) as usize;
+            }
+            
+            // Ensure buffer size stays within limits
+            if self.current_buffer_size > self.max_buffer_size {
+                self.current_buffer_size = self.max_buffer_size;
+            } else if self.current_buffer_size < self.min_buffer_size {
+                self.current_buffer_size = self.min_buffer_size;
             }
         }
     }
     
     // Get the current buffer size
     fn get_buffer_size(&self) -> usize {
-        self.buffer_size
+        self.current_buffer_size
     }
     
     // Get the current timeout duration
@@ -1032,7 +1183,56 @@ impl ConnectionConfig {
     
     // Get the flush threshold based on current buffer size
     fn get_flush_threshold(&self) -> usize {
-        // Flush when buffer is half full
-        self.buffer_size / 2
+        // Return the medium watermark as the standard flush threshold
+        let (_, medium, _) = self.watermarks;
+        medium
     }
+
+    // Determine progressive flush probability based on accumulated data
+    // Returns a value between 0.0 and 1.0 representing flush probability
+    fn should_flush(&self, accumulated: usize, current_chunk: usize) -> FlushDecision {
+        // Fast path: always flush on very small chunks at the end of a response
+        if current_chunk < self.min_buffer_size / 4 {
+            return FlushDecision::Immediate;
+        }
+        
+        // Use watermark levels for progressive flushing
+        let (low, medium, high) = self.watermarks;
+        
+        if accumulated >= high {
+            // High watermark - always flush immediately
+            FlushDecision::Immediate
+        } else if accumulated >= medium {
+            // Medium watermark - high probability flush with slight delay
+            FlushDecision::Soon
+        } else if accumulated >= low {
+            // Low watermark - moderate probability flush with longer delay
+            FlushDecision::Eventually
+        } else {
+            // Below low watermark - don't flush yet
+            FlushDecision::NotYet
+        }
+    }
+}
+
+// Flush decision based on progressive watermark levels
+enum FlushDecision {
+    // Flush immediately
+    Immediate,
+    // Flush soon but with slight delay (within next few milliseconds)
+    Soon,
+    // Flush eventually if no more data arrives (within 10-20ms)
+    Eventually,
+    // Don't flush yet
+    NotYet,
+}
+
+// Pending flush state to track if we have a flush operation pending
+enum PendingFlush {
+    // No pending flush
+    None,
+    // Flush is pending soon
+    Soon,
+    // Flush is pending eventually
+    Eventually,
 }
