@@ -36,11 +36,19 @@ It is designed to be easy to use and configure, making it suitable for both smal
 
 ## Architecture
 
+### General Architecture
+
 ![img](assets/architecture.gif)
 
 The architecture of the mini-gateway is currently simple and straightforward.
 
 > Incoming traffic enters from the internet and is first secured by the TLS/WSS proxy, which decrypts the data and passes it as TCP/HTTP/WS traffic (while you can disable the TLS if not needed). This standardized traffic is then processed by the Gateway, which dynamically determines whether to pass the request through a scripting plugin or directly to backend services. In parallel, a background mechanism constantly monitors for configuration changes. When updates are detected—via the Gateway API and an external update service—these are reloaded in memory to ensure the Gateway operates with the latest settings, all without interrupting the flow.
+
+### Logging Architecture
+
+![img](assets/architecture-log.gif)
+
+> This logging architecture prioritizes non-blocking log transmission to the API and subsequent database persistence to avoid impacting live traffic. While this approach may result in occasional log packet loss, the trade-off is considered an acceptable risk for maintaining application stability.
 
 ## Roadmap
 
