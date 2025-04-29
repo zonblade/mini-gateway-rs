@@ -19,41 +19,38 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 
 use crate::config::{self, ProxyNode, DEFAULT_PORT};
-use std::sync::Mutex;
-use bytes::{Buf, BytesMut};
+use bytes::BytesMut;
+use std::cell::RefCell;
+use std::thread_local;
 
-/// Buffer pool for reducing allocations in high-throughput scenarios
-/// This provides a way to reuse buffers instead of constantly allocating and deallocating
-struct BufferPool {
-    buffers: Mutex<Vec<BytesMut>>,
+// Thread-local buffer pool for efficient buffer reuse
+thread_local! {
+    static TLS_BUFFER_POOL: RefCell<Vec<BytesMut>> = RefCell::new(Vec::with_capacity(32));
 }
+
+/// Buffer pool implementation that uses thread-local storage to avoid mutex contention
+struct BufferPool;
 
 impl BufferPool {
-    fn new(initial_capacity: usize) -> Self {
-        let mut buffers = Vec::with_capacity(initial_capacity);
-        for _ in 0..initial_capacity {
-            buffers.push(BytesMut::with_capacity(8192));
-        }
-        BufferPool {
-            buffers: Mutex::new(buffers),
-        }
+    fn get() -> BytesMut {
+        TLS_BUFFER_POOL.with(|pool| {
+            let mut pool = pool.borrow_mut();
+            pool.pop().unwrap_or_else(|| BytesMut::with_capacity(8192))
+        })
     }
 
-    fn get(&self) -> BytesMut {
-        match self.buffers.lock().unwrap().pop() {
-            Some(buf) => buf,
-            None => BytesMut::with_capacity(8192),
-        }
+    fn put(mut buf: BytesMut) {
+        // Clear buffer but keep capacity
+        buf.clear();
+        
+        TLS_BUFFER_POOL.with(|pool| {
+            let mut pool = pool.borrow_mut();
+            // Limit the number of stored buffers to prevent memory bloat
+            if pool.len() < 32 {
+                pool.push(buf);
+            }
+        });
     }
-
-    fn put(&self, mut buf: BytesMut) {
-        buf.clear(); // Reset the buffer for reuse
-        self.buffers.lock().unwrap().push(buf);
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref BUFFER_POOL: BufferPool = BufferPool::new(100);
 }
 
 /// # Redirect Rule Configuration
@@ -61,17 +58,10 @@ lazy_static::lazy_static! {
 /// Defines a rule for redirecting traffic based on host and TLS status.
 ///
 /// ## Fields
-/// * `host` - Optional hostname to match (e.g. "example.com:443"). When None, acts as a catch-all rule.
-/// * `alt_listen` - The address:port this rule applies to (e.g. "0.0.0.0:443")
 /// * `alt_target` - Optional target backend server to forward traffic to
-/// * `alt_tls` - Whether this rule applies to TLS connections
-/// * `priority` - Rule priority (higher priority rules are checked first)
 #[derive(Clone)]
 struct RedirectRule {
-    host: Option<String>,
-    // alt_listen: String,
     alt_target: Option<BasicPeer>,
-    alt_tls: bool,
 }
 
 /// # Proxy Application
@@ -116,16 +106,19 @@ enum ConnectionType {
 
 impl ProxyApp {
     /// Fast rule lookup that directly accesses HashMaps for better performance
+    /// Uses a match-first approach to check for exact matches without allocations
     fn fast_rule_lookup(&self, host: Option<&str>, is_tls: bool) -> BasicPeer {
         if let Some(host_str) = host {
-            // Use the host-specific rule if it exists (direct HashMap lookup)
-            if let Some(rule) = self.host_rules.get(&(host_str.to_string(), is_tls)) {
-                if let Some(target) = &rule.alt_target {
-                    return target.clone();
+            // First try to find an exact match without allocating a string
+            for ((key, key_tls), rule) in &self.host_rules {
+                if *key_tls == is_tls && key == host_str {
+                    if let Some(target) = &rule.alt_target {
+                        return target.clone();
+                    }
                 }
             }
-            
-            // Fast fallback to catch-all rule
+
+            // Fall back to catch-all rule
             if let Some(rule) = self.catch_all_rules.get(&is_tls) {
                 if let Some(target) = &rule.alt_target {
                     return target.clone();
@@ -139,7 +132,7 @@ impl ProxyApp {
                 }
             }
         }
-        
+
         // Default fallback (create a new BasicPeer)
         BasicPeer::new(DEFAULT_PORT.p404)
     }
@@ -258,13 +251,11 @@ impl ProxyApp {
                     }
 
                     let redirect_rule = RedirectRule {
-                        host: rule.sni.clone(),
                         alt_target: Some(peer),
-                        alt_tls: rule.tls,
                     };
                     
                     // Store in appropriate HashMap based on whether it has a host
-                    if let Some(host) = rule.sni {
+                    if let Some(host) = rule.sni.clone() {
                         host_rules.insert((host, rule.tls), redirect_rule.clone());
                     } else {
                         catch_all_rules.insert(rule.tls, redirect_rule.clone());
@@ -292,7 +283,7 @@ impl ProxyApp {
             }
         }
         client_connectors.insert("default".to_string(), TransportConnector::new(None));
-        
+
         ProxyApp {
             client_connectors,
             host_rules,
@@ -301,7 +292,7 @@ impl ProxyApp {
     }
 
     /// # Detects the type of connection based on the initial bytes received
-    /// 
+    ///
     /// Optimized implementation that uses byte-level pattern matching for faster detection.
     fn detect_connection_type(data: &[u8], len: usize) -> ConnectionType {
         if len == 0 {
@@ -321,40 +312,55 @@ impl ProxyApp {
         // Fast byte-level HTTP method detection without UTF-8 validation
         // Only validate if the initial pattern looks promising
         match data[0] {
-            b'G' => if len >= 4 && &data[0..4] == b"GET " { 
-                // It's an HTTP request, now check for WebSocket upgrade
-                if Self::is_websocket_upgrade(data, len) {
-                    return ConnectionType::WebSocket;
-                } 
-                return ConnectionType::Http;
-            },
-            b'P' => if (len >= 5 && &data[0..5] == b"POST ") || 
-                      (len >= 4 && &data[0..4] == b"PUT ") || 
-                      (len >= 4 && &data[0..4] == b"PATCH ") {
-                return ConnectionType::Http;
-            },
-            b'H' => if len >= 5 && &data[0..5] == b"HEAD " {
-                return ConnectionType::Http;
-            },
-            b'D' => if len >= 5 && &data[0..5] == b"DELETE " {
-                return ConnectionType::Http;
-            },
-            b'O' => if len >= 5 && &data[0..5] == b"OPTION " {
-                return ConnectionType::Http;
-            },
-            b'T' => if len >= 5 && &data[0..5] == b"TRAC " {
-                return ConnectionType::Http;
-            },
-            b'C' => if len >= 5 && &data[0..5] == b"CONN " {
-                return ConnectionType::Http;
-            },
+            b'G' => {
+                if len >= 4 && &data[0..4] == b"GET " {
+                    // It's an HTTP request, now check for WebSocket upgrade
+                    if Self::is_websocket_upgrade(data, len) {
+                        return ConnectionType::WebSocket;
+                    }
+                    return ConnectionType::Http;
+                }
+            }
+            b'P' => {
+                if (len >= 5 && &data[0..5] == b"POST ")
+                    || (len >= 4 && &data[0..4] == b"PUT ")
+                    || (len >= 4 && &data[0..4] == b"PATCH ")
+                {
+                    return ConnectionType::Http;
+                }
+            }
+            b'H' => {
+                if len >= 5 && &data[0..5] == b"HEAD " {
+                    return ConnectionType::Http;
+                }
+            }
+            b'D' => {
+                if len >= 5 && &data[0..5] == b"DELETE " {
+                    return ConnectionType::Http;
+                }
+            }
+            b'O' => {
+                if len >= 5 && &data[0..5] == b"OPTION " {
+                    return ConnectionType::Http;
+                }
+            }
+            b'T' => {
+                if len >= 5 && &data[0..5] == b"TRAC " {
+                    return ConnectionType::Http;
+                }
+            }
+            b'C' => {
+                if len >= 5 && &data[0..5] == b"CONN " {
+                    return ConnectionType::Http;
+                }
+            }
             _ => {}
         }
 
         // Default to plain TCP if not identified as anything specific
         ConnectionType::Tcp
     }
-    
+
     /// Helper function to detect WebSocket upgrade requests
     /// Uses optimized byte-pattern search instead of string conversion
     fn is_websocket_upgrade(data: &[u8], len: usize) -> bool {
@@ -363,22 +369,23 @@ impl ProxyApp {
         let pattern2 = b"upgrade: WebSocket";
         let pattern3 = b"Upgrade: websocket";
         let pattern4 = b"Upgrade: WebSocket";
-        
+
         // Only search a reasonable portion of the header
         let search_len = std::cmp::min(len, 1024);
-        
+
         // Convert to lowercase for case-insensitive search
         for i in 0..search_len - pattern1.len() {
             let window = &data[i..i + pattern1.len()];
             // Check for case-insensitive match using eq_ignore_ascii_case
-            if window.eq_ignore_ascii_case(pattern1) || 
-               window.eq_ignore_ascii_case(pattern2) ||
-               window.eq_ignore_ascii_case(pattern3) || 
-               window.eq_ignore_ascii_case(pattern4) {
+            if window.eq_ignore_ascii_case(pattern1)
+                || window.eq_ignore_ascii_case(pattern2)
+                || window.eq_ignore_ascii_case(pattern3)
+                || window.eq_ignore_ascii_case(pattern4)
+            {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -464,7 +471,10 @@ impl ProxyApp {
                     Self::log_status_switch(
                         is_websocket,
                         is_tls,
-                        format!("[PXY] |ID:{}, CONN:, STATUS:01, SIZE:{}, COMMENT:- |", id, n),
+                        format!(
+                            "[PXY] |ID:{}, CONN:, STATUS:01, SIZE:{}, COMMENT:- |",
+                            id, n
+                        ),
                     );
                     match client_session.write_all(&upstream_buf[0..n]).await {
                         Ok(_) => {}
@@ -486,7 +496,10 @@ impl ProxyApp {
                     Self::log_status_switch(
                         is_websocket,
                         is_tls,
-                        format!("[PXY] |ID:{}, CONN:, STATUS:11, SIZE:{}, COMMENT:- |", id, n),
+                        format!(
+                            "[PXY] |ID:{}, CONN:, STATUS:11, SIZE:{}, COMMENT:- |",
+                            id, n
+                        ),
                     );
                     match server_session.write_all(&downstream_buf[0..n]).await {
                         Ok(_) => {}
@@ -541,21 +554,21 @@ impl ServerApp for ProxyApp {
         log::debug!("#-------------------------------------#");
 
         // Use buffer from the pool instead of allocating a new one
-        let mut buffer = BUFFER_POOL.get();
+        let mut buffer = BufferPool::get();
         
         // Read initial data from client with zero-copy buffer
         let n = match io.read_buf(&mut buffer).await {
             Ok(n) => n,
             Err(e) => {
                 log::error!("Failed to read from client: {}", e);
-                BUFFER_POOL.put(buffer);
+                BufferPool::put(buffer);
                 return None;
             }
         };
 
         if n == 0 {
             log::error!("Empty request received");
-            BUFFER_POOL.put(buffer);
+            BufferPool::put(buffer);
             return None;
         }
 
@@ -567,7 +580,7 @@ impl ServerApp for ProxyApp {
 
         log::debug!("Connection type: {:?}", conn_type);
 
-        // Extract host information based on connection type - optimized with specialized extractors
+        // Extract host information based on connection type - zero-allocation extractors
         let host_info = match conn_type {
             ConnectionType::Tls => extract_sni_fast(buf_slice),
             ConnectionType::Http | ConnectionType::WebSocket => extract_http_host(buf_slice, n),
@@ -576,8 +589,8 @@ impl ServerApp for ProxyApp {
 
         log::debug!("Host info: {:?}", host_info);
 
-        // Fast path rule lookup using direct HashMap access with cached results
-        let proxy_to = self.fast_rule_lookup(host_info.as_deref(), is_tls).clone();
+        // Fast rule lookup using our iterator-based approach to avoid allocations
+        let proxy_to = self.fast_rule_lookup(host_info, is_tls).clone();
 
         let target_addr = format!("{}", proxy_to._address);
         log::debug!("Proxying to: {} (TLS: {})", target_addr, is_tls);
@@ -591,31 +604,27 @@ impl ServerApp for ProxyApp {
 
         // Connect to the target server with optimized timeout handling
         let connect_future = connector.new_stream(&proxy_to);
-        let mut client_session = match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            connect_future,
-        )
-        .await
-        {
-            Ok(Ok(client_session)) => client_session,
-            Ok(Err(e)) => {
-                log::error!("Failed to connect to upstream peer {}: {}", target_addr, e);
-                BUFFER_POOL.put(buffer);
-                return None;
-            }
-            Err(_) => {
-                log::error!("Connection to {} timed out", target_addr);
-                BUFFER_POOL.put(buffer);
-                return None;
-            }
-        };
+        let mut client_session =
+            match tokio::time::timeout(std::time::Duration::from_secs(5), connect_future).await {
+                Ok(Ok(client_session)) => client_session,
+                Ok(Err(e)) => {
+                    log::error!("Failed to connect to upstream peer {}: {}", target_addr, e);
+                    BufferPool::put(buffer);
+                    return None;
+                }
+                Err(_) => {
+                    log::error!("Connection to {} timed out", target_addr);
+                    BufferPool::put(buffer);
+                    return None;
+                }
+            };
 
         // Forward the initial data to the target server using zero-copy approach
         match client_session.write_all(&buffer[..n]).await {
             Ok(_) => {}
             Err(e) => {
                 log::error!("Failed to write to upstream peer: {}", e);
-                BUFFER_POOL.put(buffer);
+                BufferPool::put(buffer);
                 return None;
             }
         };
@@ -624,13 +633,13 @@ impl ServerApp for ProxyApp {
             Ok(_) => {}
             Err(e) => {
                 log::error!("Failed to flush data to upstream peer: {}", e);
-                BUFFER_POOL.put(buffer);
+                BufferPool::put(buffer);
                 return None;
             }
         };
 
         // Return buffer to the pool before entering duplex mode
-        BUFFER_POOL.put(buffer);
+        BufferPool::put(buffer);
 
         // Establish bidirectional communication
         self.duplex(io, client_session, is_websocket, is_tls).await;
@@ -640,269 +649,181 @@ impl ServerApp for ProxyApp {
 
 /// Extract HTTP Host header directly from byte buffer without string conversion
 /// Uses optimized byte-level parsing for better performance
-fn extract_http_host(buf: &[u8], length: usize) -> Option<String> {
+fn extract_http_host(buf: &[u8], length: usize) -> Option<&str> {
     let max_scan_len = std::cmp::min(length, 1024);
     let host_pattern = b"host:";
-    
+
     // Search for "host:" header (case-insensitive)
     for i in 0..max_scan_len - host_pattern.len() {
-        if &buf[i..i+5].to_ascii_lowercase() == host_pattern {
+        if &buf[i..i + 5].to_ascii_lowercase() == host_pattern {
             // Found the Host header, now extract the value
             let start_idx = i + 5;
             let mut end_idx = start_idx;
-            
+
             // Find the end of line
             while end_idx < max_scan_len && buf[end_idx] != b'\r' && buf[end_idx] != b'\n' {
                 end_idx += 1;
             }
-            
+
             // Convert the host value to a String, trimming whitespace
             if end_idx > start_idx {
                 let host_bytes = &buf[start_idx..end_idx];
                 // Trim leading whitespace
                 let mut trim_start = 0;
-                while trim_start < host_bytes.len() && (host_bytes[trim_start] == b' ' || host_bytes[trim_start] == b'\t') {
+                while trim_start < host_bytes.len()
+                    && (host_bytes[trim_start] == b' ' || host_bytes[trim_start] == b'\t')
+                {
                     trim_start += 1;
                 }
-                
+
                 // Trim trailing whitespace
                 let mut trim_end = host_bytes.len();
-                while trim_end > trim_start && (host_bytes[trim_end-1] == b' ' || host_bytes[trim_end-1] == b'\t') {
+                while trim_end > trim_start
+                    && (host_bytes[trim_end - 1] == b' ' || host_bytes[trim_end - 1] == b'\t')
+                {
                     trim_end -= 1;
                 }
-                
+
                 if trim_end > trim_start {
-                    return std::str::from_utf8(&host_bytes[trim_start..trim_end]).ok().map(String::from);
+                    // Return &str directly without allocation
+                    return std::str::from_utf8(&host_bytes[trim_start..trim_end]).ok();
                 }
             }
-            
+
             break;
         }
     }
-    
+
     None
 }
 
 /// Optimized SNI extraction function that uses direct byte access and caching
 /// This is faster than the original extract_sni function
-fn extract_sni_fast(buf: &[u8]) -> Option<String> {
+fn extract_sni_fast(buf: &[u8]) -> Option<&str> {
     // Quick check for TLS handshake
     if buf.len() < 5 || buf[0] != 0x16 {
         return None;
     }
-    
+
     // Use a more direct approach to find the SNI extension
     // TLS record header is 5 bytes, followed by handshake message
     // Skip to the extensions section directly based on the structure
     let mut pos = 5; // Skip TLS record header
-    
+
     if pos + 4 > buf.len() {
         return None;
     }
-    
+
     // Skip handshake type (1 byte) and length (3 bytes)
     pos += 4;
-    
+
     if pos + 2 > buf.len() {
         return None;
     }
-    
+
     // Skip client version (2 bytes)
     pos += 2;
-    
+
     if pos + 32 > buf.len() {
         return None;
     }
-    
+
     // Skip client random (32 bytes)
     pos += 32;
-    
+
     if pos + 1 > buf.len() {
         return None;
     }
-    
+
     // Get session ID length and skip session ID
     let session_id_len = buf[pos] as usize;
     pos += 1;
-    
+
     if pos + session_id_len > buf.len() {
         return None;
     }
-    
+
     pos += session_id_len;
-    
+
     if pos + 2 > buf.len() {
         return None;
     }
-    
+
     // Get cipher suites length and skip cipher suites
     let cipher_suites_len = ((buf[pos] as usize) << 8) | (buf[pos + 1] as usize);
     pos += 2;
-    
+
     if pos + cipher_suites_len > buf.len() {
         return None;
     }
-    
+
     pos += cipher_suites_len;
-    
+
     if pos + 1 > buf.len() {
         return None;
     }
-    
+
     // Get compression methods length and skip compression methods
     let compression_methods_len = buf[pos] as usize;
     pos += 1;
-    
+
     if pos + compression_methods_len > buf.len() {
         return None;
     }
-    
+
     pos += compression_methods_len;
-    
+
     if pos + 2 > buf.len() {
         return None;
     }
-    
+
     // Get extensions length
     let extensions_len = ((buf[pos] as usize) << 8) | (buf[pos + 1] as usize);
     pos += 2;
-    
+
     if pos + extensions_len > buf.len() {
         return None;
     }
-    
+
     // Process extensions
     let extensions_end = pos + extensions_len;
     while pos + 4 <= extensions_end {
         let ext_type = ((buf[pos] as u16) << 8) | (buf[pos + 1] as u16);
         let ext_len = ((buf[pos + 2] as usize) << 8) | (buf[pos + 3] as usize);
         pos += 4;
-        
+
         if pos + ext_len > extensions_end {
             break;
         }
-        
+
         // SNI extension type is 0
         if ext_type == 0 {
             // Parse SNI extension
             if ext_len >= 2 {
                 let sni_list_len = ((buf[pos] as usize) << 8) | (buf[pos + 1] as usize);
                 pos += 2;
-                
+
                 if pos + sni_list_len <= extensions_end && sni_list_len >= 3 {
                     // Name type (should be 0 for hostname)
                     if buf[pos] == 0 {
                         pos += 1;
-                        
+
                         // Hostname length
                         let hostname_len = ((buf[pos] as usize) << 8) | (buf[pos + 1] as usize);
                         pos += 2;
-                        
+
                         if pos + hostname_len <= extensions_end {
-                            // Extract hostname
-                            return std::str::from_utf8(&buf[pos..pos + hostname_len]).ok().map(String::from);
+                            // Extract hostname directly as &str without allocation
+                            return std::str::from_utf8(&buf[pos..pos + hostname_len]).ok();
                         }
                     }
                 }
             }
-            
+
             break;
         }
-        
+
         pos += ext_len;
-    }
-    
-    None
-}
-
-/// # Find SNI extension in TLS Client Hello
-///
-/// Helper function that searches for the SNI extension within a TLS Client Hello message.
-/// The SNI extension is identified by type 0x0000 in the extensions section of a
-/// Client Hello message.
-///
-/// ## TLS Extensions Format
-/// Extensions appear at the end of the Client Hello message after:
-/// - Content Type (1 byte)
-/// - TLS Version (2 bytes)
-/// - Record Length (2 bytes)
-/// - Handshake Type (1 byte)
-/// - Handshake Length (3 bytes)
-/// - TLS Version (2 bytes)
-/// - Random (32 bytes)
-/// - Session ID (variable, length indicated by 1 byte)
-/// - Cipher Suites (variable, length indicated by 2 bytes)
-/// - Compression Methods (variable, length indicated by 1 byte)
-/// - Extensions Length (2 bytes)
-///
-/// Each extension has:
-/// - Extension Type (2 bytes, 0x0000 for SNI)
-/// - Extension Length (2 bytes)
-/// - Extension Data (variable)
-///
-/// ## SNI Extension Structure
-/// For SNI specifically:
-/// - Extension Type: 0x0000
-/// - Extension Length: 2 + server_name_list_length
-/// - Server Name List Length: 2 bytes
-/// - Name Type: 1 byte (0x00 for hostname)
-/// - Hostname Length: 2 bytes
-/// - Hostname: UTF-8 encoded string
-///
-/// ## Parameters
-/// * `buf` - The raw bytes from the TLS handshake
-///
-/// ## Returns
-/// * `Some(usize)` - Position where the SNI hostname length data begins
-/// * `None` - If SNI extension could not be found
-///
-/// ## Implementation Details
-/// This is a simplified implementation that:
-/// 1. Looks for byte patterns that might indicate an SNI extension
-/// 2. Does not fully parse the TLS record structure
-/// 3. May return false positives or miss the extension
-///
-/// In a production environment, a formal TLS parser should be used.
-fn find_sni_extension(buf: &[u8]) -> Option<usize> {
-    // Minimum TLS Client Hello with SNI should be at least 45 bytes
-    // (5 byte record header + 4 byte handshake header + 2 byte version + 32 byte random +
-    //  1 byte session ID length + 2 byte cipher suites length + 1 byte compression methods length +
-    //  2 byte extensions length + 4 byte SNI extension header + 2 byte server name list length +
-    //  1 byte name type + 2 byte hostname length)
-    if buf.len() < 45 {
-        return None;
-    }
-
-    // This simplified implementation looks for the SNI extension pattern:
-    // - Extension Type 0x0000 (SNI)
-    // - Followed by a length field
-    // - Followed by server name list length
-    // - Followed by name type 0x00 (hostname)
-
-    // Search through the buffer for potential SNI extension
-    // We're looking for the pattern: 0x00 0x00 (extension type) followed by length bytes
-    // and then a server name list that starts with 0x00 (hostname indicator)
-    for i in 0..buf.len() - 8 {
-        // Possible SNI extension pattern:
-        // 0x00 0x00 (extension type) followed by length bytes and name type 0x00
-        if buf[i] == 0x00 && buf[i + 1] == 0x00 && buf[i + 4] == 0x00 {
-            // Extract extension length
-            let ext_len = ((buf[i + 2] as usize) << 8) | (buf[i + 3] as usize);
-
-            // Sanity check the length
-            if ext_len > 0 && ext_len < 1000 && i + 4 + ext_len <= buf.len() {
-                // The actual hostname length starts 3 bytes after the name type
-                return Some(i + 5);
-            }
-        }
-    }
-
-    // Fallback to the original simplified method which may catch some cases
-    // that the more specific pattern above misses
-    for i in 0..buf.len() - 4 {
-        if buf[i] == 0x00 && buf[i + 1] == 0x00 && buf[i + 2] == 0x00 {
-            return Some(i + 3);
-        }
     }
 
     None
