@@ -21,4 +21,5 @@
 //! to provide the actual gateway and proxy behavior defined by user configuration.
 
 pub mod proxy;
+pub mod proxy_fast;
 pub mod gateway;

@@ -124,6 +124,9 @@ pub fn init() {
                 proxies.push(Box::new(proxy_set));
             }
 
+            let single = service::proxy::proxy_service_fast("0.0.0.0:3030", "127.0.0.1:24041");
+            
+            proxies.push(Box::new(single));
             // Add all proxy services to the server
             my_server.add_services(proxies);
 

@@ -1,6 +1,8 @@
 use crate::app::proxy::ProxyApp;
+use crate::app::proxy_fast;
 use pingora::listeners::Listeners;
 use pingora::services::listening::Service;
+use pingora::upstreams::peer::BasicPeer;
 
 /// Creates a proxy service that listens on a specified address and forwards traffic to a proxy address.
 ///
@@ -16,6 +18,16 @@ pub fn proxy_service(addr: &str) -> Service<ProxyApp> {
         "Proxy Service".to_string(),
         Listeners::tcp(addr),
         ProxyApp::new(addr),
+    )
+}
+pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::ProxyApp> {
+
+    let peer = BasicPeer::new(addr_to);
+
+    Service::with_listeners(
+        "Proxy Service".to_string(),
+        Listeners::tcp(addr),
+        proxy_fast::ProxyApp::new(peer),
     )
 }
 
