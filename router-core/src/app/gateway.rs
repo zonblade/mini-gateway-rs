@@ -40,6 +40,7 @@ use std::borrow::Cow;
 use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::HashSet;
+use std::cell::RefCell;
 
 // Number of cache shards to reduce lock contention
 const CACHE_SHARDS: usize = 32; // Increased from 16 to 32 for better sharding
@@ -49,6 +50,9 @@ const MAX_CACHE_ENTRIES: usize = 8192; // Increased total cache size
 thread_local! {
     // Buffer for path transformations to avoid frequent allocations
     static PATH_BUFFER: std::cell::RefCell<String> = std::cell::RefCell::new(String::with_capacity(256));
+    
+    // Buffer for cache key generation
+    static CACHE_KEY_BUFFER: std::cell::RefCell<String> = std::cell::RefCell::new(String::with_capacity(512));
 }
 
 // Sharded LRU cache implementation for high-concurrency scenarios
@@ -278,6 +282,15 @@ lazy_static! {
     static ref DOLLAR_SIGN_PATTERN: Regex = Regex::new(r"\$(\d+)").unwrap();
 }
 
+// Thread-local cache for common replacement patterns
+thread_local! {
+    // Pre-computed replacement templates for common patterns
+    static REPLACEMENT_CACHE: RefCell<HashMap<String, Vec<(usize, usize, usize)>>> = RefCell::new(HashMap::with_capacity(64));
+    
+    // Lookup structure for fast replacements
+    static DOLLAR_POSITIONS: RefCell<Vec<(usize, usize, usize)>> = RefCell::new(Vec::with_capacity(8));
+}
+
 use crate::config::{self, GatewayNode, DEFAULT_PORT};
 
 /// # Fast pattern matcher for pre-filtering
@@ -332,6 +345,7 @@ struct RedirectRule {
     target: String,
     alt_listen: String,
     alt_target: Option<BasicPeer>,
+    target_addr_str: String, // Pre-formatted target address string
     priority: usize,
     has_replacements: bool, // Flag to optimize path transformation
 }
@@ -376,7 +390,8 @@ pub struct GatewayApp {
     source: String,
     last_check_time: RwLock<Instant>, // Use RwLock for thread-safe interior mutability
     check_interval: Duration,         // Interval between configuration checks
-    route_cache: Arc<ShardedCache<String, (String, BasicPeer)>>, // Sharded cache for path routing results
+    // Cache Value: (Transformed Path+Query, Target Peer, Target Address String)
+    route_cache: Arc<ShardedCache<String, (String, BasicPeer, String)>>, 
 }
 
 impl GatewayApp {
@@ -538,12 +553,17 @@ impl GatewayApp {
             // Track host patterns for cache invalidation
             host_patterns.insert(rule.path_listen.clone());
             
+            // Pre-calculate the address string
+            let target_peer = BasicPeer::new(&alt_target);
+            let target_addr_str = target_peer._address.to_string();
+
             redirects.push(RedirectRule {
                 pattern,
                 fast_matcher,
                 target: rule.path_target.clone(),
                 alt_listen: rule.addr_listen.clone(),
-                alt_target: Some(BasicPeer::new(&alt_target)),
+                alt_target: Some(target_peer),
+                target_addr_str,
                 priority: rule.priority as usize,
                 has_replacements,
             });
@@ -750,17 +770,68 @@ impl GatewayApp {
         PATH_BUFFER.with(|buffer| {
             let mut buf = buffer.borrow_mut();
             buf.clear();
-            buf.push_str(&rule.target);
             
-            // Process all capture groups at once
-            for i in 1..captures.len() {
-                if let Some(capture) = captures.get(i) {
-                    let pattern = format!("${}", i);
-                    // Simple string replacement (could be optimized further with a dedicated algorithm)
-                    let pos = buf.find(&pattern);
-                    if let Some(pos) = pos {
-                        buf.replace_range(pos..pos+pattern.len(), capture.as_str());
+            // Try to use cached replacement plan if available
+            let replacement_plan = REPLACEMENT_CACHE.with(|cache| {
+                let cache = cache.borrow();
+                cache.get(&rule.target).cloned()
+            });
+            
+            if let Some(plan) = replacement_plan {
+                // We have a cached plan for this target pattern
+                // Apply the plan directly (faster than searching)
+                buf.push_str(&rule.target);
+                
+                // Apply replacements in reverse order to avoid invalidating positions
+                for &(start, end, capture_idx) in plan.iter().rev() {
+                    if let Some(capture) = captures.get(capture_idx) {
+                        buf.replace_range(start..end, capture.as_str());
                     }
+                }
+            } else {
+                // No cached plan - compute one
+                buf.push_str(&rule.target);
+                
+                // Find all dollar sign replacements
+                let mut dollar_positions = DOLLAR_POSITIONS.with(|positions| {
+                    let mut positions = positions.borrow_mut();
+                    positions.clear();
+                    
+                    // Find all $n patterns in the target string
+                    let mut pos = 0;
+                    while let Some(m) = DOLLAR_SIGN_PATTERN.find_at(&rule.target, pos) {
+                        let start = m.start();
+                        let end = m.end();
+                        if let Some(capture_num) = rule.target[start+1..end].parse::<usize>().ok() {
+                            positions.push((start, end, capture_num));
+                        }
+                        pos = end;
+                    }
+                    
+                    positions.clone()
+                });
+                
+                // Apply replacements in reverse order to avoid invalidating positions
+                dollar_positions.sort_by(|a, b| b.0.cmp(&a.0));
+                
+                for &(start, end, capture_idx) in &dollar_positions {
+                    if let Some(capture) = captures.get(capture_idx) {
+                        buf.replace_range(start..end, capture.as_str());
+                    }
+                }
+                
+                // Cache the replacement plan for future use (reverse back to original order)
+                dollar_positions.reverse();
+                
+                // Only cache if it's not too complex
+                if dollar_positions.len() <= 8 {
+                    REPLACEMENT_CACHE.with(|cache| {
+                        // Only grow the cache to a reasonable size
+                        let mut cache = cache.borrow_mut();
+                        if cache.len() < 64 {
+                            cache.insert(rule.target.clone(), dollar_positions);
+                        }
+                    });
                 }
             }
             
@@ -829,12 +900,17 @@ impl ProxyHttp for GatewayApp {
         let path = session.req_header().uri.path();
         let query = session.req_header().uri.query();
         
-        // Create a cache key combining path and query for exact matching
-        let cache_key = if let Some(q) = query {
-            format!("{}?{}", path, q)
-        } else {
-            path.to_string()
-        };
+        // Create a cache key combining path and query using thread-local buffer
+        let cache_key = CACHE_KEY_BUFFER.with(|buffer| {
+            let mut buf = buffer.borrow_mut();
+            buf.clear();
+            buf.push_str(path);
+            if let Some(q) = query {
+                buf.push('?');
+                buf.push_str(q);
+            }
+            buf.clone()
+        });
         
         // First check if config needs refreshing before looking in cache
         // This ensures we don't use stale cache entries after config changes
@@ -844,19 +920,19 @@ impl ProxyHttp for GatewayApp {
         
         // Now check cache (fast path) - this avoids expensive regex operations
         // with confidence that cache has been properly cleared if needed
-        if let Some((path_and_query, peer)) = self.route_cache.get(&cache_key) {
-            // We found a cached route result - create a peer from the cached data
+        if let Some((path_and_query, _peer, target_addr_str)) = self.route_cache.get(&cache_key) {
+            // We found a cached route result - reuse the cached path and query string
             
             // Update the request URI with the cached path and query
             let mut parts = session.req_header_mut().uri.clone().into_parts();
             parts.path_and_query = Some(
-                http::uri::PathAndQuery::from_maybe_shared(path_and_query.into_bytes())
+                http::uri::PathAndQuery::from_maybe_shared(path_and_query.clone().into_bytes())
                     .expect("Valid URI"),
             );
             session.req_header_mut().uri = http::Uri::from_parts(parts).expect("Valid URI");
             
-            // Return the cached peer - major performance win!
-            return Ok(Box::new(HttpPeer::new(peer._address.to_string(), false, String::new())));
+            // Return the cached peer using the pre-formatted address string - zero allocations
+            return Ok(Box::new(HttpPeer::new(target_addr_str, false, String::new())));
         }
 
         // Process rules with optimized matching
@@ -877,12 +953,17 @@ impl ProxyHttp for GatewayApp {
                     // Transform path with minimum allocations
                     let final_path = self.transform_path(rule, path, captures);
 
-                    // Construct final path+query once - optimize string concatenation
-                    let new_path_and_query = if let Some(q) = query {
-                        format!("{}?{}", final_path, q)
-                    } else {
-                        final_path.into_owned()
-                    };
+                    // Use thread-local buffer for path+query construction
+                    let new_path_and_query = PATH_BUFFER.with(|buffer| {
+                        let mut buf = buffer.borrow_mut();
+                        buf.clear();
+                        buf.push_str(final_path.as_ref());
+                        if let Some(q) = query {
+                            buf.push('?');
+                            buf.push_str(q);
+                        }
+                        buf.clone()
+                    });
 
                     // Rebuild URI efficiently
                     let mut parts = session.req_header_mut().uri.clone().into_parts();
@@ -892,26 +973,28 @@ impl ProxyHttp for GatewayApp {
                     );
                     session.req_header_mut().uri = http::Uri::from_parts(parts).expect("Valid URI");
 
-                    // Create peer with direct type conversion to avoid needless allocations
-                    let addr_str = alt_target._address.to_string();
-                    let new_peer = HttpPeer::new(addr_str.clone(), false, String::new());
-                    let peer_clone = BasicPeer::new(&addr_str);
+                    // Use the pre-formatted address string - zero allocation
+                    let new_peer = HttpPeer::new(&rule.target_addr_str, false, String::new());
                     
-                    // Store in cache for future requests - no lock contention with sharded cache
-                    self.route_cache.insert(cache_key, (new_path_and_query, peer_clone));
+                    // Store in cache
+                    self.route_cache.insert(cache_key, (new_path_and_query, alt_target.clone(), rule.target_addr_str.clone()));
                     
                     return Ok(Box::new(new_peer));
                 }
             }
         }
 
-        // Default fallback if no rules match - only compute this once
-        let port_str = DEFAULT_PORT.p404;
-        let parts: Vec<&str> = port_str.split(':').collect();
-        let addr = (parts[0], parts[1].parse::<u16>().unwrap_or(80));
-        log::debug!("No matching rules, connecting to default {addr:?}");
-        let peer = Box::new(HttpPeer::new(addr, false, String::new()));
-        Ok(peer)
+        // Default fallback if no rules match - Precomputed default for fewer allocations
+        static DEFAULT_PEER: LazyLock<(String, Box<HttpPeer>)> = LazyLock::new(|| {
+            let port_str = DEFAULT_PORT.p404;
+            let parts: Vec<&str> = port_str.split(':').collect();
+            let addr = (parts[0], parts[1].parse::<u16>().unwrap_or(80));
+            let peer_string = format!("{}:{}", addr.0, addr.1);
+            (peer_string.clone(), Box::new(HttpPeer::new(addr, false, String::new())))
+        });
+        
+        log::debug!("No matching rules, connecting to default {}", DEFAULT_PEER.0);
+        Ok(DEFAULT_PEER.1.clone())
     }
 
     /// # Log Request Metrics

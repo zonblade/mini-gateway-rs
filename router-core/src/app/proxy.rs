@@ -23,6 +23,7 @@ use bytes::BytesMut;
 use std::cell::RefCell;
 use std::thread_local;
 use std::time::{Duration, Instant};
+use regex::Regex;
 
 // Thread-local buffer pool for efficient buffer reuse
 thread_local! {
@@ -34,6 +35,16 @@ const DEFAULT_BUFFER_SIZE: usize = 16384; // 16KB instead of 8KB for more effici
 const FLUSH_THRESHOLD: usize = 8192;     // Only flush when buffers reach this threshold
 const SOCKET_TIMEOUT_SECS: u64 = 60;     // Reduce from 120s to be more responsive to network changes
 const BUFFER_POOL_SIZE: usize = 64;      // Increased pool size to reduce allocations
+const BATCH_READ_LIMIT: usize = 64 * 1024; // Maximum bytes to accumulate before forced write
+const BATCH_WRITE_SIZE: usize = 32 * 1024; // Target batch size for writes to reduce syscalls
+const MIN_BYTES_TO_FLUSH: usize = 1024;   // Minimum bytes to delay flush operation
+
+// Thread-local counters for diagnostic stats
+thread_local! {
+    static READ_COUNTER: RefCell<u64> = RefCell::new(0);
+    static WRITE_COUNTER: RefCell<u64> = RefCell::new(0);
+    static FLUSH_COUNTER: RefCell<u64> = RefCell::new(0);
+}
 
 /// Buffer pool implementation that uses thread-local storage to avoid mutex contention
 struct BufferPool;
@@ -128,148 +139,6 @@ enum ConnectionType {
     Http,
     /// Plain TCP connection (neither TLS nor HTTP)
     Tcp,
-}
-
-/// # Connection Configuration
-/// 
-/// Manages dynamic configuration for connections based on connection type
-/// and runtime behavior analysis.
-struct ConnectionConfig {
-    // Base buffer size - either default or from config
-    buffer_size: usize,
-    // Timeout for socket operations
-    timeout_secs: u64,
-    // Whether to use adaptive buffering
-    adaptive_buffer: bool,
-    // Traffic history for adaptive sizing
-    traffic_history: Vec<usize>,
-    // Maximum size for adaptive buffers
-    max_buffer_size: usize,
-    // Minimum size for adaptive buffers
-    min_buffer_size: usize,
-    // Last resize timestamp to limit frequency of buffer resizing
-    last_resize: Instant,
-    // Resize cooldown period
-    resize_cooldown: Duration,
-}
-
-impl ConnectionConfig {
-    // Create a new connection config, potentially using values from the proxy node config
-    fn new(proxy_node: Option<&ProxyNode>, conn_type: ConnectionType) -> Self {
-        let default_buffer_size = match conn_type {
-            ConnectionType::Tls => DEFAULT_BUFFER_SIZE * 2, // TLS connections often have larger payloads
-            ConnectionType::WebSocket => DEFAULT_BUFFER_SIZE, // WebSockets benefit from standard buffers
-            ConnectionType::Http => DEFAULT_BUFFER_SIZE, // HTTP uses standard buffer size
-            ConnectionType::Tcp => DEFAULT_BUFFER_SIZE / 2, // Plain TCP often has smaller messages
-        };
-        
-        let default_timeout = match conn_type {
-            ConnectionType::WebSocket => SOCKET_TIMEOUT_SECS * 2, // WebSockets need longer timeouts
-            ConnectionType::Tls => SOCKET_TIMEOUT_SECS,
-            ConnectionType::Http => SOCKET_TIMEOUT_SECS,
-            ConnectionType::Tcp => SOCKET_TIMEOUT_SECS / 2, // TCP connections can use shorter timeouts
-        };
-        
-        if let Some(node) = proxy_node {
-            // Use custom values from proxy node config if available
-            ConnectionConfig {
-                buffer_size: node.buffer_size.unwrap_or(default_buffer_size),
-                timeout_secs: node.timeout_secs.unwrap_or(default_timeout),
-                adaptive_buffer: node.adaptive_buffer,
-                traffic_history: Vec::with_capacity(10),
-                max_buffer_size: 65536, // 64KB max
-                min_buffer_size: 4096,  // 4KB min
-                last_resize: Instant::now(),
-                resize_cooldown: Duration::from_secs(1), // Only resize once per second at most
-            }
-        } else {
-            // Use default values
-            ConnectionConfig {
-                buffer_size: default_buffer_size,
-                timeout_secs: default_timeout,
-                adaptive_buffer: false,
-                traffic_history: Vec::with_capacity(10),
-                max_buffer_size: 65536, // 64KB max
-                min_buffer_size: 4096,  // 4KB min
-                last_resize: Instant::now(),
-                resize_cooldown: Duration::from_secs(1), // Only resize once per second at most
-            }
-        }
-    }
-    
-    // Update buffer size based on traffic patterns
-    fn update_buffer_size(&mut self, bytes_transferred: usize) {
-        if !self.adaptive_buffer {
-            return;
-        }
-        
-        // Add current transfer to history
-        self.traffic_history.push(bytes_transferred);
-        
-        // Only keep the last 10 transfers
-        if self.traffic_history.len() > 10 {
-            self.traffic_history.remove(0);
-        }
-        
-        // Check cooldown period to avoid frequent resizing
-        let now = Instant::now();
-        if now.duration_since(self.last_resize) < self.resize_cooldown {
-            return;
-        }
-        
-        // Calculate average transfer size if we have enough data
-        if self.traffic_history.len() >= 3 {
-            let avg_transfer = self.traffic_history.iter().sum::<usize>() / self.traffic_history.len();
-            
-            // Adjust buffer size based on recent traffic
-            // If transfers are consistently large, increase buffer size
-            // If transfers are small, decrease buffer size to save memory
-            let new_size = if avg_transfer > self.buffer_size / 2 {
-                // Increase buffer size if transfers are large
-                (self.buffer_size * 3) / 2
-            } else if avg_transfer < self.buffer_size / 4 && self.buffer_size > self.min_buffer_size {
-                // Decrease buffer size if transfers are small
-                self.buffer_size / 2
-            } else {
-                // No change needed
-                self.buffer_size
-            };
-            
-            // Clamp to min/max values
-            let new_size = new_size.min(self.max_buffer_size).max(self.min_buffer_size);
-            
-            // Only update if actually changed
-            if new_size != self.buffer_size {
-                // Update resize timestamp
-                self.last_resize = now;
-                self.buffer_size = new_size;
-            }
-        }
-    }
-    
-    // Get the current buffer size - adjusted to standard sizes to reduce fragmentation
-    fn get_buffer_size(&self) -> usize {
-        // Round to nearest power of 2 to reduce memory fragmentation
-        let mut size = self.buffer_size;
-        let mut power = 12; // Start at 4KB (2^12)
-        
-        while (1 << power) < size {
-            power += 1;
-        }
-        
-        1 << power // Return power of 2 value
-    }
-    
-    // Get the current timeout duration
-    fn get_timeout(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.timeout_secs)
-    }
-    
-    // Get the flush threshold based on current buffer size
-    fn get_flush_threshold(&self) -> usize {
-        // Flush when buffer is half full
-        self.buffer_size / 2
-    }
 }
 
 impl ProxyApp {
@@ -586,40 +455,37 @@ impl ProxyApp {
         is_websocket: bool,
         is_tls: bool,
     ) {
-        // Optimize socket settings to disable Nagle's algorithm
-        Self::optimize_tcp_socket(&mut server_session);
-        Self::optimize_tcp_socket(&mut client_session);
-
-        // Get connection type for configuration
-        let conn_type = if is_tls {
-            ConnectionType::Tls
-        } else if is_websocket {
-            ConnectionType::WebSocket
-        } else {
-            ConnectionType::Http // Default to HTTP for existing connections
-        };
-        
-        // Create dynamic configuration for upstream and downstream
-        let mut upstream_config = ConnectionConfig::new(None, conn_type);
-        let mut downstream_config = ConnectionConfig::new(None, conn_type);
-        
-        // Create appropriately sized buffers based on connection type
-        let mut upstream_buf = BytesMut::with_capacity(upstream_config.get_buffer_size());
-        let mut downstream_buf = BytesMut::with_capacity(downstream_config.get_buffer_size());
-        
-        // Track accumulated data sizes for smarter flushing decisions
-        let mut upstream_accumulated = 0;
-        let mut downstream_accumulated = 0;
+        // Get buffers directly from the pool - they will have DEFAULT_BUFFER_SIZE capacity
+        let mut upstream_buf = BufferPool::get();
+        let mut downstream_buf = BufferPool::get();
         
         // Create identifier id
         let id = client_session.id();
+        
+        // Accumulators to track pending writes
+        let mut upstream_pending = 0;
+        let mut downstream_pending = 0;
+        
+        // Last flush timestamps to control flush frequency
+        let mut last_upstream_flush = Instant::now();
+        let mut last_downstream_flush = Instant::now();
+
+        // Small latency for HTTP/WS, longer for others
+        let flush_delay = if is_websocket {
+            Duration::from_millis(5)
+        } else if is_tls {
+            Duration::from_millis(10)
+        } else {
+            Duration::from_millis(20)
+        };
 
         loop {
-            // Use dynamic timeouts from config
+            // Use a fixed timeout for reading
+            let timeout_duration = std::time::Duration::from_secs(SOCKET_TIMEOUT_SECS);
             let downstream_read = 
-                tokio::time::timeout(downstream_config.get_timeout(), server_session.read_buf(&mut upstream_buf));
+                tokio::time::timeout(timeout_duration, server_session.read_buf(&mut upstream_buf));
             let upstream_read = 
-                tokio::time::timeout(upstream_config.get_timeout(), client_session.read_buf(&mut downstream_buf));
+                tokio::time::timeout(timeout_duration, client_session.read_buf(&mut downstream_buf));
             let event: DuplexEvent;
 
             select! {
@@ -627,10 +493,14 @@ impl ProxyApp {
                     Ok(Ok(n)) => event = DuplexEvent::DownstreamRead(n),
                     Ok(Err(e)) => {
                         Self::handle_read_error(e, id, false);
+                        BufferPool::put(upstream_buf);
+                        BufferPool::put(downstream_buf);
                         return;
                     },
                     Err(_) => {
                         Self::handle_timeout(id, false);
+                        BufferPool::put(upstream_buf);
+                        BufferPool::put(downstream_buf);
                         return;
                     }
                 },
@@ -638,10 +508,14 @@ impl ProxyApp {
                     Ok(Ok(n)) => event = DuplexEvent::UpstreamRead(n),
                     Ok(Err(e)) => {
                         Self::handle_read_error(e, id, true);
+                        BufferPool::put(upstream_buf);
+                        BufferPool::put(downstream_buf);
                         return;
                     },
                     Err(_) => {
                         Self::handle_timeout(id, true);
+                        BufferPool::put(upstream_buf);
+                        BufferPool::put(downstream_buf);
                         return;
                     }
                 },
@@ -656,6 +530,16 @@ impl ProxyApp {
                         format!("[PXY] |ID:{}, CONN:, STATUS:00, SIZE:0, COMMENT:- |", id),
                     );
                     debug!("downstream session closing");
+                    
+                    // Final flush of any pending data
+                    if upstream_pending > 0 {
+                        if let Err(e) = client_session.flush().await {
+                            Self::handle_write_error(e, id, true, true);
+                        }
+                    }
+                    
+                    BufferPool::put(upstream_buf);
+                    BufferPool::put(downstream_buf);
                     return;
                 }
                 DuplexEvent::UpstreamRead(0) => {
@@ -665,106 +549,119 @@ impl ProxyApp {
                         format!("[PXY] |ID:{}, CONN:, STATUS:10, SIZE:0, COMMENT:- |", id),
                     );
                     debug!("upstream session closing");
+                    
+                    // Final flush of any pending data
+                    if downstream_pending > 0 {
+                        if let Err(e) = server_session.flush().await {
+                            Self::handle_write_error(e, id, false, true);
+                        }
+                    }
+                    
+                    BufferPool::put(upstream_buf);
+                    BufferPool::put(downstream_buf);
                     return;
                 }
                 DuplexEvent::DownstreamRead(n) => {
-                    // Update buffer size based on traffic pattern
-                    upstream_config.update_buffer_size(n);
-                    
-                    upstream_accumulated += n;
-                    Self::log_status_switch(
-                        is_websocket,
-                        is_tls,
-                        format!(
-                            "[PXY] |ID:{}, CONN:, STATUS:01, SIZE:{}, COMMENT:- |",
-                            id, n
-                        ),
-                    );
+                    // Count the read operation 
+                    READ_COUNTER.with(|counter| {
+                        *counter.borrow_mut() += 1;
+                    });
                     
                     // Write the data to the client (data is already in upstream_buf)
                     let to_write = upstream_buf.split_to(n);
                     match client_session.write_all(&to_write[..]).await {
-                        Ok(_) => {},
+                        Ok(_) => {
+                            upstream_pending += n;
+                            WRITE_COUNTER.with(|counter| {
+                                *counter.borrow_mut() += 1;
+                            });
+                        },
                         Err(e) => {
                             Self::handle_write_error(e, id, true, false);
+                            BufferPool::put(upstream_buf);
+                            BufferPool::put(downstream_buf);
                             return;
                         }
                     }
                     
-                    // Only flush if we've accumulated enough data or it's likely the last part of a response
-                    // Use the dynamic flush threshold from the config
-                    let should_flush = upstream_accumulated >= upstream_config.get_flush_threshold() || 
-                                       n < upstream_config.get_buffer_size() / 2;
-                                       
+                    // Flush policy: 
+                    // 1. Flush immediately for small data (likely interactive traffic)
+                    // 2. Force flush if we've accumulated too much data (avoid buffer overflow)
+                    // 3. Flush if it's been a while since last flush (timeout-based)
+                    // 4. Otherwise buffer for better throughput
+                    let now = Instant::now();
+                    let should_flush = 
+                        n < MIN_BYTES_TO_FLUSH || // Small interactive packets
+                        upstream_pending >= BATCH_READ_LIMIT || // Too much accumulated data
+                        now.duration_since(last_upstream_flush) >= flush_delay; // Time-based flush
+                    
                     if should_flush {
                         match client_session.flush().await {
                             Ok(_) => {
-                                upstream_accumulated = 0; // Reset accumulator after flush
+                                upstream_pending = 0;
+                                last_upstream_flush = now;
+                                FLUSH_COUNTER.with(|counter| {
+                                    *counter.borrow_mut() += 1;
+                                });
                             },
                             Err(e) => {
                                 Self::handle_write_error(e, id, true, true);
+                                BufferPool::put(upstream_buf);
+                                BufferPool::put(downstream_buf);
                                 return;
                             }
                         }
                     }
                 }
                 DuplexEvent::UpstreamRead(n) => {
-                    // Update buffer size based on traffic pattern
-                    downstream_config.update_buffer_size(n);
-                    
-                    downstream_accumulated += n;
-                    // start of the request
-                    Self::log_status_switch(
-                        is_websocket,
-                        is_tls,
-                        format!(
-                            "[PXY] |ID:{}, CONN:, STATUS:11, SIZE:{}, COMMENT:- |",
-                            id, n
-                        ),
-                    );
+                    // Count the read operation
+                    READ_COUNTER.with(|counter| {
+                        *counter.borrow_mut() += 1;
+                    });
                     
                     // Write the data back to the client
                     let to_write = downstream_buf.split_to(n);
                     match server_session.write_all(&to_write[..]).await {
-                        Ok(_) => {},
+                        Ok(_) => {
+                            downstream_pending += n;
+                            WRITE_COUNTER.with(|counter| {
+                                *counter.borrow_mut() += 1;
+                            });
+                        },
                         Err(e) => {
                             Self::handle_write_error(e, id, false, false);
+                            BufferPool::put(upstream_buf);
+                            BufferPool::put(downstream_buf);
                             return;
                         }
                     }
                     
-                    // Only flush if we've accumulated enough data or it's the last part of a response
-                    // Use the dynamic flush threshold from the config
-                    let should_flush = downstream_accumulated >= downstream_config.get_flush_threshold() || 
-                                       n < downstream_config.get_buffer_size() / 2;
-                                       
+                    // Apply the same flush policy as upstream
+                    let now = Instant::now();
+                    let should_flush = 
+                        n < MIN_BYTES_TO_FLUSH || // Small interactive packets
+                        downstream_pending >= BATCH_READ_LIMIT || // Too much accumulated data
+                        now.duration_since(last_downstream_flush) >= flush_delay; // Time-based flush
+                    
                     if should_flush {
                         match server_session.flush().await {
                             Ok(_) => {
-                                downstream_accumulated = 0; // Reset accumulator after flush
+                                downstream_pending = 0;
+                                last_downstream_flush = now;
+                                FLUSH_COUNTER.with(|counter| {
+                                    *counter.borrow_mut() += 1;
+                                });
                             },
                             Err(e) => {
                                 Self::handle_write_error(e, id, false, true);
+                                BufferPool::put(upstream_buf);
+                                BufferPool::put(downstream_buf);
                                 return;
                             }
                         }
                     }
                 }
             }
-        }
-    }
-
-    /// Helper method to optimize TCP socket settings for low latency
-    fn optimize_tcp_socket(stream: &mut Stream) {
-        if let Some(socket) = stream.as_socket_mut() {
-            // Disable Nagle's algorithm to reduce latency
-            if let Err(e) = socket.set_nodelay(true) {
-                log::warn!("Failed to set TCP_NODELAY: {}", e);
-            }
-            
-            // Remove the keepalive setting as it's not directly supported
-            
-            // Remove Unix-specific socket buffer size settings
         }
     }
 }
@@ -800,9 +697,6 @@ impl ServerApp for ProxyApp {
         log::debug!("#-------------------------------------#");
         log::debug!("#           Incoming Request          #");
         log::debug!("#-------------------------------------#");
-
-        // Optimize client socket settings immediately
-        Self::optimize_tcp_socket(&mut io);
 
         // Use buffer from the pool instead of allocating a new one
         let mut buffer = BufferPool::get();
@@ -853,17 +747,11 @@ impl ServerApp for ProxyApp {
                 .expect("Default connector should exist")
         });
 
-        // Create connection config for this connection type
-        let proxy_node = None; // In a future enhancement, we could retrieve the actual ProxyNode here
-        let connect_config = ConnectionConfig::new(proxy_node, conn_type);
-        
         // Connect to the target server with optimized timeout handling
         let connect_future = connector.new_stream(&proxy_to);
         let mut client_session =
             match tokio::time::timeout(std::time::Duration::from_secs(5), connect_future).await {
                 Ok(Ok(mut client_session)) => {
-                    // Optimize upstream socket immediately upon connection
-                    Self::optimize_tcp_socket(&mut client_session);
                     client_session
                 },
                 Ok(Err(e)) => {
@@ -885,14 +773,11 @@ impl ServerApp for ProxyApp {
             return None;
         }
 
-        // Only flush if necessary to avoid Nagle algorithm issues
-        // Use the connection config's flush threshold
-        if n >= connect_config.get_flush_threshold() || is_websocket || is_tls {
-            if let Err(e) = client_session.flush().await {
-                log::error!("Failed to flush data to upstream peer: {}", e);
-                BufferPool::put(buffer);
-                return None;
-            }
+        // Always flush initial data
+        if let Err(e) = client_session.flush().await {
+            log::error!("Failed to flush initial data to upstream peer: {}", e);
+            BufferPool::put(buffer);
+            return None;
         }
 
         // Return buffer to the pool before entering duplex mode
