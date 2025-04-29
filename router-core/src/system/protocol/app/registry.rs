@@ -151,9 +151,15 @@ impl DataRegistry {
             .filter(|x| !gateway_existing.contains(x))
             .cloned()
             .collect();
+        
+        log::info!("Parsed gateway data: {:#?}", addresses_to_add);
+        log::info!("Parsed gateway data: {:#?}", addresses_to_remove);
             
         // Check if there are any changes
         let has_changes = !addresses_to_remove.is_empty() || !addresses_to_add.is_empty();
+
+        log::info!("Gateway id : {}", checksum);
+        log::debug!("Parsed gateway data: {:#?}", gateway_data);
 
         config::RoutingData::GatewayID.set(&checksum);
         config::RoutingData::GatewayRouting.xset(&gateway_data);
