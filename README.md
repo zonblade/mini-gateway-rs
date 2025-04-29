@@ -57,7 +57,7 @@ The architecture of the mini-gateway is currently simple and straightforward.
 - [ ] Web GUI - Live Monitoring
 - [ ] CLI - Control Panel
 - [ ] CLI - Live Monitoring (looks like htop)
-- [ ] Robust Logging integration
+- [x] Robust Logging integration
 
 ### Core Features
 - [x] (proxy)   HTTP/HTTPS
