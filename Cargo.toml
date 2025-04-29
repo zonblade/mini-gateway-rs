@@ -21,3 +21,22 @@ tokio       = { version = "1.44.1"  , features = [ "full"           ] }
 serde       = { version = "1.0.219" , features = [ "derive"         ] }
 mini-config = { git = "https://github.com/zonblade/mini-config-rs.git" , rev="e62f8e85107e44b1eaa1e27f6cb46d12143a37f7" , features = [ "derive" ] }
 tinytemplate= { git = "https://github.com/zonblade/tiny-templat-forked.git" , rev = "141836defdc4ffedc7f3beec9a1dd7e06e7cbf8e" }
+
+# Performance optimization profiles for all workspace members
+[profile.release]
+opt-level = 3            # Maximum optimization
+lto = "fat"              # Link-Time Optimization for whole program optimization
+codegen-units = 1        # Maximize optimization opportunities (slower build)
+panic = "abort"          # Remove panic unwinding code
+strip = true             # Strip symbols from binary
+debug = false            # No debug symbols
+
+# Use faster memory allocator
+[profile.release.package."*"]
+codegen-units = 1
+opt-level = 3
+
+# Enable SIMD optimizations and other target-specific optimizations
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 1

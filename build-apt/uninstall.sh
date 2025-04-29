@@ -47,7 +47,7 @@ rm -rf /opt/gwrs
 
 # Remove logs
 echo "Removing log files..."
-rm -rf /var/log/gwrs
+rm -rf /tmp/gwrs/log
 
 echo "Uninstallation complete. GWRS Mini-Gateway has been removed from your system."
 exit 0

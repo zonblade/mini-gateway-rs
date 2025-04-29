@@ -57,7 +57,7 @@ pub async fn init(external_handler: Option<SharedServiceHandler>) -> io::Result<
         .unwrap_or(DEFAULT_ENABLED);
 
     if !enabled {
-        log::info!("Protocol server disabled by configuration");
+        log::debug!("Protocol server disabled by configuration");
         return Ok(());
     }
 
@@ -72,11 +72,11 @@ pub async fn init(external_handler: Option<SharedServiceHandler>) -> io::Result<
         if let Some(handler) = external_handler {
             // Use the provided external handler
             SERVICE_HANDLER = Some(handler);
-            log::info!("Protocol server using externally provided service handler");
+            log::debug!("Protocol server using externally provided service handler");
         } else {
             // Create a new handler if none was provided
             SERVICE_HANDLER = Some(init_services());
-            log::info!("Protocol server created new service handler");
+            log::debug!("Protocol server created new service handler");
         }
         
         // Log service count in the handler
@@ -84,7 +84,7 @@ pub async fn init(external_handler: Option<SharedServiceHandler>) -> io::Result<
             let guard = handler.read().await;
             let service_count = guard.get_services().len();
             let service_names: Vec<String> = guard.get_services().keys().cloned().collect();
-            log::info!("Protocol service handler initialized with {} services: {:?}", service_count, service_names);
+            log::debug!("Protocol service handler initialized with {} services: {:?}", service_count, service_names);
         }
     }
 
@@ -153,7 +153,7 @@ fn get_service_handler() -> Option<SharedServiceHandler> {
 /// * `io::Result<()>` - Ok if the server ran and shut down gracefully,
 ///   or Err if there was an error binding to the address
 async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
-    log::info!("Starting protocol server on {}", listen_addr);
+    log::debug!("Starting protocol server on {}", listen_addr);
     // Set up shutdown signal
     let shutdown = Arc::new(AtomicBool::new(false));
     let _shutdown_clone = Arc::clone(&shutdown);
@@ -161,11 +161,13 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
     // Bind to a TCP socket
     let listener = match TcpListener::bind(&listen_addr).await {
         Ok(listener) => {
-            log::info!("Protocol server listening on {}", listen_addr);
+            log::debug!("Protocol server listening on {}", listen_addr);
+            // println!("Success to bind {}", listen_addr);
             listener
         }
         Err(e) => {
             log::error!("Failed to bind protocol server to {}: {}", listen_addr, e);
+            // println!("Failed to bind protocol server to {}: {}", listen_addr, e);
             return Err(e);
         }
     };
@@ -200,7 +202,7 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
         }
     }
 
-    log::info!("Protocol server shutting down");
+    log::debug!("Protocol server shutting down");
     Ok(())
 }
 

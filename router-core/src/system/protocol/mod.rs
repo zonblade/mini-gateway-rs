@@ -127,7 +127,7 @@ pub fn start_interface() {
     thread::spawn(|| {
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         runtime.block_on(async {
-            log::info!("Starting protocol server...");
+            log::debug!("Starting protocol server...");
             // Initialize the service handler
             let service_handler = services::init();
 
@@ -145,12 +145,12 @@ pub fn start_interface() {
 
             // Log registered services details
             let service_count = handler.get_services().len();
-            log::info!(
+            log::debug!(
                 "Services registered successfully: {} service(s)",
                 service_count
             );
             for name in handler.get_services().keys() {
-                log::info!("Registered service: {}", name);
+                log::debug!("Registered service: {}", name);
             }
             handler.join();
 
@@ -160,7 +160,7 @@ pub fn start_interface() {
             // Verify services are registered by getting a read lock
             let verification = service_handler.read().await;
             let verified_count = verification.get_services().len();
-            log::info!(
+            log::debug!(
                 "Verification before server start: {} service(s) available",
                 verified_count
             );
@@ -170,7 +170,7 @@ pub fn start_interface() {
             let server_handler = Arc::clone(&service_handler);
 
             // Start the protocol server with our pre-initialized service handler
-            log::info!("Starting protocol server after service registration");
+            log::debug!("Starting protocol server after service registration");
             if let Err(e) = init(Some(server_handler)).await {
                 log::error!("Protocol server failed to start: {}", e);
             }

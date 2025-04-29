@@ -92,7 +92,5 @@ pub fn init(duration: Duration) -> bool {
         let _ = crossterm::terminal::disable_raw_mode();
     }
 
-    log::debug!("Ctrl+X received: {}", result);  // Updated the message too
-
     result
 }

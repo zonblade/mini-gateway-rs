@@ -1,7 +1,6 @@
 use crate::app::proxy::ProxyApp;
 use pingora::listeners::Listeners;
 use pingora::services::listening::Service;
-use pingora::upstreams::peer::BasicPeer;
 
 /// Creates a proxy service that listens on a specified address and forwards traffic to a proxy address.
 ///

@@ -1,0 +1,21 @@
+# GWRS services logrotate configuration
+# Place this file at /etc/logrotate.d/gwrs
+
+/tmp/gwrs/log/*.log {
+    size 50M
+    rotate 4
+    maxsize 200M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0644 root root
+    postrotate
+        for service in gwrs-core gwrs-api; do
+            if rc-service -q $service status; then
+                logger -t logrotate "Reloading $service"
+                rc-service $service reload >/dev/null 2>&1 || true
+            fi
+        done
+    endscript
+}

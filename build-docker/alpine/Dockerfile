@@ -24,7 +24,8 @@ RUN apk add --no-cache \
     openrc \
     ca-certificates \
     procps \
-    bash
+    bash \
+    logrotate
 
 # Copy binaries from builder
 COPY --from=builder /app/target/release/router-core /usr/local/bin/router-core
@@ -33,7 +34,8 @@ COPY --from=builder /app/target/release/router-api /usr/local/bin/router-api
 # Create necessary directories
 RUN mkdir -p /opt/gwrs/bin && \
     mkdir -p /opt/gwrs/conf && \
-    mkdir -p /var/log/gwrs
+    mkdir -p /tmp/gwrs/log && \
+    mkdir -p /etc/gwrs/logrotate
 
 # Create symlinks to binaries
 RUN ln -sf /usr/local/bin/router-core /opt/gwrs/bin/router-core && \
@@ -46,9 +48,15 @@ RUN mkdir -p /etc/init.d
 COPY build-docker/alpine/router-core.initd /etc/init.d/gwrs-core
 COPY build-docker/alpine/router-api.initd /etc/init.d/gwrs-api
 
-# Make the init scripts executable
-RUN chmod +x /etc/init.d/gwrs-core
-RUN chmod +x /etc/init.d/gwrs-api
+# Copy logrotate configuration
+COPY build-docker/alpine/logrotate/gwrs /etc/gwrs/logrotate/
+COPY build-docker/alpine/logrotate/setup.sh /etc/gwrs/logrotate/
+
+# Make the init scripts and logrotate setup executable
+RUN chmod +x /etc/init.d/gwrs-core && \
+    chmod +x /etc/init.d/gwrs-api && \
+    chmod +x /etc/gwrs/logrotate/setup.sh && \
+    /etc/gwrs/logrotate/setup.sh
 
 # Add services to default runlevel
 RUN rc-update add gwrs-core default

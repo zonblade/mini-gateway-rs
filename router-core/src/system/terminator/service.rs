@@ -58,7 +58,7 @@ pub fn init(){
             Err(e) => {
                 // Log the error but don't panic
                 log::warn!("Failed to execute kill command: {}", e);
-                log::info!("Using process::exit as fallback termination method");
+                log::debug!("Using process::exit as fallback termination method");
                 
                 // Use exit as a fallback
                 exit(0);

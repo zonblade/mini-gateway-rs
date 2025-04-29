@@ -10,8 +10,18 @@ Group=root
 ExecStart=/usr/local/bin/router-api --ip 0.0.0.0
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/var/log/gwrs/api.log
-StandardError=append:/var/log/gwrs/api.error.log
+StandardOutput=append:/tmp/gwrs/log/api.log
+StandardError=append:/tmp/gwrs/log/api.error.log
+# Log rotation settings
+LogRateLimitBurst=10000
+LogsDirectory=gwrs
+LogsDirectoryMode=0755
+RuntimeMaxUse=50M
+RuntimeMaxFileSize=20M
+RuntimeMaxFiles=10
+SystemMaxUse=200M
+SystemMaxFileSize=50M
+SystemMaxFiles=10
 
 [Install]
 WantedBy=multi-user.target

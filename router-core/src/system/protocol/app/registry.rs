@@ -1,7 +1,8 @@
 use async_trait::async_trait;
-use log::info;
 use serde_json::json;
 use std::collections::HashMap;
+use std::thread::sleep;
+use std::time::Duration;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -41,11 +42,11 @@ impl DataRegistry {
         match std::fs::create_dir_all(&path) {
             Ok(_) => {
                 match std::fs::write(&pem_path, pem) {
-                    Ok(_) => log::info!("PEM file saved to {}", pem_path),
+                    Ok(_) => log::debug!("PEM file saved to {}", pem_path),
                     Err(e) => log::error!("Failed to save PEM file: {}", e),
                 }
                 match std::fs::write(&key_path, key) {
-                    Ok(_) => log::info!("Key file saved to {}", key_path),
+                    Ok(_) => log::debug!("Key file saved to {}", key_path),
                     Err(e) => log::error!("Failed to save Key file: {}", e),
                 }
             }
@@ -67,6 +68,7 @@ impl DataRegistry {
             Ok(data) => {
                 let mut data_node = Vec::new();
                 for node in data {
+                    log::debug!("Parsed proxy data: {:#?}", node.clone());
                     let mut tls_key = None;
                     let mut tls_pem = None;
                     if node.tls {
@@ -116,8 +118,60 @@ impl DataRegistry {
                 return Err(e);
             }
         };
-        config::RoutingData::GatewayID.xset(checksum);
-        config::RoutingData::GatewayRouting.xset(gateway_data);
+        log::debug!("Parsed gateway data: {:#?}", gateway_data);
+
+        let gateway_existing = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
+            Some(data) => data,
+            None => {
+                vec![]
+            }
+        };
+
+        // Get existing gateway addresses
+        let gateway_existing: Vec<String> = gateway_existing
+            .iter()
+            .map(|x| x.addr_listen.clone())
+            .collect();
+            
+        // Get incoming gateway addresses
+        let gateway_incoming: Vec<String> = gateway_data
+            .iter()
+            .map(|x| x.addr_listen.clone())
+            .collect();
+            
+        // Find addresses that are in existing but not in incoming (to be removed)
+        let addresses_to_remove: Vec<String> = gateway_existing.clone()
+            .into_iter()
+            .filter(|x| !gateway_incoming.contains(x))
+            .collect();
+            
+        // Find addresses that are in incoming but not in existing (to be added)
+        let addresses_to_add: Vec<String> = gateway_incoming
+            .iter()
+            .filter(|x| !gateway_existing.contains(x))
+            .cloned()
+            .collect();
+            
+        // Check if there are any changes
+        let has_changes = !addresses_to_remove.is_empty() || !addresses_to_add.is_empty();
+
+        config::RoutingData::GatewayID.set(&checksum);
+        config::RoutingData::GatewayRouting.xset(&gateway_data);
+
+        if has_changes {
+            log::info!("Gateway configuration changes detected:");
+            if !addresses_to_remove.is_empty() {
+                log::info!("Addresses to remove: {:?}", addresses_to_remove);
+            }
+            if !addresses_to_add.is_empty() {
+                log::info!("Addresses to add: {:?}", addresses_to_add);
+            }
+            sleep(Duration::from_millis(500));
+            terminator::service::init();
+        } else {
+            log::info!("No changes in gateway configuration");
+        }
+        
         Ok(())
     }
 }
@@ -138,7 +192,7 @@ impl ServiceProtocol for DataRegistry {
         params: &ConnectionParams,
     ) -> io::Result<()> {
         let request_str = String::from_utf8_lossy(buffer);
-        info!("Received request: {}", request_str);
+       log::debug!("Received request: {}", request_str);
         let action = &params.action;
 
         let response = match (action.as_str(), request_str.as_ref()) {
@@ -198,7 +252,7 @@ impl ServiceProtocol for DataRegistry {
             None => "no metrics".to_string(),
         };
 
-        info!(
+       log::debug!(
             "Request [{}]: service={}, action={}, status={}, metrics=[{}]",
             self.name, service, action, status_str, metrics_info
         );

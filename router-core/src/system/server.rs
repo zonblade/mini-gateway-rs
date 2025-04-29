@@ -17,7 +17,7 @@
 use super::default_page;
 use crate::{
     app::gateway::GatewayApp,
-    config::{self, ProxyNode},
+    config::{self, GatewayNode, ProxyNode},
     service,
 };
 use pingora::{
@@ -65,11 +65,30 @@ pub fn init() {
             my_server.bootstrap();
 
             // Configure listening addresses for gateway services
-            let addr = vec!["127.0.0.1:30001", "127.0.0.1:30003"];
+            let mut addr = vec![];
+            let data = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
+                Some(data)=>{
+                    data
+                },
+                None=>{
+                    vec![]
+                }
+            };
+
+            log::debug!("Gateway data: {:#?}", data);
+
+            for node in data {
+                // Check if the address is already in the list
+                if !addr.contains(&node.addr_listen) {
+                    addr.push(node.addr_listen);
+                }
+            }
+
             let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
 
             // Create a gateway service for each address
             for addr in addr.iter() {
+                log::info!("Creating gateway service for address: {}", addr);
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
                     &my_server.configuration,
                     GatewayApp::new(addr),
@@ -77,7 +96,7 @@ pub fn init() {
                 my_gateway_service.add_tcp(addr);
                 my_gateway.push(Box::new(my_gateway_service));
             }
-
+            log::info!("Gateway services created: {}", my_gateway.len());
             // Add all gateway services to the server and run
             my_server.add_services(my_gateway);
             my_server.run(RunArgs::default());

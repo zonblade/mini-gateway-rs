@@ -104,6 +104,7 @@ pub struct Database {
     connection: Arc<Mutex<Connection>>,
 }
 
+#[allow(dead_code)]
 impl Database {
     /// Creates a new database connection to the specified path.
     ///
@@ -143,6 +144,20 @@ impl Database {
         }
         
         let db_path = db_dir.join("core");
+        let connection = Connection::open(db_path)?;
+        
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+        })
+    }
+    pub fn new_log() -> DatabaseResult<Self> {
+        // Ensure the directory exists
+        let db_dir = Path::new("/tmp/gwrs/data");
+        if !db_dir.exists() {
+            fs::create_dir_all(db_dir)?;
+        }
+        
+        let db_path = db_dir.join("core_logging");
         let connection = Connection::open(db_path)?;
         
         Ok(Self {
@@ -506,6 +521,7 @@ impl Database {
 ///     // Example usage
 /// }
 /// ```
+#[allow(dead_code)]
 pub struct Query<T> {
     /// The SQL query string.
     sql: String,
@@ -517,6 +533,7 @@ pub struct Query<T> {
     _marker: std::marker::PhantomData<T>,
 }
 
+#[allow(dead_code)]
 impl<T> Query<T> {
     /// Creates a new query with the given SQL statement.
     ///
@@ -617,6 +634,10 @@ impl<T> Query<T> {
 /// ```
 pub fn get_connection() -> DatabaseResult<Database> {
     Database::new()
+}
+
+pub fn get_connection_log() -> DatabaseResult<Database> {
+    Database::new_log()
 }
 
 #[cfg(test)]

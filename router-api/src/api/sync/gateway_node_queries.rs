@@ -1,6 +1,6 @@
 use crate::module::database::{get_connection, DatabaseError};
 use super::gateway_node::GatewayNode;
-use log::error;
+use log::{error, info, warn};
 use crate::api::settings::{gateway_queries, gwnode_queries, proxy_queries};
 
 /// Retrieves a list of GatewayNode objects by joining gateway, gwnode, and proxy tables
@@ -32,6 +32,52 @@ pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
     gwnode_queries::ensure_gateway_nodes_table()?;
     proxy_queries::ensure_proxies_table()?;
     
+    // Add diagnostic queries to check if tables have data
+    let gateway_count: i64 = db.query_one(
+        "SELECT COUNT(*) FROM gateways",
+        [],
+        |row| row.get(0),
+    )?.unwrap_or(0);
+    
+    let gwnode_count: i64 = db.query_one(
+        "SELECT COUNT(*) FROM gateway_nodes",
+        [],
+        |row| row.get(0),
+    )?.unwrap_or(0);
+    
+    let proxy_count: i64 = db.query_one(
+        "SELECT COUNT(*) FROM proxies",
+        [],
+        |row| row.get(0),
+    )?.unwrap_or(0);
+    
+    info!("Table counts - gateways: {}, gateway_nodes: {}, proxies: {}", 
+        gateway_count, gwnode_count, proxy_count);
+    
+    if gateway_count == 0 || gwnode_count == 0 || proxy_count == 0 {
+        warn!("One or more tables is empty, which will result in empty JOIN results");
+    }
+    
+    // Try a simpler query first to see if we get any results from each table
+    let simple_query = "
+        SELECT 
+            COUNT(*) 
+        FROM 
+            gateways g
+        JOIN 
+            gateway_nodes gn ON g.gwnode_id = gn.id
+        JOIN 
+            proxies p ON gn.proxy_id = p.id";
+    
+    let join_count: i64 = db.query_one(
+        simple_query,
+        [],
+        |row| row.get(0),
+    )?.unwrap_or(0);
+    
+    info!("Query would return {} rows", join_count);
+    
+    // Original JOIN query
     // Join gateway, gateway_nodes (gwnode), and proxies tables
     // to construct complete GatewayNode objects
     let gateway_nodes = db.query(
@@ -51,15 +97,19 @@ pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
             g.priority DESC",
         [],
         |row| {
-            Ok(GatewayNode {
+            let data = GatewayNode {
                 priority: row.get(0)?,
                 addr_listen: row.get(1)?,
                 addr_target: row.get(2)?,
                 path_listen: row.get(3)?,
                 path_target: row.get(4)?,
-            })
+            };
+            log::debug!("GatewayNode: {:#?}", data.clone());
+            Ok(data)
         },
     )?;
+    
+    info!("Final query returned {} rows", gateway_nodes.len());
     
     Ok(gateway_nodes)
 }

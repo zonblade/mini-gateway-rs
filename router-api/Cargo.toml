@@ -21,3 +21,28 @@ jsonwebtoken    = "9.3.1"
 futures         = "0.3.31"
 futures-util    = "0.3.31"
 clap            = { version = "4.5.35", features = ["derive"] }
+chrono          = "0.4.40"
+tracing         = { workspace = true }
+tracing-subscriber  = "0.3.18"
+tracing-appender    = "0.2.3"
+crossbeam-channel   = "0.5.8"
+actix-web-lab       = "0.24.1"
+parking_lot         = "0.12.3"
+tokio-stream        = "0.1.17"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+dirs        = "6.0.0"
+
+# Performance optimization profiles
+[profile.release]
+opt-level = 3            # Maximum optimization
+lto = "fat"              # Link-Time Optimization for whole program optimization
+codegen-units = 1        # Maximize optimization opportunities (slower build)
+panic = "abort"          # Remove panic unwinding code
+strip = true             # Strip symbols from binary
+debug = false            # No debug symbols
+
+# Enable the faster system allocator
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 1

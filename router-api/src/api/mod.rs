@@ -59,6 +59,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .configure(settings::configure)
             .configure(users::configure)
             .configure(sync::configure)
+            .configure(statistics::configure)
             // Statistics module is empty now, but will be protected when implemented
             // .configure(statistics::configure)
     );
