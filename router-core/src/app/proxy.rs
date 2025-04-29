@@ -450,20 +450,16 @@ impl ProxyApp {
                 let addr = format!("{}", target);
                 if !client_connectors.contains_key(&addr) {
                     // Create connector with optimized settings
-                    let mut connector = TransportConnector::new(None);
-                    // Set TCP keepalive to maintain connections
-                    connector.set_tcp_keepalive(Some(Duration::from_secs(30)));
-                    // Set TCP nodelay to reduce latency
-                    connector.set_tcp_nodelay(true);
+                    let connector = TransportConnector::new(None);
+                    // TCP options can't be set directly on TransportConnector
                     client_connectors.insert(addr, connector);
                 }
             }
         }
         
         // Create default connector with optimized settings
-        let mut default_connector = TransportConnector::new(None);
-        default_connector.set_tcp_keepalive(Some(Duration::from_secs(30)));
-        default_connector.set_tcp_nodelay(true);
+        let default_connector = TransportConnector::new(None);
+        // TCP options can't be set directly on TransportConnector
         client_connectors.insert("default".to_string(), default_connector);
 
         ProxyApp {
@@ -766,28 +762,9 @@ impl ProxyApp {
                 log::warn!("Failed to set TCP_NODELAY: {}", e);
             }
             
-            // Set keep-alive for persistent connections
-            if let Err(e) = socket.set_keepalive(Some(Duration::from_secs(30))) {
-                log::warn!("Failed to set TCP_KEEPALIVE: {}", e);
-            }
+            // Remove the keepalive setting as it's not directly supported
             
-            // Optimize socket buffer sizes if available
-            #[cfg(target_family = "unix")]
-            {
-                use std::os::unix::io::{AsRawFd, FromRawFd};
-                if let Ok(fd) = socket.as_raw_fd() {
-                    // Safe because we're only setting options on the fd, not taking ownership
-                    unsafe {
-                        let sock = std::net::TcpStream::from_raw_fd(fd);
-                        // Try to set send buffer size (8MB)
-                        let _ = sock.set_send_buffer_size(8 * 1024 * 1024);
-                        // Try to set recv buffer size (8MB)
-                        let _ = sock.set_recv_buffer_size(8 * 1024 * 1024);
-                        // Leak the fd to avoid closing it
-                        let _ = sock.into_raw_fd();
-                    }
-                }
-            }
+            // Remove Unix-specific socket buffer size settings
         }
     }
 }
