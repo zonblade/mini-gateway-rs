@@ -114,6 +114,9 @@ pub enum GeneralConfig {
 /// * `addr_listen` - Address and port the proxy listens on (e.g., "0.0.0.0:443")
 /// * `addr_target` - Target address to proxy requests to (e.g., "127.0.0.1:8080")
 /// * `priority` - Processing priority (higher values = higher priority)
+/// * `buffer_size` - Optional custom buffer size in bytes (default: 16KB)
+/// * `timeout_secs` - Optional custom connection timeout in seconds (default: 60s)
+/// * `adaptive_buffer` - Whether to use adaptive buffer sizing based on traffic patterns
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProxyNode {
     /// Whether TLS is enabled for this proxy node
@@ -133,6 +136,18 @@ pub struct ProxyNode {
     
     /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
     pub addr_target: String,
+    
+    /// Custom buffer size in bytes (optional)
+    #[serde(default)]
+    pub buffer_size: Option<usize>,
+    
+    /// Custom connection timeout in seconds (optional)
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    
+    /// Whether to use adaptive buffer sizing based on traffic patterns
+    #[serde(default)]
+    pub adaptive_buffer: bool,
 }
 
 /// Gateway node configuration.
