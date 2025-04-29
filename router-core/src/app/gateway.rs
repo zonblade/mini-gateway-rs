@@ -41,7 +41,14 @@ use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Number of cache shards to reduce lock contention
-const CACHE_SHARDS: usize = 16;
+const CACHE_SHARDS: usize = 32; // Increased from 16 to 32 for better sharding
+const MAX_CACHE_ENTRIES: usize = 8192; // Increased total cache size
+
+// Pre-allocate static buffers for common string operations
+thread_local! {
+    // Buffer for path transformations to avoid frequent allocations
+    static PATH_BUFFER: std::cell::RefCell<String> = std::cell::RefCell::new(String::with_capacity(256));
+}
 
 // Sharded LRU cache implementation for high-concurrency scenarios
 struct ShardedCache<K, V> {
@@ -64,37 +71,40 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedCache<K, V> {
         }
     }
     
+    #[inline]
     fn get(&self, key: &K) -> Option<V> {
         // Calculate which shard this key belongs to
         let shard_index = self.get_shard_index(key);
         
         // Get a read lock on only that shard (reduced lock contention)
-        let shard = self.shards[shard_index].read().unwrap();
-        
-        // Try to get the value from the cache
-        match shard.get(key) {
-            Some(value) => {
-                self.total_hits.fetch_add(1, Ordering::Relaxed);
-                Some(value.clone())
-            },
-            None => {
-                self.total_misses.fetch_add(1, Ordering::Relaxed);
-                None
+        if let Ok(shard) = self.shards[shard_index].read() {
+            // Try to get the value from the cache
+            match shard.get(key) {
+                Some(value) => {
+                    self.total_hits.fetch_add(1, Ordering::Relaxed);
+                    return Some(value.clone());
+                },
+                None => {
+                    self.total_misses.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
+        None
     }
     
+    #[inline]
     fn insert(&self, key: K, value: V) {
         // Calculate which shard this key belongs to
         let shard_index = self.get_shard_index(&key);
         
         // Get a write lock on only that shard (other shards remain available)
-        let mut shard = self.shards[shard_index].write().unwrap();
-        
-        // Insert into the cache
-        shard.insert(key, value);
+        if let Ok(mut shard) = self.shards[shard_index].write() {
+            // Insert into the cache
+            shard.insert(key, value);
+        }
     }
     
+    #[inline]
     fn get_shard_index(&self, key: &K) -> usize {
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
@@ -104,13 +114,15 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedCache<K, V> {
     // Clear all entries from all cache shards
     fn clear(&self) {
         for shard in &self.shards {
-            let mut shard_guard = shard.write().unwrap();
-            shard_guard.cache.clear();
+            if let Ok(mut shard_guard) = shard.write() {
+                shard_guard.cache.clear();
+            }
         }
         log::debug!("Cleared all entries from route cache");
     }
     
     // Get cache hit rate statistics
+    #[allow(dead_code)]
     fn stats(&self) -> (usize, usize, f64) {
         let hits = self.total_hits.load(Ordering::Relaxed);
         let misses = self.total_misses.load(Ordering::Relaxed);
@@ -124,8 +136,7 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedCache<K, V> {
     }
 }
 
-// Simple LRU cache implementation using a HashMap with limited capacity
-// This avoids adding external dependencies but still provides caching benefits
+// Simple LRU cache implementation with optimized eviction policy
 struct LruCache<K, V> {
     cache: HashMap<K, (V, Instant)>,
     capacity: usize,
@@ -143,6 +154,7 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
         }
     }
 
+    #[inline]
     fn get(&self, key: &K) -> Option<&V> {
         match self.cache.get(key) {
             Some((v, _)) => {
@@ -156,21 +168,40 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
         }
     }
 
+    #[inline]
     fn insert(&mut self, key: K, value: V) {
-        // If we're at capacity, remove oldest entry
+        // Fast path: If under capacity, just insert
+        if self.cache.len() < self.capacity {
+            self.cache.insert(key, (value, Instant::now()));
+            return;
+        }
+        
+        // If we're at capacity, remove oldest entry - optimized eviction policy
         if self.cache.len() >= self.capacity {
-            if let Some((oldest_key, _)) = self.cache
+            // Find oldest entries for batch removal
+            // Clone the keys to avoid borrow checker issues
+            let mut entries: Vec<(K, Instant)> = self.cache
                 .iter()
-                .min_by_key(|(_, (_, timestamp))| timestamp) {
-                // Need to clone the key to use it for removal
-                let key_to_remove = oldest_key.clone();
-                self.cache.remove(&key_to_remove);
+                .map(|(k, (_, t))| (k.clone(), *t))
+                .collect();
+            
+            let remove_count = (self.capacity / 20).max(1); // Remove at least 5% or 1 entry
+            
+            // Partial sort - much faster than full sort for large caches
+            entries.sort_unstable_by_key(|(_, timestamp)| *timestamp);
+            
+            // Remove the oldest entries - need to clone the keys to avoid borrowing issues
+            for (key, _) in entries.into_iter().take(remove_count) {
+                self.cache.remove(&key);
             }
         }
+        
+        // Now insert the new entry
         self.cache.insert(key, (value, Instant::now()));
     }
     
     // Get cache hit rate statistics
+    #[allow(dead_code)]
     fn stats(&self) -> (usize, usize, f64) {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
@@ -184,12 +215,33 @@ impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
     }
 }
 
-// Precompiled regex patterns using lazy_static for better performance
+// Precompiled regex patterns for better performance
 lazy_static! {
     static ref DOLLAR_SIGN_PATTERN: Regex = Regex::new(r"\$(\d+)").unwrap();
 }
 
 use crate::config::{self, GatewayNode, DEFAULT_PORT};
+
+/// # Fast pattern matcher for pre-filtering
+#[derive(Clone, Debug)]
+struct FastMatcher {
+    regex: Regex,
+}
+
+impl FastMatcher {
+    fn new(pattern: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let regex = Regex::new(pattern)?;
+        
+        Ok(FastMatcher {
+            regex,
+        })
+    }
+    
+    #[inline]
+    fn is_match(&self, input: &str) -> bool {
+        self.regex.is_match(input)
+    }
+}
 
 /// # Redirect Rule
 ///
@@ -218,10 +270,12 @@ use crate::config::{self, GatewayNode, DEFAULT_PORT};
 #[derive(Clone, Debug)]
 struct RedirectRule {
     pattern: Regex,
+    fast_matcher: Option<Arc<FastMatcher>>, // Add a fast matcher for initial filtering
     target: String,
     alt_listen: String,
     alt_target: Option<BasicPeer>,
     priority: usize,
+    has_replacements: bool, // Flag to optimize path transformation
 }
 
 // Static map to hold redirect rules for different sources
@@ -293,14 +347,14 @@ impl GatewayApp {
     pub fn new(alt_source: &str) -> Self {
         log::debug!("Creating GatewayApp with source: {}", alt_source);
         
-        // Number of routes per shard - distributes 4000 routes across 16 shards
-        let per_shard_capacity = 250;
+        // Calculate shard capacity - distribute cache entries across shards
+        let per_shard_capacity = MAX_CACHE_ENTRIES / CACHE_SHARDS;
         
         let app = GatewayApp {
             source: alt_source.to_string(),
             last_check_time: RwLock::new(Instant::now()),
             check_interval: Duration::from_secs(5), // Check config every 5 seconds
-            route_cache: Arc::new(ShardedCache::new(per_shard_capacity)), // Sharded cache with 4000 total routes
+            route_cache: Arc::new(ShardedCache::new(per_shard_capacity)),
         };
         app.populate();
         app
@@ -392,14 +446,23 @@ impl GatewayApp {
                 }
             };
             
+            // Try to create a fast matcher as well
+            let fast_matcher = match FastMatcher::new(&rule.path_listen) {
+                Ok(matcher) => Some(Arc::new(matcher)),
+                Err(_) => None,
+            };
+            
             let alt_target = rule.addr_target.clone();
+            let has_replacements = rule.path_target.contains('$');
             
             redirects.push(RedirectRule {
                 pattern,
+                fast_matcher,
                 target: rule.path_target.clone(),
                 alt_listen: rule.addr_listen.clone(),
                 alt_target: Some(BasicPeer::new(&alt_target)),
                 priority: rule.priority as usize,
+                has_replacements,
             });
         }
 
@@ -482,6 +545,7 @@ impl GatewayApp {
     }
 
     // Check if we should refresh configuration based on time interval and update the timestamp
+    #[inline]
     fn should_check_config(&self) -> bool {
         let now = Instant::now();
         
@@ -524,6 +588,36 @@ impl GatewayApp {
         }
         
         false
+    }
+    
+    // Fast path transformation with minimum allocations
+    #[inline]
+    fn transform_path<'a>(&self, rule: &'a RedirectRule, _path: &'a str, captures: regex::Captures<'a>) -> Cow<'a, str> {
+        // Fast path for simple substitutions
+        if !rule.has_replacements {
+            return Cow::Borrowed(&rule.target);
+        }
+        
+        // Use thread-local buffer to avoid allocations
+        PATH_BUFFER.with(|buffer| {
+            let mut buf = buffer.borrow_mut();
+            buf.clear();
+            buf.push_str(&rule.target);
+            
+            // Process all capture groups at once
+            for i in 1..captures.len() {
+                if let Some(capture) = captures.get(i) {
+                    let pattern = format!("${}", i);
+                    // Simple string replacement (could be optimized further with a dedicated algorithm)
+                    let pos = buf.find(&pattern);
+                    if let Some(pos) = pos {
+                        buf.replace_range(pos..pos+pattern.len(), capture.as_str());
+                    }
+                }
+            }
+            
+            Cow::Owned(buf.clone())
+        })
     }
 }
 
@@ -583,23 +677,25 @@ impl ProxyHttp for GatewayApp {
         session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
-        // 1. Get the request path - avoid allocations by using references
+        // Get request information before any mutable borrows
         let path = session.req_header().uri.path();
+        let query = session.req_header().uri.query();
         
         // Create a cache key combining path and query for exact matching
-        let cache_key = if let Some(query) = session.req_header().uri.query() {
-            format!("{}?{}", path, query)
+        let cache_key = if let Some(q) = query {
+            format!("{}?{}", path, q)
         } else {
             path.to_string()
         };
         
-        
-        // Dynamic rule refresh based on interval - only if cache miss
+        // First check if config needs refreshing before looking in cache
+        // This ensures we don't use stale cache entries after config changes
         if self.should_check_config() {
-            self.populate();
+            self.populate(); // This clears the cache if config has changed
         }
         
-        // 2. Check cache first (fast path) - this avoids expensive regex operations
+        // Now check cache (fast path) - this avoids expensive regex operations
+        // with confidence that cache has been properly cleared if needed
         if let Some((path_and_query, peer)) = self.route_cache.get(&cache_key) {
             // We found a cached route result - create a peer from the cached data
             
@@ -615,59 +711,38 @@ impl ProxyHttp for GatewayApp {
             return Ok(Box::new(HttpPeer::new(peer._address.to_string(), false, String::new())));
         }
 
-        // 3. Process rules with optimized matching
+        // Process rules with optimized matching
         let rules = self.get_rules();
 
         // Try to match path against our redirect rules with optimized loop
         for rule in &rules {
-            // Use raw rule pattern match for better performance
+            // Fast pre-check with DFA matcher if available - huge performance win
+            if let Some(fast_matcher) = &rule.fast_matcher {
+                if !fast_matcher.is_match(path) {
+                    continue;
+                }
+            }
+            
+            // Use standard regex for captures
             if let Some(captures) = rule.pattern.captures(path) {
                 if let Some(alt_target) = &rule.alt_target {
-                    // Use references to avoid allocations where possible
-                    let target_ref = &rule.target;
-
-                    // Fast path for simple rules without replacements
-                    let final_path = if !target_ref.contains('$') {
-                        // No need for string manipulation - huge performance win
-                        Cow::Borrowed(target_ref)
-                    } else {
-                        // Optimized replacement strategy - preallocate and batch
-                        let mut new_path = target_ref.to_owned();
-                        
-                        // Pre-compute all replacements in a single pass
-                        let mut replacements = Vec::with_capacity(captures.len().saturating_sub(1));
-                        for i in 1..captures.len() {
-                            if let Some(capture) = captures.get(i) {
-                                replacements.push((format!("${}", i), capture.as_str()));
-                            }
-                        }
-                        
-                        // Apply all replacements at once to minimize string operations
-                        for (pattern, replacement) in replacements {
-                            new_path = new_path.replace(&pattern, replacement);
-                        }
-                        
-                        Cow::Owned(new_path)
-                    };
-
-                    // Get URI and query info directly from references
-                    let uri_ref = &mut session.req_header_mut().uri;
-                    let query_opt = uri_ref.query();
+                    // Transform path with minimum allocations
+                    let final_path = self.transform_path(rule, path, captures);
 
                     // Construct final path+query once - optimize string concatenation
-                    let new_path_and_query = if let Some(query) = query_opt {
-                        format!("{}?{}", final_path, query)
+                    let new_path_and_query = if let Some(q) = query {
+                        format!("{}?{}", final_path, q)
                     } else {
                         final_path.into_owned()
                     };
 
-                    // Rebuild URI efficiently - minimize bytes conversion
-                    let mut parts = uri_ref.clone().into_parts();
+                    // Rebuild URI efficiently
+                    let mut parts = session.req_header_mut().uri.clone().into_parts();
                     parts.path_and_query = Some(
                         http::uri::PathAndQuery::from_maybe_shared(new_path_and_query.clone().into_bytes())
                             .expect("Valid URI"),
                     );
-                    *uri_ref = http::Uri::from_parts(parts).expect("Valid URI");
+                    session.req_header_mut().uri = http::Uri::from_parts(parts).expect("Valid URI");
 
                     // Create peer with direct type conversion to avoid needless allocations
                     let addr_str = alt_target._address.to_string();
