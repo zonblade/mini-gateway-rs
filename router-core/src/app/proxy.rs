@@ -29,9 +29,8 @@ thread_local! {
 }
 
 // Constants for buffer and stream management
-const DEFAULT_BUFFER_SIZE: usize = 16384; // 16KB instead of 8KB for more efficient chunking
-const FLUSH_THRESHOLD: usize = 8192;     // Only flush when buffers reach this threshold
-const SOCKET_TIMEOUT_SECS: u64 = 60;     // Reduce from 120s to be more responsive to network changes
+const DEFAULT_BUFFER_SIZE: usize = 1024; // 16KB instead of 8KB for more efficient chunking
+const SOCKET_TIMEOUT_SECS: u64 = 2;     // Reduce from 120s to be more responsive to network changes
 
 /// Buffer pool implementation that uses thread-local storage to avoid mutex contention
 struct BufferPool;
@@ -966,9 +965,9 @@ impl ConnectionConfig {
                 buffer_size: node.buffer_size.unwrap_or(default_buffer_size),
                 timeout_secs: node.timeout_secs.unwrap_or(default_timeout),
                 adaptive_buffer: node.adaptive_buffer,
-                traffic_history: Vec::with_capacity(10),
+                traffic_history: Vec::with_capacity(1000),
                 max_buffer_size: 65536, // 64KB max
-                min_buffer_size: 4096,  // 4KB min
+                min_buffer_size: 32,  // 32B min
             }
         } else {
             // Use default values
@@ -976,9 +975,9 @@ impl ConnectionConfig {
                 buffer_size: default_buffer_size,
                 timeout_secs: default_timeout,
                 adaptive_buffer: false,
-                traffic_history: Vec::with_capacity(10),
+                traffic_history: Vec::with_capacity(1000),
                 max_buffer_size: 65536, // 64KB max
-                min_buffer_size: 4096,  // 4KB min
+                min_buffer_size: 32,  // 32B min
             }
         }
     }
@@ -993,7 +992,7 @@ impl ConnectionConfig {
         self.traffic_history.push(bytes_transferred);
         
         // Only keep the last 10 transfers
-        if self.traffic_history.len() > 10 {
+        if self.traffic_history.len() > 1000 {
             self.traffic_history.remove(0);
         }
         
