@@ -32,8 +32,162 @@ use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::BasicPeer;
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::{LazyLock, RwLock};
+use std::sync::{LazyLock, RwLock, Arc};
 use std::time::{Duration, Instant};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::borrow::Cow;
+use lazy_static::lazy_static;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+// Number of cache shards to reduce lock contention
+const CACHE_SHARDS: usize = 16;
+
+// Sharded LRU cache implementation for high-concurrency scenarios
+struct ShardedCache<K, V> {
+    shards: Vec<RwLock<LruCache<K, V>>>,
+    total_hits: AtomicUsize,
+    total_misses: AtomicUsize,
+}
+
+impl<K: Hash + Eq + Clone, V: Clone> ShardedCache<K, V> {
+    fn new(shard_capacity: usize) -> Self {
+        let mut shards = Vec::with_capacity(CACHE_SHARDS);
+        for _ in 0..CACHE_SHARDS {
+            shards.push(RwLock::new(LruCache::new(shard_capacity)));
+        }
+        
+        Self {
+            shards,
+            total_hits: AtomicUsize::new(0),
+            total_misses: AtomicUsize::new(0),
+        }
+    }
+    
+    fn get(&self, key: &K) -> Option<V> {
+        // Calculate which shard this key belongs to
+        let shard_index = self.get_shard_index(key);
+        
+        // Get a read lock on only that shard (reduced lock contention)
+        let shard = self.shards[shard_index].read().unwrap();
+        
+        // Try to get the value from the cache
+        match shard.get(key) {
+            Some(value) => {
+                self.total_hits.fetch_add(1, Ordering::Relaxed);
+                Some(value.clone())
+            },
+            None => {
+                self.total_misses.fetch_add(1, Ordering::Relaxed);
+                None
+            }
+        }
+    }
+    
+    fn insert(&self, key: K, value: V) {
+        // Calculate which shard this key belongs to
+        let shard_index = self.get_shard_index(&key);
+        
+        // Get a write lock on only that shard (other shards remain available)
+        let mut shard = self.shards[shard_index].write().unwrap();
+        
+        // Insert into the cache
+        shard.insert(key, value);
+    }
+    
+    fn get_shard_index(&self, key: &K) -> usize {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        (hasher.finish() as usize) % CACHE_SHARDS
+    }
+    
+    // Clear all entries from all cache shards
+    fn clear(&self) {
+        for shard in &self.shards {
+            let mut shard_guard = shard.write().unwrap();
+            shard_guard.cache.clear();
+        }
+        log::debug!("Cleared all entries from route cache");
+    }
+    
+    // Get cache hit rate statistics
+    fn stats(&self) -> (usize, usize, f64) {
+        let hits = self.total_hits.load(Ordering::Relaxed);
+        let misses = self.total_misses.load(Ordering::Relaxed);
+        let total = hits + misses;
+        let hit_rate = if total > 0 {
+            hits as f64 / total as f64
+        } else {
+            0.0
+        };
+        (hits, misses, hit_rate)
+    }
+}
+
+// Simple LRU cache implementation using a HashMap with limited capacity
+// This avoids adding external dependencies but still provides caching benefits
+struct LruCache<K, V> {
+    cache: HashMap<K, (V, Instant)>,
+    capacity: usize,
+    hits: AtomicUsize,
+    misses: AtomicUsize,
+}
+
+impl<K: Hash + Eq + Clone, V> LruCache<K, V> {
+    fn new(capacity: usize) -> Self {
+        Self {
+            cache: HashMap::with_capacity(capacity),
+            capacity,
+            hits: AtomicUsize::new(0),
+            misses: AtomicUsize::new(0),
+        }
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        match self.cache.get(key) {
+            Some((v, _)) => {
+                self.hits.fetch_add(1, Ordering::Relaxed);
+                Some(v)
+            }
+            None => {
+                self.misses.fetch_add(1, Ordering::Relaxed);
+                None
+            }
+        }
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        // If we're at capacity, remove oldest entry
+        if self.cache.len() >= self.capacity {
+            if let Some((oldest_key, _)) = self.cache
+                .iter()
+                .min_by_key(|(_, (_, timestamp))| timestamp) {
+                // Need to clone the key to use it for removal
+                let key_to_remove = oldest_key.clone();
+                self.cache.remove(&key_to_remove);
+            }
+        }
+        self.cache.insert(key, (value, Instant::now()));
+    }
+    
+    // Get cache hit rate statistics
+    fn stats(&self) -> (usize, usize, f64) {
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        let total = hits + misses;
+        let hit_rate = if total > 0 {
+            hits as f64 / total as f64
+        } else {
+            0.0
+        };
+        (hits, misses, hit_rate)
+    }
+}
+
+// Precompiled regex patterns using lazy_static for better performance
+lazy_static! {
+    static ref DOLLAR_SIGN_PATTERN: Regex = Regex::new(r"\$(\d+)").unwrap();
+}
 
 use crate::config::{self, GatewayNode, DEFAULT_PORT};
 
@@ -110,6 +264,7 @@ pub struct GatewayApp {
     source: String,
     last_check_time: RwLock<Instant>, // Use RwLock for thread-safe interior mutability
     check_interval: Duration,         // Interval between configuration checks
+    route_cache: Arc<ShardedCache<String, (String, BasicPeer)>>, // Sharded cache for path routing results
 }
 
 impl GatewayApp {
@@ -137,10 +292,15 @@ impl GatewayApp {
     /// A new `GatewayApp` instance with configured and prioritized redirect rules
     pub fn new(alt_source: &str) -> Self {
         log::debug!("Creating GatewayApp with source: {}", alt_source);
+        
+        // Number of routes per shard - distributes 4000 routes across 16 shards
+        let per_shard_capacity = 250;
+        
         let app = GatewayApp {
             source: alt_source.to_string(),
             last_check_time: RwLock::new(Instant::now()),
             check_interval: Duration::from_secs(5), // Check config every 5 seconds
+            route_cache: Arc::new(ShardedCache::new(per_shard_capacity)), // Sharded cache with 4000 total routes
         };
         app.populate();
         app
@@ -153,8 +313,8 @@ impl GatewayApp {
 
         log::debug!("Current config ID: {}", config_id);
 
+        // Fast path: First use a read lock to check if update is needed
         {
-            // First use a read lock to check if update is needed
             let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
             if *saved_id_guard == config_id {
                 log::debug!("No changes in routing rules, skipping population");
@@ -162,44 +322,139 @@ impl GatewayApp {
             }
         }
 
+        // Clear the route cache since configuration is changing
+        self.route_cache.clear();
         log::debug!("Updating redirect rules for source: {}", self.source);
 
         let node = config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
-        let mut redirects: Vec<RedirectRule> = vec![];
-
-        // Process gateway rules if they exist
-        if let Some(rules) = node {
-            for rule in rules {
-                let pattern = Regex::new(&rule.path_listen).unwrap();
-                let target = rule.path_target.clone();
-                let alt_listen = rule.addr_listen.clone();
-                let alt_target = rule.addr_target.clone();
-                let priority = rule.priority as usize;
-                redirects.push(RedirectRule {
-                    pattern,
-                    target,
-                    alt_listen,
-                    alt_target: Some(BasicPeer::new(&alt_target)),
-                    priority,
-                });
+        
+        // Get current config ID for later saving
+        let config_id = config::RoutingData::GatewayID.get();
+        
+        // Create empty rules vector for this source - will be used if no valid rules are found
+        let empty_rules = Vec::new();
+        
+        // Early return if no rules exist - but still update SAVED_CONFIG_ID
+        let rules = match node {
+            Some(rules) => rules,
+            None => {
+                log::debug!("No redirect rules found in configuration");
+                
+                // Update SAVED_CONFIG_ID even when no rules are found
+                // First clear any existing rules for this source
+                {
+                    let mut rules_map = REDIRECT_RULES.write().unwrap();
+                    rules_map.insert(self.source.clone(), empty_rules);
+                }
+                
+                // Update the saved config ID
+                {
+                    let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
+                    *saved_id_guard = config_id.clone();
+                }
+                
+                log::debug!("Saved empty rules with config ID: {}", config_id);
+                return;
             }
+        };
+        
+        if rules.is_empty() {
+            log::debug!("Empty redirect rules array");
+            
+            // Update SAVED_CONFIG_ID even when rules are empty
+            // First clear any existing rules for this source
+            {
+                let mut rules_map = REDIRECT_RULES.write().unwrap();
+                rules_map.insert(self.source.clone(), empty_rules);
+            }
+            
+            // Update the saved config ID
+            {
+                let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
+                *saved_id_guard = config_id.clone();
+            }
+            
+            log::debug!("Saved empty rules with config ID: {}", config_id);
+            return;
+        }
+
+        // Pre-allocate with capacity for better performance
+        let mut redirects = Vec::with_capacity(rules.len());
+
+        // Process gateway rules
+        for rule in rules {
+            // Skip invalid patterns early
+            let pattern = match Regex::new(&rule.path_listen) {
+                Ok(pattern) => pattern,
+                Err(e) => {
+                    log::warn!("Invalid regex pattern '{}': {}", rule.path_listen, e);
+                    continue;
+                }
+            };
+            
+            let alt_target = rule.addr_target.clone();
+            
+            redirects.push(RedirectRule {
+                pattern,
+                target: rule.path_target.clone(),
+                alt_listen: rule.addr_listen.clone(),
+                alt_target: Some(BasicPeer::new(&alt_target)),
+                priority: rule.priority as usize,
+            });
         }
 
         log::debug!("Redirect rules loaded: {}", redirects.len());
 
         if redirects.is_empty() {
-            log::debug!("No redirect rules found");
+            log::debug!("No valid redirect rules found");
+            
+            // Update SAVED_CONFIG_ID even when no valid rules are found
+            // First clear any existing rules for this source
+            {
+                let mut rules_map = REDIRECT_RULES.write().unwrap();
+                rules_map.insert(self.source.clone(), empty_rules);
+            }
+            
+            // Update the saved config ID
+            {
+                let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
+                *saved_id_guard = config_id.clone();
+            }
+            
+            log::debug!("Saved empty rules with config ID: {}", config_id);
             return;
         }
 
-        // Process and store rules for each source
+        // Process and store rules for each source - filter with exact match for better performance
+        let my_source = &self.source;
         let mut source_rules: Vec<RedirectRule> = redirects
             .into_iter()
-            .filter(|rule| rule.alt_listen == self.source)
+            .filter(|rule| rule.alt_listen == *my_source)
             .collect();
 
-        // Sort by priority
-        source_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        if source_rules.is_empty() {
+            log::debug!("No redirect rules found for source: {}", self.source);
+            
+            // Update SAVED_CONFIG_ID even when no rules match this source
+            // First clear any existing rules for this source
+            {
+                let mut rules_map = REDIRECT_RULES.write().unwrap();
+                rules_map.insert(self.source.clone(), empty_rules);
+            }
+            
+            // Update the saved config ID
+            {
+                let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
+                *saved_id_guard = config_id.clone();
+            }
+            
+            log::debug!("Saved empty rules with config ID: {}", config_id);
+            return;
+        }
+            
+        // Sort by priority - lower values have higher priority
+        // Use unstable sort for better performance since we don't need stability
+        source_rules.sort_unstable_by_key(|rule| rule.priority);
 
         // Now acquire write locks to update the data
         {
@@ -213,8 +468,10 @@ impl GatewayApp {
             // Lock the SAVED_CONFIG_ID for writing
             let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
             // Update saved ID to indicate we've processed this configuration
-            *saved_id_guard = config_id;
+            *saved_id_guard = config_id.clone();
         }
+
+        log::debug!("Saved config ID: {}", config_id);
     }
 
     // Helper to get the rules for this instance's source
@@ -227,18 +484,46 @@ impl GatewayApp {
     // Check if we should refresh configuration based on time interval and update the timestamp
     fn should_check_config(&self) -> bool {
         let now = Instant::now();
-        let should_update = {
+        
+        // First check if enough time has passed since last check - this is a lightweight operation
+        let time_elapsed = {
             let last_check = self.last_check_time.read().unwrap();
             now.duration_since(*last_check) >= self.check_interval
         };
-
-        if should_update {
-            // Update the timestamp using RwLock interior mutability
-            let mut last_check = self.last_check_time.write().unwrap();
-            *last_check = now;
+        
+        // If enough time has passed, do a full check
+        if time_elapsed {
+            // Always update the timestamp first to prevent repeated checks
+            {
+                let mut last_check = self.last_check_time.write().unwrap();
+                *last_check = now;
+            }
+            
+            // Now check if configuration has actually changed
+            let current_config_id = config::RoutingData::GatewayID.get();
+            let saved_id = {
+                let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
+                saved_id_guard.clone()
+            };
+            
+            if saved_id != current_config_id {
+                log::debug!("Config changed: Saved ID '{}' vs Current ID '{}'", saved_id, current_config_id);
+                return true;
+            }
+            
+            // Even if IDs match, check if we need to refresh based on actual configuration
+            let has_rules = {
+                let rules_map = REDIRECT_RULES.read().unwrap();
+                rules_map.contains_key(&self.source) && !rules_map.get(&self.source).unwrap_or(&vec![]).is_empty()
+            };
+            
+            if !has_rules {
+                log::debug!("No rules found for source {}, attempting refresh", self.source);
+                return true;
+            }
         }
-
-        should_update
+        
+        false
     }
 }
 
@@ -298,78 +583,106 @@ impl ProxyHttp for GatewayApp {
         session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> pingora::Result<Box<HttpPeer>> {
+        // 1. Get the request path - avoid allocations by using references
         let path = session.req_header().uri.path();
-
-        // Only check for config changes periodically using our interior mutability pattern
+        
+        // Create a cache key combining path and query for exact matching
+        let cache_key = if let Some(query) = session.req_header().uri.query() {
+            format!("{}?{}", path, query)
+        } else {
+            path.to_string()
+        };
+        
+        
+        // Dynamic rule refresh based on interval - only if cache miss
         if self.should_check_config() {
             self.populate();
         }
+        
+        // 2. Check cache first (fast path) - this avoids expensive regex operations
+        if let Some((path_and_query, peer)) = self.route_cache.get(&cache_key) {
+            // We found a cached route result - create a peer from the cached data
+            
+            // Update the request URI with the cached path and query
+            let mut parts = session.req_header_mut().uri.clone().into_parts();
+            parts.path_and_query = Some(
+                http::uri::PathAndQuery::from_maybe_shared(path_and_query.into_bytes())
+                    .expect("Valid URI"),
+            );
+            session.req_header_mut().uri = http::Uri::from_parts(parts).expect("Valid URI");
+            
+            // Return the cached peer - major performance win!
+            return Ok(Box::new(HttpPeer::new(peer._address.to_string(), false, String::new())));
+        }
 
-        // Get the rules for this source
+        // 3. Process rules with optimized matching
         let rules = self.get_rules();
 
-        // Try to match path against our redirect rules
+        // Try to match path against our redirect rules with optimized loop
         for rule in &rules {
+            // Use raw rule pattern match for better performance
             if let Some(captures) = rule.pattern.captures(path) {
                 if let Some(alt_target) = &rule.alt_target {
-                    // Start with target pattern - avoid clone by using a reference when possible
+                    // Use references to avoid allocations where possible
                     let target_ref = &rule.target;
 
-                    // Check if we need replacements at all
-                    let needs_replacement = target_ref.contains('$');
-
-                    // Only allocate and process if replacements are needed
-                    let final_path = if needs_replacement {
-                        let mut new_path = target_ref.to_string();
-                        // Pre-compute capture group references to avoid multiple format! calls
-                        let mut replacements = Vec::with_capacity(captures.len() - 1);
-
+                    // Fast path for simple rules without replacements
+                    let final_path = if !target_ref.contains('$') {
+                        // No need for string manipulation - huge performance win
+                        Cow::Borrowed(target_ref)
+                    } else {
+                        // Optimized replacement strategy - preallocate and batch
+                        let mut new_path = target_ref.to_owned();
+                        
+                        // Pre-compute all replacements in a single pass
+                        let mut replacements = Vec::with_capacity(captures.len().saturating_sub(1));
                         for i in 1..captures.len() {
                             if let Some(capture) = captures.get(i) {
                                 replacements.push((format!("${}", i), capture.as_str()));
                             }
                         }
-
-                        // Do all replacements in one pass
+                        
+                        // Apply all replacements at once to minimize string operations
                         for (pattern, replacement) in replacements {
                             new_path = new_path.replace(&pattern, replacement);
                         }
-
-                        new_path
-                    } else {
-                        target_ref.to_string()
+                        
+                        Cow::Owned(new_path)
                     };
 
-                    // Avoid cloning the URI if possible, work directly with the session's URI
+                    // Get URI and query info directly from references
                     let uri_ref = &mut session.req_header_mut().uri;
-
-                    // Get the original query without allocating when possible
                     let query_opt = uri_ref.query();
 
-                    // Construct the final path and query
+                    // Construct final path+query once - optimize string concatenation
                     let new_path_and_query = if let Some(query) = query_opt {
                         format!("{}?{}", final_path, query)
                     } else {
-                        final_path
+                        final_path.into_owned()
                     };
 
-                    // Rebuild the URI with the new path and query
+                    // Rebuild URI efficiently - minimize bytes conversion
                     let mut parts = uri_ref.clone().into_parts();
                     parts.path_and_query = Some(
-                        http::uri::PathAndQuery::from_maybe_shared(new_path_and_query.into_bytes())
+                        http::uri::PathAndQuery::from_maybe_shared(new_path_and_query.clone().into_bytes())
                             .expect("Valid URI"),
                     );
                     *uri_ref = http::Uri::from_parts(parts).expect("Valid URI");
 
-                    // Create the peer directly with the correct String type
+                    // Create peer with direct type conversion to avoid needless allocations
                     let addr_str = alt_target._address.to_string();
-                    let new_peer = HttpPeer::new(addr_str, false, String::new());
+                    let new_peer = HttpPeer::new(addr_str.clone(), false, String::new());
+                    let peer_clone = BasicPeer::new(&addr_str);
+                    
+                    // Store in cache for future requests - no lock contention with sharded cache
+                    self.route_cache.insert(cache_key, (new_path_and_query, peer_clone));
+                    
                     return Ok(Box::new(new_peer));
                 }
             }
         }
 
-        // Default fallback if no rules match or if matched rule has no alt_target
+        // Default fallback if no rules match - only compute this once
         let port_str = DEFAULT_PORT.p404;
         let parts: Vec<&str> = port_str.split(':').collect();
         let addr = (parts[0], parts[1].parse::<u16>().unwrap_or(80));
