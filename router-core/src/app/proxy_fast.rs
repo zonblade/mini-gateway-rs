@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use async_trait::async_trait;
+use bytes::BytesMut;
 use log::debug;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 
@@ -26,6 +27,8 @@ use pingora::server::ShutdownWatch;
 use pingora::upstreams::peer::BasicPeer;
 use regex_automata::meta::Regex;
 
+use crate::app::proxy_host::extract_http_host;
+use crate::app::proxy_sni::extract_sni_fast;
 use crate::config::{self, GatewayNode};
 
 struct RewriteRule {
@@ -37,6 +40,18 @@ pub struct ProxyApp {
     client_connector: TransportConnector,
     proxy_to: BasicPeer,
     path_rewrites: Vec<RewriteRule>,
+    sni: Option<String>,
+}
+
+enum ConnectionType {
+    /// TLS connection (starts with 0x16)
+    Tls,
+    /// WebSocket upgrade request over HTTP
+    WebSocket,
+    /// Regular HTTP connection
+    Http,
+    /// Plain TCP connection (neither TLS nor HTTP)
+    Tcp,
 }
 
 enum DuplexEvent {
@@ -44,15 +59,134 @@ enum DuplexEvent {
     UpstreamRead(usize),
 }
 
+
+/// Buffer pool for reducing allocations in high-throughput scenarios
+/// This provides a way to reuse buffers instead of constantly allocating and deallocating
+struct BufferPool {
+    buffers: Mutex<Vec<BytesMut>>,
+}
+
+impl BufferPool {
+    fn new(initial_capacity: usize) -> Self {
+        let mut buffers = Vec::with_capacity(initial_capacity);
+        for _ in 0..initial_capacity {
+            buffers.push(BytesMut::with_capacity(8192));
+        }
+        BufferPool {
+            buffers: Mutex::new(buffers),
+        }
+    }
+
+    fn get(&self) -> BytesMut {
+        match self.buffers.lock().unwrap().pop() {
+            Some(buf) => buf,
+            None => BytesMut::with_capacity(8192),
+        }
+    }
+
+    fn put(&self, mut buf: BytesMut) {
+        buf.clear(); // Reset the buffer for reuse
+        self.buffers.lock().unwrap().push(buf);
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref BUFFER_POOL: BufferPool = BufferPool::new(100);
+}
+
+
 impl ProxyApp {
-    pub fn new(proxy_to: BasicPeer) -> Self {
+    pub fn new(proxy_to: BasicPeer, sni: Option<String>) -> Self {
         let path_rewrites = Self::fetch_config(proxy_to.clone());
         
         ProxyApp {
             client_connector: TransportConnector::new(None),
             proxy_to,
             path_rewrites,
+            sni,
         }
+    }
+
+    /// Helper function to detect WebSocket upgrade requests
+    /// Uses optimized byte-pattern search instead of string conversion
+    fn is_websocket_upgrade(data: &[u8], len: usize) -> bool {
+        // WebSocket upgrade patterns to search for
+        let pattern1 = b"upgrade: websocket";
+        let pattern2 = b"upgrade: WebSocket";
+        let pattern3 = b"Upgrade: websocket";
+        let pattern4 = b"Upgrade: WebSocket";
+        
+        // Only search a reasonable portion of the header
+        let search_len = std::cmp::min(len, 1024);
+        
+        // Convert to lowercase for case-insensitive search
+        for i in 0..search_len - pattern1.len() {
+            let window = &data[i..i + pattern1.len()];
+            // Check for case-insensitive match using eq_ignore_ascii_case
+            if window.eq_ignore_ascii_case(pattern1) || 
+               window.eq_ignore_ascii_case(pattern2) ||
+               window.eq_ignore_ascii_case(pattern3) || 
+               window.eq_ignore_ascii_case(pattern4) {
+                return true;
+            }
+        }
+        
+        false
+    }
+
+    /// # Detects the type of connection based on the initial bytes received
+    /// 
+    /// Optimized implementation that uses byte-level pattern matching for faster detection.
+    fn detect_connection_type(data: &[u8], len: usize) -> ConnectionType {
+        if len == 0 {
+            return ConnectionType::Tcp;
+        }
+
+        // Check for TLS handshake (0x16 = handshake record type)
+        if data[0] == 0x16 {
+            return ConnectionType::Tls;
+        }
+
+        // Early check if we have enough data for an HTTP method
+        if len < 3 {
+            return ConnectionType::Tcp;
+        }
+
+        // Fast byte-level HTTP method detection without UTF-8 validation
+        // Only validate if the initial pattern looks promising
+        match data[0] {
+            b'G' => if len >= 4 && &data[0..4] == b"GET " { 
+                // It's an HTTP request, now check for WebSocket upgrade
+                if Self::is_websocket_upgrade(data, len) {
+                    return ConnectionType::WebSocket;
+                } 
+                return ConnectionType::Http;
+            },
+            b'P' => if (len >= 5 && &data[0..5] == b"POST ") || 
+                      (len >= 4 && &data[0..4] == b"PUT ") || 
+                      (len >= 4 && &data[0..4] == b"PATCH ") {
+                return ConnectionType::Http;
+            },
+            b'H' => if len >= 5 && &data[0..5] == b"HEAD " {
+                return ConnectionType::Http;
+            },
+            b'D' => if len >= 5 && &data[0..5] == b"DELETE " {
+                return ConnectionType::Http;
+            },
+            b'O' => if len >= 5 && &data[0..5] == b"OPTION " {
+                return ConnectionType::Http;
+            },
+            b'T' => if len >= 5 && &data[0..5] == b"TRAC " {
+                return ConnectionType::Http;
+            },
+            b'C' => if len >= 5 && &data[0..5] == b"CONN " {
+                return ConnectionType::Http;
+            },
+            _ => {}
+        }
+
+        // Default to plain TCP if not identified as anything specific
+        ConnectionType::Tcp
     }
 
     fn fetch_config(proxy_to: BasicPeer) -> Vec<RewriteRule> {
@@ -190,15 +324,39 @@ impl ProxyApp {
     async fn duplex(&self, mut server_session: Stream, mut client_session: Stream) {
         let mut upstream_buf = [0; 4096]; // Increased buffer size for HTTP headers
         let mut downstream_buf = [0; 4096];
+        // Set timeout for read operations (15 seconds)
+        let timeout_duration = std::time::Duration::from_secs(120);
+
         loop {
-            let downstream_read = server_session.read(&mut upstream_buf);
-            let upstream_read = client_session.read(&mut downstream_buf);
+            let downstream_read =
+                tokio::time::timeout(timeout_duration, server_session.read(&mut upstream_buf));
+            let upstream_read =
+                tokio::time::timeout(timeout_duration, client_session.read(&mut downstream_buf));
             let event: DuplexEvent;
+
             select! {
-                n = downstream_read => event
-                    = DuplexEvent::DownstreamRead(n.unwrap()),
-                n = upstream_read => event
-                    = DuplexEvent::UpstreamRead(n.unwrap()),
+                result = downstream_read => match result {
+                    Ok(Ok(n)) => event = DuplexEvent::DownstreamRead(n),
+                    Ok(Err(e)) => {
+                        log::error!("Failed to read from downstream peer: {}", e);
+                        return;
+                    },
+                    Err(_) => {
+                        log::error!("Downstream peer read timeout");
+                        return;
+                    }
+                },
+                result = upstream_read => match result {
+                    Ok(Ok(n)) => event = DuplexEvent::UpstreamRead(n),
+                    Ok(Err(e)) => {
+                        log::error!("Failed to read from upstream peer: {}", e);
+                        return;
+                    },
+                    Err(_) => {
+                        log::error!("Upstream peer read timeout");
+                        return;
+                    }
+                },
             }
             match event {
                 DuplexEvent::DownstreamRead(0) => {
@@ -235,20 +393,86 @@ impl ProxyApp {
 impl ServerApp for ProxyApp {
     async fn process_new(
         self: &Arc<Self>,
-        io: Stream,
+        mut io: Stream,
         _shutdown: &ShutdownWatch,
     ) -> Option<Stream> {
-        let client_session = self.client_connector.new_stream(&self.proxy_to).await;
 
-        match client_session {
-            Ok(client_session) => {
-                self.duplex(io, client_session).await;
-                None
-            }
+        // Use buffer from the pool instead of allocating a new one
+        let mut buffer = BUFFER_POOL.get();
+        
+        // Read initial data from client with zero-copy buffer
+        let n = match io.read_buf(&mut buffer).await {
+            Ok(n) => n,
             Err(e) => {
-                debug!("Failed to create client session: {}", e);
-                None
+                log::error!("Failed to read from client: {}", e);
+                BUFFER_POOL.put(buffer);
+                return None;
             }
+        };
+
+        if n == 0 {
+            log::error!("Empty request received");
+            BUFFER_POOL.put(buffer);
+            return None;
         }
+        let buf_slice = &buffer[..n];
+        let conn_type = Self::detect_connection_type(buf_slice, n);
+        let host_info = match conn_type {
+            ConnectionType::Tls => extract_sni_fast(buf_slice),
+            ConnectionType::Http | ConnectionType::WebSocket => extract_http_host(buf_slice, n),
+            ConnectionType::Tcp => None,
+        };
+
+        if let Some(host) = host_info {
+            log::info!("Host: {}", host);
+        }
+
+        log::info!("Processing new connection");
+        
+        let connect_future = self.client_connector.new_stream(&self.proxy_to);
+        let mut client_session = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            connect_future,
+        )
+        .await
+        {
+            Ok(Ok(client_session)) => client_session,
+            Ok(Err(e)) => {
+                log::error!("Failed to connect to upstream peer {}: {}", &self.proxy_to._address.to_string(), e);
+                BUFFER_POOL.put(buffer);
+                return None;
+            }
+            Err(_) => {
+                log::error!("Connection to {} timed out", &self.proxy_to._address.to_string());
+                BUFFER_POOL.put(buffer);
+                return None;
+            }
+        };
+
+        // Forward the initial data to the target server using zero-copy approach
+        match client_session.write_all(&buffer[..n]).await {
+            Ok(_) => {}
+            Err(e) => {
+                log::error!("Failed to write to upstream peer: {}", e);
+                BUFFER_POOL.put(buffer);
+                return None;
+            }
+        };
+
+        match client_session.flush().await {
+            Ok(_) => {}
+            Err(e) => {
+                log::error!("Failed to flush data to upstream peer: {}", e);
+                BUFFER_POOL.put(buffer);
+                return None;
+            }
+        };
+
+        // Return buffer to the pool before entering duplex mode
+        BUFFER_POOL.put(buffer);
+
+        // Establish bidirectional communication
+        self.duplex(io, client_session).await;
+        None
     }
 }

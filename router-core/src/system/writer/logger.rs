@@ -46,7 +46,6 @@ impl log::Log for TagBasedLogger {
     ///
     /// * `record` - The log record to process.
     fn log(&self, record: &Record) {
-        eprintln!("{}", record.args().to_string());
         // if !self.enabled(record.metadata()) {
         //     return;
         // }
@@ -67,6 +66,7 @@ impl log::Log for TagBasedLogger {
         // if !found {
         //     udp_sender::switch_log("-", &message);
         // }
+        eprintln!("{}", record.args().to_string());
     }
 
     /// Flushes any buffered log records.

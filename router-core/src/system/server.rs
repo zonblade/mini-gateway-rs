@@ -78,7 +78,8 @@ pub fn init() {
                 let proxy_node = proxy.iter().find(|p| p.addr_target == gw.addr_listen);
                 if let Some(proxy_node) = proxy_node {
 
-                    log::info!("Found proxy node: {:?}", proxy_node);
+                    log::info!("Found gateway node: {:#?}", gw.addr_target);
+                    log::info!("Found proxy node: {:#?}", proxy_node);
 
                     if proxy_node.tls && proxy_node.sni.is_some() && proxy_node.tls_pem.is_some() && proxy_node.tls_key.is_some() {
                         let proxy_tls = service::proxy::proxy_service_tls_fast(
@@ -94,8 +95,16 @@ pub fn init() {
                         continue;
                     }
 
-                    log::info!("Adding proxy fast service: {:?}", proxy_node.addr_listen);
-                    let proxy_set = service::proxy::proxy_service_fast(&proxy_node.addr_listen, &gw.addr_target);
+                    // Log before creating the service
+                    log::info!(
+                        "Preparing to add proxy fast service: listen={}, target={}",
+                        &proxy_node.addr_listen,
+                        &gw.addr_target
+                    );
+                    let proxy_set = service::proxy::proxy_service_fast(
+                        &proxy_node.addr_listen,
+                         &gw.addr_target
+                    );
                     proxies.push(Box::new(proxy_set));
                 }
             }
