@@ -225,7 +225,7 @@ impl ProxyApp {
         let mut new_rewrites = Vec::new();
         if let Some(cfg) = config {
             for node in cfg {
-                if node.addr_target == current_addr {
+                if node.addr_listen == current_addr {
                     log::info!("Found matching gateway node with path_listen: '{}', path_target: '{}'", 
                         node.path_listen, node.path_target);
                     
@@ -239,7 +239,7 @@ impl ProxyApp {
 
                     new_rewrites.push(RewriteRule {
                         pattern: rgx,
-                        replacement: node.path_target,
+                        replacement: node.path_target.clone(),
                     });
                 }
             }
@@ -282,7 +282,14 @@ impl ProxyApp {
     }
 
     // Regex-based HTTP request line parser and rewriter
-    fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> usize {
+    // Modified to accept the specific rule to apply
+    fn rewrite_http_request(
+        &self,
+        buffer: &mut [u8],
+        length: usize,
+        rule_pattern: &Regex,
+        rule_replacement: &str,
+    ) -> usize {
         // First convert the buffer to a string for processing
         let request_str = match std::str::from_utf8(&buffer[..length]) {
             Ok(s) => s,
@@ -324,54 +331,61 @@ impl ProxyApp {
         // Create a new path based on rewrite rules
         let mut new_path = original_path.to_string();
         let mut was_rewritten = false;
-        
-        // Try each rewrite rule
-        for rule in &self.path_rewrites {
-            log::debug!("Checking path '{}' against rule pattern", original_path);
-            
-            // Check if the pattern matches the path part only (not the whole request line)
-            if rule.pattern.is_match(original_path.as_bytes()) {
-                was_rewritten = true;
-                
-                // Simple replace - direct path substitution without regex captures
-                // This handles straightforward cases like /test.png -> /logo.png
-                if !rule.replacement.contains('$') {
-                    log::info!("Simple path rewrite: {} -> {}", original_path, rule.replacement);
-                    new_path = rule.replacement.clone();
-                } else {
-                    // For more complex replacements with capture groups
-                    // regex_automata doesn't have replace_all, so we need to implement it ourselves
-                    // First find all matches
-                    let mut matches = Vec::new();
-                    for mat in rule.pattern.find_iter(original_path.as_bytes()) {
-                        matches.push((mat.start(), mat.end()));
-                    }
-                    
-                    if let Some((start, end)) = matches.first() {
-                        // Extract the match and use it with our process_replacement helper
-                        let matched_text = &original_path[*start..*end];
-                        let captures = vec![matched_text];
-                        let replacement = self.process_replacement(&captures, &rule.replacement);
-                        
-                        // Build the new path with the replacement
-                        new_path = format!("{}{}{}", 
-                            &original_path[..*start], 
-                            replacement,
-                            &original_path[*end..]);
-                        
-                        log::info!("Complex path rewrite: {} -> {}", original_path, new_path);
-                    }
+
+        log::debug!(
+            "Attempting rewrite for path '{}' with specific rule",
+            original_path
+        );
+
+        // Check if the pattern matches the path part only
+        if rule_pattern.is_match(original_path.as_bytes()) {
+            was_rewritten = true;
+
+            // Simple replace - direct path substitution without regex captures
+            if !rule_replacement.contains('$') {
+                log::info!(
+                    "Simple path rewrite: {} -> {}",
+                    original_path,
+                    rule_replacement
+                );
+                new_path = rule_replacement.to_string();
+            } else {
+                // For more complex replacements with capture groups
+                let mut matches = Vec::new();
+                for mat in rule_pattern.find_iter(original_path.as_bytes()) {
+                    matches.push((mat.start(), mat.end()));
                 }
-                
-                break;
+
+                if let Some((start, end)) = matches.first() {
+                    let matched_text = &original_path[*start..*end];
+                    // NOTE: Simplified capture group handling. May need adjustment for multiple captures ($1, $2 etc)
+                    // For simplicity, assuming $1 refers to the whole match here.
+                    let captures = vec![matched_text];
+                    let replacement = self.process_replacement(&captures, rule_replacement);
+
+                    new_path = format!(
+                        "{}{}{}",
+                        &original_path[..*start],
+                        replacement,
+                        &original_path[*end..]
+                    );
+
+                    log::info!("Complex path rewrite: {} -> {}", original_path, new_path);
+                } else {
+                     // Pattern matched, but finding captures failed? Log and don't rewrite.
+                     log::warn!("Rewrite rule matched but failed to find capture groups for path: {}", original_path);
+                     was_rewritten = false; // Revert flag as rewrite didn't complete
+                }
             }
+        } else {
+             log::debug!("Provided rule pattern did not match path: {}", original_path);
         }
-        
+
         if !was_rewritten {
-            log::debug!("No rewrite rules matched for path: {}", original_path);
-            return length;
+            log::debug!("Path not rewritten by the provided rule: {}", original_path);
+            return length; // Return original length if no rewrite occurred
         }
-        
+
         // Create the new request line and full request
         let new_request_line = format!("{} {} {}", method, new_path, http_version);
         let new_request = format!("{}{}", new_request_line, rest_of_request);
@@ -479,7 +493,7 @@ impl ProxyApp {
                 DuplexEvent::DownstreamRead(n) => {
                     // Try to rewrite the request if it's HTTP
                     log::debug!("Processing {} bytes from downstream for possible rewrite", n);
-                    let write_len = self.rewrite_http_request(&mut upstream_buf, n);
+                    let write_len = self.rewrite_http_request(&mut upstream_buf, n, &self.path_rewrites[0].pattern, &self.path_rewrites[0].replacement);
                     log::debug!("After rewrite: {} bytes to write to upstream", write_len);
 
                     match client_session.write_all(&upstream_buf[0..write_len]).await {
@@ -637,7 +651,6 @@ impl ServerApp for ProxyApp {
         mut io: Stream,
         _shutdown: &ShutdownWatch,
     ) -> Option<Stream> {
-
         // Use buffer from the pool instead of allocating a new one
         let mut buffer = BUFFER_POOL.get();
         
@@ -692,61 +705,148 @@ impl ServerApp for ProxyApp {
             log::info!("Detected WebSocket connection, will use direct passthrough");
         }
 
-        // Check if there are any path routing rules and if any match for HTTP connections
-        if (matches!(conn_type, ConnectionType::Http) || is_websocket) && !self.path_rewrites.is_empty() {
-            log::debug!("Checking HTTP path rewrites, {} rules available", self.path_rewrites.len());
-            
+        // These will be determined dynamically per request for HTTP/WS
+        let mut target_peer: Option<BasicPeer> = None;
+        let mut matched_rule: Option<RewriteRule> = None;
+
+        // Check if there are any path routing rules and if any match for HTTP/WebSocket connections
+        if matches!(conn_type, ConnectionType::Http) || is_websocket {
+            // Fetch global rules dynamically for every HTTP/WS request
+            let global_rules_opt =
+                config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
+
+            if global_rules_opt.is_none() || global_rules_opt.as_ref().unwrap().is_empty() {
+                log::warn!("No global routing rules found or loaded.");
+                BUFFER_POOL.put(buffer);
+                return None;
+            }
+            let global_rules = global_rules_opt.unwrap();
+            log::debug!(
+                "Checking HTTP/WS request against {} global rules",
+                global_rules.len()
+            );
+
             // Convert buffer to string for checking against regex patterns
             if let Ok(request_str) = std::str::from_utf8(&buffer[..current_len]) {
                 log::debug!("HTTP request: {}", request_str);
-                
+
                 // Parse the request line for validation
                 if let Some(line_end) = request_str.find("\r\n") {
                     let request_line = &request_str[..line_end];
-                    
+
                     // Extract path for checking
                     let parts: Vec<&str> = request_line.split_whitespace().collect();
                     if parts.len() == 3 {
                         let path = parts[1];
                         log::debug!("Extracted request path: {}", path);
-                        
-                        // Check if any rule matches the path
-                        let mut has_match = false;
-                        for rule in &self.path_rewrites {
-                            if rule.pattern.is_match(path.as_bytes()) {
-                                has_match = true;
-                                log::info!("Path routing rule matched for: {}", path);
-                                break;
+
+                        // Find the first matching rule in the global config
+                        for node in global_rules {
+                             match Regex::new(&node.path_listen) {
+                                Ok(pattern) => {
+                                    if pattern.is_match(path.as_bytes()) {
+                                        log::info!(
+                                            "Global routing rule matched for path '{}': Listen '{}', Target '{}', Addr '{}'",
+                                            path, node.path_listen, node.path_target, node.addr_target
+                                        );
+                                        // Found a match, store target and rule
+                                        target_peer = Some(BasicPeer::new(&node.addr_target)); // Error handling needed for invalid addr
+                                        matched_rule = Some(RewriteRule {
+                                            pattern, // Move the compiled pattern into the rule
+                                            replacement: node.path_target.clone(), // Clone the String for ownership
+                                        });
+                                        break; // Use the first match
+                                    }
+                                }
+                                Err(e) => {
+                                     log::error!("Failed to compile regex for path_listen '{}': {}", node.path_listen, e);
+                                     // Skip this rule
+                                     continue;
+                                }
                             }
                         }
-                        
-                        if !has_match {
-                            log::warn!("No routing rule matches for path: {}", path);
+
+                        // Check if any rule matched
+                        if target_peer.is_none() {
+                            log::warn!(
+                                "No global routing rule matched for path: {}",
+                                path
+                            );
                             BUFFER_POOL.put(buffer);
                             return None;
                         }
-                    }
-                }
-                
-                // Only rewrite the path for HTTP requests, leave WebSocket handshakes as is
-                if !is_websocket {
-                    // Now perform the actual rewrite on the initial request
-                    current_len = self.rewrite_http_request(&mut buffer, current_len);
-                    log::debug!("Initial request rewrite resulted in {} bytes", current_len);
-                    
-                    // Show the rewritten request
-                    if let Ok(rewritten) = std::str::from_utf8(&buffer[..current_len]) {
-                        log::debug!("Rewritten request: {}", rewritten);
+
+                        // Only rewrite the path for HTTP requests, leave WebSocket handshakes as is
+                        // And only rewrite if a rule was actually matched
+                        if !is_websocket {
+                             if let Some(rule) = &matched_rule {
+                                // Now perform the actual rewrite on the initial request using the matched rule
+                                current_len = self.rewrite_http_request(
+                                    &mut buffer,
+                                    current_len,
+                                    &rule.pattern, // Borrow the pattern from the rule
+                                    &rule.replacement, // Borrow the replacement string as &str
+                                );
+                                log::debug!(
+                                    "Initial request rewrite resulted in {} bytes",
+                                    current_len
+                                );
+
+                                // Show the rewritten request
+                                if let Ok(rewritten) =
+                                    std::str::from_utf8(&buffer[..current_len])
+                                {
+                                    log::debug!("Rewritten request: {}", rewritten);
+                                }
+                             } else {
+                                 // This case should ideally not be reached due to the target_peer check above,
+                                 // but logging defensively.
+                                 log::debug!("HTTP request, but no matched rule for rewrite (path: {}). Forwarding as is.", path);
+                             }
+                        } else {
+                            log::info!("Skipping path rewrite for WebSocket handshake");
+                        }
+                    } else {
+                         log::warn!("Invalid HTTP request line format found in keep-alive connection: {}", request_line);
+                         BUFFER_POOL.put(buffer);
+                         return None;
                     }
                 } else {
-                    log::info!("Skipping path rewrite for WebSocket handshake");
+                    log::warn!("Could not find request line terminator in keep-alive connection.");
+                     BUFFER_POOL.put(buffer);
+                     return None;
                 }
+            } else {
+                 log::warn!("Failed to decode request (UTF-8) in keep-alive connection.");
+                 BUFFER_POOL.put(buffer);
+                 return None;
             }
+        } else if matches!(conn_type, ConnectionType::Tcp | ConnectionType::Tls) {
+             // For non-HTTP types, use the original fixed proxy_to destination
+             target_peer = Some(self.proxy_to.clone());
+             log::debug!("Non-HTTP connection type ({:?}), using fixed backend: {}", conn_type, self.proxy_to._address);
+        } else {
+            // Should not happen based on previous checks, but handle defensively
+            log::error!("Unhandled connection type {:?} after initial checks.", conn_type);
+            BUFFER_POOL.put(buffer);
+            return None;
         }
 
-        log::info!("Processing new connection");
-        
-        let connect_future = self.client_connector.new_stream(&self.proxy_to);
+        // Ensure we have a target peer determined
+        let final_target_peer = match target_peer {
+            Some(peer) => peer,
+            None => {
+                 // This should only happen if it's HTTP/WS and no rule matched, which is handled above.
+                 // But added as a safeguard.
+                 log::error!("Failed to determine target peer for connection type {:?}", conn_type);
+                 BUFFER_POOL.put(buffer);
+                 return None;
+            }
+        };
+
+        log::info!("Processing connection to target: {}", final_target_peer._address);
+
+        let connect_future = self.client_connector.new_stream(&final_target_peer); // Use dynamically determined peer
         let mut client_session = match tokio::time::timeout(
             std::time::Duration::from_secs(5),
             connect_future,
@@ -755,12 +855,12 @@ impl ServerApp for ProxyApp {
         {
             Ok(Ok(client_session)) => client_session,
             Ok(Err(e)) => {
-                log::error!("Failed to connect to upstream peer {}: {}", &self.proxy_to._address.to_string(), e);
+                log::error!("Failed to connect to upstream peer {}: {}", &final_target_peer._address.to_string(), e);
                 BUFFER_POOL.put(buffer);
                 return None;
             }
             Err(_) => {
-                log::error!("Connection to {} timed out", &self.proxy_to._address.to_string());
+                log::error!("Connection to {} timed out", &final_target_peer._address.to_string());
                 BUFFER_POOL.put(buffer);
                 return None;
             }
@@ -833,8 +933,9 @@ mod tests {
         let mut buffer = req.as_bytes().to_vec();
         buffer.resize(4096, 0); // Ensure buffer is large enough
         
-        // Call the rewrite function
-        let new_len = app.rewrite_http_request(&mut buffer, req.len());
+        // Get the rule from the app instance (assuming test setup puts one there)
+        let rule = &app.path_rewrites[0];
+        let new_len = app.rewrite_http_request(&mut buffer, req.len(), &rule.pattern, &rule.replacement);
         
         // Check the result
         let result = std::str::from_utf8(&buffer[..new_len]).unwrap();

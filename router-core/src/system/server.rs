@@ -73,21 +73,15 @@ pub fn init() {
 
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 
-            for gw in gateway {
-                // find gw.addr_listen in proxy
-                let proxy_node = proxy.iter().find(|p| p.addr_target == gw.addr_listen);
-                if let Some(proxy_node) = proxy_node {
+            for px in proxy {
 
-                    log::info!("Found gateway node: {:#?}", gw.addr_target);
-                    log::info!("Found proxy node: {:#?}", proxy_node);
-
-                    if proxy_node.tls && proxy_node.sni.is_some() && proxy_node.tls_pem.is_some() && proxy_node.tls_key.is_some() {
+                    if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
                         let proxy_tls = service::proxy::proxy_service_tls_fast(
-                            &proxy_node.addr_listen,
-                            &gw.addr_target,
-                            &proxy_node.sni.as_ref().unwrap_or(&"localhost".to_string()),
-                            &proxy_node.tls_pem.as_ref().unwrap(),
-                            &proxy_node.tls_key.as_ref().unwrap(),
+                            &px.addr_listen,
+                            &px.addr_target,
+                            &px.sni.as_ref().unwrap_or(&"localhost".to_string()),
+                            &px.tls_pem.as_ref().unwrap(),
+                            &px.tls_key.as_ref().unwrap(),
                         );
 
                         log::info!("Adding proxy TLS service");
@@ -98,16 +92,51 @@ pub fn init() {
                     // Log before creating the service
                     log::info!(
                         "Preparing to add proxy fast service: listen={}, target={}",
-                        &proxy_node.addr_listen,
-                        &gw.addr_target
+                        &px.addr_listen,
+                        &px.addr_target
                     );
                     let proxy_set = service::proxy::proxy_service_fast(
-                        &proxy_node.addr_listen,
-                         &gw.addr_target
+                        &px.addr_listen,
+                         &px.addr_target
                     );
                     proxies.push(Box::new(proxy_set));
-                }
             }
+
+            // for gw in gateway {
+            //     // find gw.addr_listen in proxy
+            //     let proxy_node = proxy.iter().find(|p| p.addr_target == gw.addr_listen);
+            //     if let Some(proxy_node) = proxy_node {
+
+            //         log::info!("Found gateway node: {:#?}", gw.addr_target);
+            //         log::info!("Found proxy node: {:#?}", proxy_node);
+
+            //         if proxy_node.tls && proxy_node.sni.is_some() && proxy_node.tls_pem.is_some() && proxy_node.tls_key.is_some() {
+            //             let proxy_tls = service::proxy::proxy_service_tls_fast(
+            //                 &proxy_node.addr_listen,
+            //                 &gw.addr_target,
+            //                 &proxy_node.sni.as_ref().unwrap_or(&"localhost".to_string()),
+            //                 &proxy_node.tls_pem.as_ref().unwrap(),
+            //                 &proxy_node.tls_key.as_ref().unwrap(),
+            //             );
+
+            //             log::info!("Adding proxy TLS service");
+            //             proxies.push(Box::new(proxy_tls));
+            //             continue;
+            //         }
+
+            //         // Log before creating the service
+            //         log::info!(
+            //             "Preparing to add proxy fast service: listen={}, target={}",
+            //             &proxy_node.addr_listen,
+            //             &gw.addr_target
+            //         );
+            //         let proxy_set = service::proxy::proxy_service_fast(
+            //             &proxy_node.addr_listen,
+            //              &gw.addr_target
+            //         );
+            //         proxies.push(Box::new(proxy_set));
+            //     }
+            // }
 
             // Add all proxy services to the server
             my_server.add_services(proxies);

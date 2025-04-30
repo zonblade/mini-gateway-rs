@@ -9,7 +9,7 @@ pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::Prox
     let peer = BasicPeer::new(addr_to);
 
     Service::with_listeners(
-        "Proxy Service".to_string(),
+        addr_to.to_string(),
         Listeners::tcp(addr),
         proxy_fast::ProxyApp::new(peer, None),
     )
@@ -46,7 +46,7 @@ pub fn proxy_service_tls_fast(
     log::info!("TLS listener created");
     
     Service::with_listeners(
-        "Proxy Service TLS".to_string(),
+        addr_to.to_string(),
         listeners,
         proxy_fast::ProxyApp::new(peer, Some(addr_sni.to_string())),
     )
