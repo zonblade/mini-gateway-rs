@@ -44,7 +44,7 @@ pub fn writer_start() {
     
     // Last resort: standard env_logger to stderr
     // Ensure RUST_LOG is set for env_logger.
-    std::env::set_var("RUST_LOG", "info");
+    std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
     // This warning will go to stderr.
     log::warn!("Using default env_logger configuration as final fallback");
