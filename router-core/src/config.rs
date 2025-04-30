@@ -136,9 +136,15 @@ pub struct ProxyNode {
     
     /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
     pub addr_target: String,
+
+    #[serde(default)]    
+    pub high_speed: bool,
+    
+    #[serde(default)]    
+    pub high_speed_addr: Option<String>,
     
     /// Custom buffer size in bytes (optional)
-    #[serde(default)]
+    #[serde(default)]    
     pub buffer_size: Option<usize>,
     
     /// Custom connection timeout in seconds (optional)

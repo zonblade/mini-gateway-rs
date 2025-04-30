@@ -16,8 +16,7 @@
 
 use super::default_page;
 use crate::{
-    config::{self, GatewayNode, ProxyNode},
-    service,
+    app::gateway_fast::GatewayApp, config::{self, GatewayNode, ProxyNode}, service
 };
 use pingora::{
     prelude::Opt,
@@ -53,7 +52,56 @@ use std::thread;
 /// services before being launched with default run arguments.
 pub fn init() {
     // Vector to store thread handles for later joining
-    let mut server_threads = Vec::new();
+    let mut server_threads: Vec<thread::JoinHandle<()>> = Vec::new();
+
+    // Gateway Service Thread - Handles HTTP routing based on path patterns
+    {
+        let handle = thread::spawn(|| {
+            // Create server with default options
+            let opt = Some(Opt::default());
+            let mut my_server = Server::new(opt).expect("Failed to create server");
+            my_server.bootstrap();
+
+            // Configure listening addresses for gateway services
+            let mut addr = vec![];
+            let data = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
+                Some(data)=>{
+                    data
+                },
+                None=>{
+                    vec![]
+                }
+            };
+
+            println!("Gateway data: {:#?}", data);
+
+            for node in data {
+                // Check if the address is already in the list
+                if !addr.contains(&node.addr_listen) {
+                    addr.push(node.addr_listen);
+                }
+            }
+
+            let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
+
+            // Create a gateway service for each address
+            for addr in addr.iter() {
+                log::info!("Creating gateway service for address: {}", addr);
+                let mut my_gateway_service = pingora::proxy::http_proxy_service(
+                    &my_server.configuration,
+                    GatewayApp::new(addr),
+                );
+                my_gateway_service.add_tcp(addr);
+                
+                my_gateway.push(Box::new(my_gateway_service));
+            }
+            log::info!("Gateway services created: {}", my_gateway.len());
+            // Add all gateway services to the server and run
+            my_server.add_services(my_gateway);
+            my_server.run(RunArgs::default());
+        });
+        server_threads.push(handle);
+    }
 
     // TLS and non-TLS proxy server thread - Handles TLS and non-TLS traffic
     {
@@ -69,11 +117,22 @@ pub fn init() {
 
             for px in proxy {
 
+                println!("Proxy node: {:#?}", px);
+                let addr_target = {
+                    if px.high_speed {
+                        px.high_speed_addr.unwrap_or(px.addr_target)
+                    }else{
+                        px.addr_target
+                    }
+                };
+                println!("Proxy target address: {}", addr_target);
+
                 if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
                     let proxy_tls = service::proxy::proxy_service_tls_fast(
                         &px.addr_listen,
-                        &px.addr_target,
+                        &addr_target,
                         &px.sni.as_ref().unwrap_or(&"localhost".to_string()),
+                        px.high_speed,
                         &px.tls_pem.as_ref().unwrap(),
                         &px.tls_key.as_ref().unwrap(),
                     );
@@ -84,7 +143,7 @@ pub fn init() {
                 }
 
                 log::info!("Adding proxy fast service: {:?}", px.addr_listen);
-                let proxy_set = service::proxy::proxy_service_fast(&px.addr_listen, &px.addr_target);
+                let proxy_set = service::proxy::proxy_service_fast(&px.addr_listen, &addr_target, px.high_speed);
                 proxies.push(Box::new(proxy_set));
 
             }
