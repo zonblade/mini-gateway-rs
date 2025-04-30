@@ -425,6 +425,12 @@ impl ServerApp for ProxyApp {
 
         if let Some(host) = host_info {
             log::info!("Host: {}", host);
+            if let Some(sni) = &self.sni {
+                if !host.contains(sni) {
+                    BUFFER_POOL.put(buffer);
+                    return None;
+                }
+            }
         }
 
         log::info!("Processing new connection");
