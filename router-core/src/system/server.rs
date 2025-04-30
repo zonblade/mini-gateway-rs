@@ -16,7 +16,6 @@
 
 use super::default_page;
 use crate::{
-    app::gateway::GatewayApp,
     config::{self, GatewayNode, ProxyNode},
     service,
 };
@@ -56,128 +55,54 @@ pub fn init() {
     // Vector to store thread handles for later joining
     let mut server_threads = Vec::new();
 
-    // Gateway Service Thread - Handles HTTP routing based on path patterns
-    {
-        let handle = thread::spawn(|| {
-            // Create server with default options
-            let opt = Some(Opt::default());
-            let mut my_server = Server::new(opt).expect("Failed to create server");
-            my_server.bootstrap();
-
-            // Configure listening addresses for gateway services
-            let mut addr = vec![];
-            let data = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
-                Some(data)=>{
-                    data
-                },
-                None=>{
-                    vec![]
-                }
-            };
-
-            log::debug!("Gateway data: {:#?}", data);
-
-            for node in data {
-                // Check if the address is already in the list
-                if !addr.contains(&node.addr_listen) {
-                    addr.push(node.addr_listen);
-                }
-            }
-
-            let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
-
-            // Create a gateway service for each address
-            for addr in addr.iter() {
-                log::info!("Creating gateway service for address: {}", addr);
-                let mut my_gateway_service = pingora::proxy::http_proxy_service(
-                    &my_server.configuration,
-                    GatewayApp::new(addr),
-                );
-                my_gateway_service.add_tcp(addr);
-                my_gateway.push(Box::new(my_gateway_service));
-            }
-            log::info!("Gateway services created: {}", my_gateway.len());
-            // Add all gateway services to the server and run
-            my_server.add_services(my_gateway);
-            my_server.run(RunArgs::default());
-        });
-        server_threads.push(handle);
-    }
-
-    // Non-TLS Proxy server thread - Handles regular HTTP traffic
+    // TLS and non-TLS proxy server thread - Handles TLS and non-TLS traffic
     {
         let handle = thread::spawn(|| {
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
             my_server.bootstrap();
-            let mut node = config::RoutingData::ProxyRouting
+            let proxy = config::RoutingData::ProxyRouting
                 .xget::<Vec<ProxyNode>>()
                 .unwrap_or(vec![]);
-            // filter only for tls = false
-            node.retain(|x| x.tls == false);
-
-            // Create proxy service for non-TLS traffic
-            let mut proxies: Vec<Box<dyn Service>> = vec![];
-
-            for proxy in node {
-                let proxy_set = service::proxy::proxy_service(&proxy.addr_listen);
-                proxies.push(Box::new(proxy_set));
-            }
-
-            let single = service::proxy::proxy_service_fast("0.0.0.0:3030", "127.0.0.1:24041");
-            
-            proxies.push(Box::new(single));
-            // Add all proxy services to the server
-            my_server.add_services(proxies);
-
-            // This call blocks until the process receives SIGINT (or another interrupt)
-            my_server.run(RunArgs::default());
-        });
-        server_threads.push(handle);
-    }
-
-    // TLS Proxy server thread - Handles HTTPS traffic with TLS termination
-    {
-        let handle = thread::spawn(|| {
-            let opt = Some(Opt::default());
-            let mut my_server = Server::new(opt).expect("Failed to create server");
-            my_server.bootstrap();
-            let mut node = config::RoutingData::ProxyRouting
-                .xget::<Vec<ProxyNode>>()
+            let gateway = config::RoutingData::GatewayRouting
+                .xget::<Vec<GatewayNode>>()
                 .unwrap_or(vec![]);
-            // filter only for tls = false
-            node.retain(|x| x.tls == true);
 
+            println!("Gateway: {:?}", gateway);
+            println!("Proxy: {:?}", proxy);
 
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 
-            for proxy in node {
-                let tls_pem = match proxy.tls_pem {
-                    Some(ref pem) => pem,
-                    None => {
-                        log::error!("TLS PEM file not found for proxy: {}", proxy.addr_listen);
-                        continue;
-                    }
-                };
-                let tls_key = match proxy.tls_key {
-                    Some(ref key) => key,
-                    None => {
-                        log::error!("TLS Key file not found for proxy: {}", proxy.addr_listen);
-                        continue;
-                    }
-                };
-                let proxy_set = service::proxy::proxy_service_tls(
-                    &proxy.addr_listen,
-                    &tls_pem,
-                    &tls_key,
+            for gw in gateway {
+                // find gw.addr_listen in proxy
+                let proxy_node = proxy.iter().find(|p| p.addr_target == gw.addr_listen);
+                if let Some(proxy_node) = proxy_node {
+                    log::info!("Found proxy node: {:?}", proxy_node);
 
-                );
-                proxies.push(Box::new(proxy_set));
+                    if proxy_node.tls {
+                        let proxy_tls = service::proxy::proxy_service_tls_fast(
+                            &proxy_node.addr_listen,
+                            &gw.addr_target,
+                            &proxy_node.sni.as_ref().unwrap_or(&"localhost".to_string()),
+                            &proxy_node.tls_pem.as_ref().unwrap(),
+                            &proxy_node.tls_key.as_ref().unwrap(),
+                        );
+
+                        log::info!("Adding proxy TLS service");
+                        proxies.push(Box::new(proxy_tls));
+                        continue;
+                    }
+
+                    log::info!("Adding proxy fast service: {:?}", proxy_node.addr_listen);
+                    let proxy_set = service::proxy::proxy_service_fast(&proxy_node.addr_listen, &gw.addr_target);
+                    proxies.push(Box::new(proxy_set));
+                }
             }
-            
+
             // Add all proxy services to the server
             my_server.add_services(proxies);
 
+            println!("Starting server");
             // This call blocks until the process receives SIGINT (or another interrupt)
             my_server.run(RunArgs::default());
         });

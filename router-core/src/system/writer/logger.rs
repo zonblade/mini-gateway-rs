@@ -46,26 +46,27 @@ impl log::Log for TagBasedLogger {
     ///
     /// * `record` - The log record to process.
     fn log(&self, record: &Record) {
-        if !self.enabled(record.metadata()) {
-            return;
-        }
+        eprintln!("{}", record.args().to_string());
+        // if !self.enabled(record.metadata()) {
+        //     return;
+        // }
 
-        let message = record.args().to_string();
-        let mut found = false;
+        // let message = record.args().to_string();
+        // let mut found = false;
 
-        // Iterate through each tag pattern and send the log message accordingly.
-        for pattern in &self.tag_writers {
-            if message.contains(pattern) {
-                // Send the log message to the corresponding UDP endpoint.
-                udp_sender::switch_log(pattern, &message);
-                found = true;
-            }
-        }
+        // // Iterate through each tag pattern and send the log message accordingly.
+        // for pattern in &self.tag_writers {
+        //     if message.contains(pattern) {
+        //         // Send the log message to the corresponding UDP endpoint.
+        //         udp_sender::switch_log(pattern, &message);
+        //         found = true;
+        //     }
+        // }
 
-        // If no tag matched, log a warning about the unrecognized message.
-        if !found {
-            udp_sender::switch_log("-", &message);
-        }
+        // // If no tag matched, log a warning about the unrecognized message.
+        // if !found {
+        //     udp_sender::switch_log("-", &message);
+        // }
     }
 
     /// Flushes any buffered log records.
