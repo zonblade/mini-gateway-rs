@@ -24,14 +24,13 @@ pub fn proxy_service_tls_fast(
 ) -> Service<proxy_fast::ProxyApp> {
 
     let mut peer = BasicPeer::new(addr_to);
-    peer.sni = addr_sni.into();
     
     // Check if certificate and key files exist
-    if !std::path::Path::new("/home/wangsa/project/mini-router/localhost.pem").exists() {
+    if !std::path::Path::new(cert_path).exists() {
         log::error!("TLS certificate file not found: {}", cert_path);
     }
     
-    if !std::path::Path::new("/home/wangsa/project/mini-router/localhost-key.pem").exists() {
+    if !std::path::Path::new(key_path).exists() {
         log::error!("TLS key file not found: {}", key_path);
     }
     

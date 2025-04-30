@@ -64,40 +64,29 @@ pub fn init() {
             let proxy = config::RoutingData::ProxyRouting
                 .xget::<Vec<ProxyNode>>()
                 .unwrap_or(vec![]);
-            let gateway = config::RoutingData::GatewayRouting
-                .xget::<Vec<GatewayNode>>()
-                .unwrap_or(vec![]);
-
-            println!("Gateway: {:?}", gateway);
-            println!("Proxy: {:?}", proxy);
 
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 
-            for gw in gateway {
-                // find gw.addr_listen in proxy
-                let proxy_node = proxy.iter().find(|p| p.addr_target == gw.addr_listen);
-                if let Some(proxy_node) = proxy_node {
+            for px in proxy {
 
-                    log::info!("Found proxy node: {:?}", proxy_node);
+                if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
+                    let proxy_tls = service::proxy::proxy_service_tls_fast(
+                        &px.addr_listen,
+                        &px.addr_target,
+                        &px.sni.as_ref().unwrap_or(&"localhost".to_string()),
+                        &px.tls_pem.as_ref().unwrap(),
+                        &px.tls_key.as_ref().unwrap(),
+                    );
 
-                    if proxy_node.tls && proxy_node.sni.is_some() && proxy_node.tls_pem.is_some() && proxy_node.tls_key.is_some() {
-                        let proxy_tls = service::proxy::proxy_service_tls_fast(
-                            &proxy_node.addr_listen,
-                            &gw.addr_target,
-                            &proxy_node.sni.as_ref().unwrap_or(&"localhost".to_string()),
-                            &proxy_node.tls_pem.as_ref().unwrap(),
-                            &proxy_node.tls_key.as_ref().unwrap(),
-                        );
-
-                        log::info!("Adding proxy TLS service");
-                        proxies.push(Box::new(proxy_tls));
-                        continue;
-                    }
-
-                    log::info!("Adding proxy fast service: {:?}", proxy_node.addr_listen);
-                    let proxy_set = service::proxy::proxy_service_fast(&proxy_node.addr_listen, &gw.addr_target);
-                    proxies.push(Box::new(proxy_set));
+                    log::info!("Adding proxy TLS service");
+                    proxies.push(Box::new(proxy_tls));
+                    continue;
                 }
+
+                log::info!("Adding proxy fast service: {:?}", px.addr_listen);
+                let proxy_set = service::proxy::proxy_service_fast(&px.addr_listen, &px.addr_target);
+                proxies.push(Box::new(proxy_set));
+
             }
 
             // Add all proxy services to the server
