@@ -1,4 +1,4 @@
-// UDP Sender implementation for mini-router
+// UDP Sender implementation for mini-gateway
 // This module provides functionality to send plain text messages via UDP
 // Thread-safe implementation that allows concurrent sending from multiple threads
 // Includes a global instance for easy access from anywhere in the application
