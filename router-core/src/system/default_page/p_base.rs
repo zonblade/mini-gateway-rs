@@ -100,7 +100,7 @@ pub fn run_error_page_server(
                          <body>\
                          <center><h1>Gateway.rs</h1></center>\
                          <hr>\
-                         <center>mini-router</center>\
+                         <center>mini-gateway</center>\
                          </body>\
                          </html>";
 
