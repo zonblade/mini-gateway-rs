@@ -165,6 +165,8 @@
         if (confirm("Are you sure you want to delete this proxy?")) {
             try {
                 await proxyStore.deleteProxy(id);
+                // Refetch the list after successful deletion
+                await proxyStore.fetchProxies(); 
             } catch (error) {
                 console.error('Error deleting proxy:', error);
                 alert('Failed to delete proxy: ' + (error instanceof Error ? error.message : String(error)));
