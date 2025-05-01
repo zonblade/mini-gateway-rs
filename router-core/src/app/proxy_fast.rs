@@ -181,9 +181,15 @@ impl ProxyApp {
             && !request_str.starts_with("POST ")
             && !request_str.starts_with("PUT ")
             && !request_str.starts_with("DELETE ")
+            && !request_str.starts_with("CONNECT ")
+            && !request_str.starts_with("OPTIONS ")
         {
             return length;
         }
+        
+        // Flag to track if this is a WebSocket upgrade request
+        let is_websocket = request_str.contains("Upgrade: websocket") || 
+                           request_str.contains("Upgrade: WebSocket");
 
         // Find the first line of the request (the request line)
         let line_end = match request_str.find("\r\n") {
@@ -229,7 +235,12 @@ impl ProxyApp {
                 let new_request_line = format!("{}{}{}", before, replacement, after);
                 let new_request = format!("{}{}", new_request_line, rest_of_request);
 
-                debug!("Rewrote request: {} -> {}", request_line, new_request_line);
+                // Log rewrite information with special note for WebSocket upgrades
+                if is_websocket {
+                    debug!("Rewrote WebSocket upgrade request: {} -> {}", request_line, new_request_line);
+                } else {
+                    debug!("Rewrote request: {} -> {}", request_line, new_request_line);
+                }
 
                 // Convert back to bytes and copy to the buffer
                 let new_bytes = new_request.as_bytes();
