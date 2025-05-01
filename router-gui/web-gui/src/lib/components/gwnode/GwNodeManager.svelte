@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { gwNodes } from "$lib/stores/gwnodeStore";
-    import { proxies } from "$lib/stores/proxyStore";
+    import { proxies, proxyStore } from "$lib/stores/proxyStore";
     import type { Proxy } from "$lib/types/proxy";
     import { gwnodeActions } from "$lib/actions/gwnodeActions";
     import type { CreateGwNodeRequest, UpdateGwNodeRequest, GwNode } from "$lib/types/gwnode";
@@ -33,6 +33,7 @@
     onMount(async () => {
         try {
             await gwnodeActions.loadAllGwNodes();
+            proxyStore.fetchProxies();
             isLoading = false;
         } catch (error) {
             console.error("Failed to load gateway nodes:", error);
