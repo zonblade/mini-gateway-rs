@@ -252,7 +252,6 @@ pub fn init() {
             // Add all proxy services to the server
             my_server.add_services(proxies);
 
-            println!("Starting server");
             // This call blocks until the process receives SIGINT (or another interrupt)
             my_server.run(RunArgs::default());
         });

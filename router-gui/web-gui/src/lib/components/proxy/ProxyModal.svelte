@@ -41,6 +41,18 @@
         highSpeedAddr: ""
     };
     export let onSave: () => void;
+
+// Function to validate form before submitting
+function handleSubmit(): void {
+    // Validate that if high-speed mode is enabled, a gateway node must be selected
+    if (proxy.highSpeed && !proxy.highSpeedAddr) {
+        // The form won't submit due to the disabled button and validation message
+        return;
+    }
+    
+    // Call the provided onSave function from parent component
+    onSave();
+}
     export let onClose: () => void;
     
     let gwNodes: GwNode[] = [];
@@ -152,7 +164,7 @@
                     </button>
                 </div>
                 
-                <form on:submit|preventDefault={onSave} class="space-y-4">
+                <form on:submit|preventDefault={handleSubmit} class="space-y-4">
                     <div>
                         <label for="title" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             Title
@@ -284,7 +296,7 @@
                         {#if proxy.highSpeed}
                             <div class="pl-6">
                                 <label for="highSpeedAddr" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Gateway Node
+                                    Gateway Node <span class="text-red-500">*</span>
                                 </label>
                                 
                                 {#if loadingGwNodes}
@@ -299,7 +311,8 @@
                                     <select
                                         id="highSpeedAddr"
                                         bind:value={proxy.highSpeedAddr}
-                                        class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                                        class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 {!proxy.highSpeedAddr && 'border-red-500 dark:border-red-500'}"
+                                        required={proxy.highSpeed}
                                     >
                                         <option value="">Select a gateway node</option>
                                         {#each gwNodes as node (node.id)}
@@ -307,11 +320,14 @@
                                         {/each}
                                     </select>
                                     
-                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                        {gwNodes.length === 0 ? 
-                                            "No gateway nodes available. Create gateway nodes for this proxy to use them in high-speed mode." :
-                                            `${gwNodes.length} gateway node(s) available for high-speed mode.`
-                                        }
+                                    <p class="mt-1 text-xs {proxy.highSpeed && !proxy.highSpeedAddr ? 'text-red-600 dark:text-red-500 font-medium' : 'text-gray-500 dark:text-gray-400'}">
+                                        {#if gwNodes.length === 0}
+                                            {proxy.highSpeed ? "No gateway nodes available. Create gateway nodes for this proxy to use them in high-speed mode." : "No gateway nodes available."}
+                                        {:else if proxy.highSpeed && !proxy.highSpeedAddr}
+                                            Please select a gateway node to use high-speed mode.
+                                        {:else}
+                                            {gwNodes.length} gateway node(s) available for high-speed mode.
+                                        {/if}
                                     </p>
                                 {/if}
                                 
@@ -335,6 +351,12 @@ showHighSpeedWarning: {showHighSpeedWarning}
                         {/if}
                     </div>
                     
+                    {#if proxy.highSpeed && !proxy.highSpeedAddr && gwNodes.length > 0}
+                        <div class="text-sm text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/20 p-2 rounded my-2">
+                            Please select a gateway node for high-speed mode or disable high-speed mode.
+                        </div>
+                    {/if}
+                    
                     <div class="flex justify-end space-x-2 pt-4">
                         <button 
                             type="button"
@@ -346,6 +368,7 @@ showHighSpeedWarning: {showHighSpeedWarning}
                         <button 
                             type="submit"
                             class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium"
+                            disabled={proxy.highSpeed && !proxy.highSpeedAddr}
                         >
                             {isEditMode ? 'Update' : 'Create'}
                         </button>
