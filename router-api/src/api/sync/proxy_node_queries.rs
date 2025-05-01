@@ -1,6 +1,5 @@
 use crate::module::database::{get_connection, DatabaseError};
 use super::proxy_node::ProxyNode;
-use log::error;
 use crate::api::settings::proxy_queries;
 
 /// Retrieves a list of ProxyNode objects from the database
@@ -41,7 +40,9 @@ pub fn get_all_proxy_nodes() -> Result<Vec<ProxyNode>, DatabaseError> {
             tls_pem,
             tls_key,
             tls_autron,
-            sni
+            sni, 
+            high_speed,
+            high_speed_addr
         FROM 
             proxies",
         [],
@@ -69,7 +70,13 @@ pub fn get_all_proxy_nodes() -> Result<Vec<ProxyNode>, DatabaseError> {
                 tls: row.get(4).unwrap_or(false),
                 tls_pem: clean_string_option(tls_pem),
                 tls_key: clean_string_option(tls_key),
-                sni: clean_string_option(sni)
+                sni: clean_string_option(sni),
+                high_speed: row.get(9)?,
+                high_speed_addr: match row.get::<_, String>(10) {
+                    Ok(s) if s == "\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
             };
             log::debug!("Proxy Node: {:#?}", data.clone());
             Ok(data)

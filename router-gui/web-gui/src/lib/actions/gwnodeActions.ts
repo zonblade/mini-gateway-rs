@@ -1,12 +1,77 @@
-import { gwnodeService } from "$lib/services/gwnodeService";
+import { gwnodeService } from '$lib/services/gwnodeService';
 import { gwNodes } from "$lib/stores/gwnodeStore";
 import type { CreateGwNodeRequest, UpdateGwNodeRequest, GwNode } from "$lib/types/gwnode";
 import { get } from "svelte/store";
 
-/**
- * Actions for managing gateway nodes
- */
+
+// Gateway node actions to be used by components
 export const gwnodeActions = {
+    // Fetch all gateway nodes
+    getAllGwNodes: async (): Promise<GwNode[]> => {
+        try {
+            return await gwnodeService.getAllGwNodes();
+        } catch (error) {
+            console.error('Failed to fetch gateway nodes:', error);
+            return []; // Return an empty array on error
+        }
+    },
+    
+    // Get a single gateway node by ID
+    getGwNodeById: async (nodeId: string): Promise<GwNode | null> => {
+        try {
+            return await gwnodeService.getGwNodeById(nodeId);
+        } catch (error) {
+            console.error(`Failed to fetch gateway node ${nodeId}:`, error);
+            return null;
+        }
+    },
+    
+    // Get gateway nodes for a specific proxy
+    getGwNodesByProxyId: async (proxyId: string): Promise<GwNode[]> => {
+        try {
+            return await gwnodeService.getGwNodesByProxyId(proxyId);
+        } catch (error) {
+            console.error(`Failed to fetch gateway nodes for proxy ${proxyId}:`, error);
+            return []; // Return an empty array on error
+        }
+    },
+    
+    // Get all available gateway nodes (both unbound and those assigned to a specific proxy)
+    getAvailableGwNodesForProxy: async (proxyId?: string): Promise<GwNode[]> => {
+        try {
+            // Get all gateway nodes
+            const allNodes = await gwnodeService.getAllGwNodes();
+            console.log("[gwnodeActions] Raw nodes fetched:", JSON.stringify(allNodes, null, 2)); // Log raw data
+
+            if (!proxyId) {
+                // For new proxies, only unbound nodes are available
+                console.log("[gwnodeActions] Filtering for unbound nodes (new proxy)");
+                const filteredNodes = allNodes.filter(node => {
+                    const isUnbound = node.proxy_id === "unbound";
+                    // console.log(`[gwnodeActions] Node ${node.id} (${node.title}): proxy_id='${node.proxy_id}', isUnbound=${isUnbound}`); // Uncomment for detailed node logging
+                    return isUnbound;
+                });
+                console.log("[gwnodeActions] Filtered unbound nodes:", JSON.stringify(filteredNodes, null, 2));
+                return filteredNodes;
+            } else {
+                // For existing proxies, both unbound nodes and nodes already assigned to this proxy are available
+                console.log(`[gwnodeActions] Filtering for proxy ID: ${proxyId} or unbound`);
+                const filteredNodes = allNodes.filter(node => {
+                    const isUnbound = node.proxy_id === "unbound";
+                    const matchesProxyId = node.proxy_id === proxyId;
+                    // console.log(`[gwnodeActions] Node ${node.id} (${node.title}): proxy_id='${node.proxy_id}', isUnbound=${isUnbound}, matchesProxyId=${matchesProxyId}`); // Uncomment for detailed node logging
+                    return isUnbound || matchesProxyId;
+                });
+                console.log("[gwnodeActions] Filtered nodes for existing proxy:", JSON.stringify(filteredNodes, null, 2));
+                return filteredNodes;
+            }
+        } catch (error) {
+            console.error('[gwnodeActions] Failed to fetch available gateway nodes:', error);
+            return []; // Return an empty array on error
+        }
+    },
+
+
     /**
      * Load all gateway nodes and update the store
      */
@@ -30,29 +95,6 @@ export const gwnodeActions = {
             gwNodes.set(nodes);
         } catch (error) {
             console.error(`Failed to load gateway nodes for proxy ${proxyId}:`, error);
-            throw error;
-        }
-    },
-
-    /**
-     * Get a specific gateway node by ID
-     * @param id The ID of the gateway node
-     * @returns The gateway node or null if not found
-     */
-    async getGwNodeById(id: string): Promise<GwNode | null> {
-        try {
-            // First check the store for the node
-            const nodesFromStore = get(gwNodes);
-            const existingNode = nodesFromStore.find(node => node.id === id);
-            
-            if (existingNode) {
-                return existingNode;
-            }
-            
-            // If not in store, fetch from API
-            return await gwnodeService.getGwNodeById(id);
-        } catch (error) {
-            console.error(`Failed to get gateway node ${id}:`, error);
             throw error;
         }
     },
@@ -138,3 +180,5 @@ export const gwnodeActions = {
         }
     }
 };
+
+export default gwnodeActions;

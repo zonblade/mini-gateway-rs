@@ -9,6 +9,7 @@ use super::{Proxy, proxy_queries};
 use super::gwnode_queries;
 use uuid::Uuid;
 use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
+use crate::module::database::DatabaseError;
 
 /// Creates or updates a proxy configuration
 ///
@@ -31,6 +32,8 @@ use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 /// - `tls_key` (optional): Private key content when TLS is manually configured.
 /// - `tls_autron` (optional): Whether automatic TLS certificate provisioning is enabled (default: false).
 /// - `sni` (optional): Server Name Indication value for TLS negotiation.
+/// - `high_speed` (optional): Whether speed mode is enabled for faster proxying (default: false).
+/// - `high_speed_addr` (optional): Specific address to use for speed mode.
 ///
 /// Note: The `addr_target` field does not need to be provided in the request as it is
 /// automatically generated with an available port on 127.0.0.1.
@@ -114,6 +117,30 @@ pub async fn set_proxy(
     match proxy_queries::generate_target_address() {
         Ok(addr) => {
             proxy.addr_target = addr;
+            
+            // Check if high_speed can be enabled for this proxy
+            if proxy.high_speed {
+                match proxy_queries::has_duplicate_listen_address(&proxy.addr_listen, Some(&proxy.id)) {
+                    Ok(has_duplicate) => {
+                        if has_duplicate {
+                            return HttpResponse::BadRequest().json(serde_json::json!({
+                                "error": "Cannot enable high-speed mode for this proxy because there are multiple proxies with the same listen address."
+                            }));
+                        }
+                        // If high_speed is enabled but high_speed_addr is empty, set it to the same as addr_target
+                        if proxy.high_speed_addr.is_none() || proxy.high_speed_addr.as_ref().unwrap().is_empty() {
+                            proxy.high_speed_addr = Some(proxy.addr_target.clone());
+                        }
+                    },
+                    Err(e) => {
+                        log::error!("Error checking for duplicate listen addresses: {}", e);
+                        return HttpResponse::InternalServerError().body("Failed to check for duplicate listen addresses");
+                    }
+                }
+            } else {
+                // If high_speed is disabled, set high_speed_addr to None
+                proxy.high_speed_addr = None;
+            }
             
             match proxy_queries::save_proxy(&proxy) {
                 Ok(()) => HttpResponse::Ok().json(proxy),
@@ -224,4 +251,35 @@ pub async fn delete_proxy(
             HttpResponse::InternalServerError().body("Failed to unbind gateway nodes")
         }
     }
+}
+
+/// Checks if a proxy can use high-speed mode by verifying there are no duplicates
+/// with the same listen address.
+///
+/// This is a helper function for the set_proxy endpoint to ensure the constraint
+/// that high-speed mode can only be enabled when there is exactly one proxy
+/// with a given listen address.
+///
+/// # Parameters
+///
+/// * `proxy` - The proxy being created or updated
+///
+/// # Returns
+///
+/// * `Ok(true)` - If high-speed mode is allowed for this proxy
+/// * `Ok(false)` - If high-speed mode is not allowed due to duplicates
+/// * `Err(DatabaseError)` - If there was a database error
+async fn can_use_high_speed(proxy: &Proxy) -> Result<bool, DatabaseError> {
+    // If high_speed is not enabled, we don't need to check
+    if !proxy.high_speed {
+        return Ok(true);
+    }
+    
+    // Check if there are other proxies with the same listen address
+    let has_duplicate = proxy_queries::has_duplicate_listen_address(
+        &proxy.addr_listen,
+        Some(&proxy.id)
+    )?;
+    
+    Ok(!has_duplicate)
 }

@@ -80,8 +80,8 @@ function createProxyStore() {
                 const savedProxy = await proxyActions.saveProxy(proxy);
                 
                 update(state => {
-                    // If it's an existing proxy, update it in the array
-                    if (proxy.id) {
+                    // If it's an existing proxy (non-empty ID), update it in the array
+                    if (proxy.id && proxy.id !== '') {
                         const index = state.proxies.findIndex(p => p.id === proxy.id);
                         if (index >= 0) {
                             const updatedProxies = [...state.proxies];

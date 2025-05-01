@@ -4,7 +4,7 @@ use crate::{
     client::{Client, ClientError, Result as TCPResult},
     config,
 };
-use log::{error, info, warn};
+use log::{error, info};
 
 /// Syncs all gateway nodes to the registry server
 ///
@@ -118,6 +118,8 @@ mod test {
             tls_key: None,
             tls_autron: false,
             sni: None,
+            high_speed: false,
+            high_speed_addr: None,
         };
 
         if let Err(e) = proxy_queries::save_proxy(&proxy) {

@@ -27,9 +27,9 @@ export const proxyActions = {
     saveProxy: async (proxy: Proxy): Promise<Proxy> => {
         try {
             return await proxyService.saveProxy(proxy);
-        } catch (error) {
-            console.error('Failed to save proxy:', error);
-            throw error;
+        } catch (error: any) { // Add type 'any' to access potential properties
+            console.error('Error saving proxy:', error);
+            throw error; // Re-throw the original error
         }
     },
     

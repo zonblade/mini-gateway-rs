@@ -51,7 +51,9 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
             tls_pem TEXT,
             tls_key TEXT,
             tls_autron BOOLEAN NOT NULL DEFAULT 0,
-            sni TEXT
+            sni TEXT,
+            high_speed BOOLEAN NOT NULL DEFAULT 0,
+            high_speed_addr TEXT
         )",
         [],
     )?;
@@ -101,7 +103,7 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
 
     // Query all proxies
     let proxies = db.query(
-        "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni FROM proxies",
+        "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni, high_speed, high_speed_addr FROM proxies",
         [],
         |row| {
             Ok(Proxy {
@@ -110,10 +112,28 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
                 tls: row.get(4)?,
-                tls_pem: row.get(5)?,
-                tls_key: row.get(6)?,
+                tls_pem: match row.get::<_, String>(5) {
+                    Ok(s) if s == "\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
+                tls_key: match row.get::<_, String>(6) {
+                    Ok(s) if s == "\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
                 tls_autron: row.get(7)?,
-                sni: row.get(8)?,
+                sni: match row.get::<_, String>(8) {
+                    Ok(s) if s == "\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
+                high_speed: row.get(9)?,
+                high_speed_addr: match row.get::<_, String>(10) {
+                    Ok(s) if s == "\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
             })
         },
     )?;
@@ -165,7 +185,7 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
 
     // Query the proxy by ID
     let proxy = db.query_one(
-        "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni FROM proxies WHERE id = ?1",
+        "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni, high_speed, high_speed_addr FROM proxies WHERE id = ?1",
         [id],
         |row| {
             Ok(Proxy {
@@ -174,10 +194,28 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
                 tls: row.get(4)?,
-                tls_pem: row.get(5)?,
-                tls_key: row.get(6)?,
+                tls_pem: match row.get::<_, String>(5) {
+                    Ok(s) if s == "\\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
+                tls_key: match row.get::<_, String>(6) {
+                    Ok(s) if s == "\\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
                 tls_autron: row.get(7)?,
-                sni: row.get(8)?,
+                sni: match row.get::<_, String>(8) {
+                    Ok(s) if s == "\\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
+                high_speed: row.get(9)?,
+                high_speed_addr: match row.get::<_, String>(10) {
+                    Ok(s) if s == "\\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
             })
         },
     )?;
@@ -243,8 +281,8 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
 
     // Insert or replace the proxy
     db.execute(
-        "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni, high_speed, high_speed_addr) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         [
             &proxy.id,
             &proxy.title,
@@ -255,6 +293,8 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
             &proxy.tls_key.clone().unwrap_or("\u{0000}".to_string()),
             &(if proxy.tls_autron { "1" } else { "0" }).to_string(),
             &proxy.sni.clone().unwrap_or("\u{0000}".to_string()),
+            &(if proxy.high_speed { "1" } else { "0" }).to_string(),
+            &proxy.high_speed_addr.clone().unwrap_or("\u{0000}".to_string()),
         ],
     )?;
 
@@ -359,4 +399,49 @@ pub fn generate_target_address() -> Result<String, String> {
     }
 
     Err("Failed to find an available port after 100 attempts".to_string())
+}
+
+/// Checks if there are multiple proxies using the same listen address
+///
+/// This function counts how many proxies are configured to listen on a given address.
+/// It's used to enforce constraints for high-speed mode, which requires that each
+/// listen address is unique across all proxies.
+///
+/// # Arguments
+///
+/// * `listen_addr` - The listen address to check (e.g., "0.0.0.0:8080")
+/// * `exclude_id` - Optional proxy ID to exclude from the check (used when updating a proxy)
+///
+/// # Returns
+///
+/// * `Ok(true)` - If there are multiple proxies with the same listen address
+/// * `Ok(false)` - If there is only one or zero proxies with the listen address
+/// * `Err(DatabaseError)` - If there was an error performing the check
+///
+/// # Example
+///
+/// ```
+/// match has_duplicate_listen_address("0.0.0.0:443", Some("proxy-1")) {
+///     Ok(true) => println!("Cannot enable high-speed mode for this address"),
+///     Ok(false) => println!("High-speed mode can be enabled"),
+///     Err(e) => eprintln!("Database error: {}", e),
+/// }
+/// ```
+pub fn has_duplicate_listen_address(listen_addr: &str, exclude_id: Option<&str>) -> Result<bool, DatabaseError> {
+    ensure_proxies_table()?;
+    let db = get_connection()?;
+    
+    let count: i64;
+    
+    if let Some(id) = exclude_id {
+        // Count proxies with the same listen address, excluding the specified proxy
+        let sql = "SELECT COUNT(*) FROM proxies WHERE addr_listen = ? AND id != ?";
+        count = db.query_one(sql, [listen_addr, id], |row| row.get(0))?.unwrap_or(0);
+    } else {
+        // Count all proxies with the given listen address
+        let sql = "SELECT COUNT(*) FROM proxies WHERE addr_listen = ?";
+        count = db.query_one(sql, [listen_addr], |row| row.get(0))?.unwrap_or(0);
+    }
+    
+    Ok(count > 0)
 }

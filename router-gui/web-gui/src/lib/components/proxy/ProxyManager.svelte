@@ -11,7 +11,7 @@
     
     // For adapting our API Proxy type to match the UI's expected format
     interface UIProxy {
-        id: number;
+        id: string; // Changed to string
         title: string;
         listen: string;
         useTls: boolean;
@@ -20,12 +20,14 @@
         certKey: string;
         domain: string;
         target: string;
+        highSpeed: boolean;
+        highSpeedAddr: string;
     }
     
     // Function to convert API Proxy to UI Proxy format
     function apiToUiProxy(proxy: Proxy): UIProxy {
         return {
-            id: parseInt(proxy.id) || 0,
+            id: proxy.id || '', // Use string ID, default to empty string
             title: proxy.title,
             listen: proxy.addr_listen,
             useTls: proxy.tls,
@@ -33,14 +35,17 @@
             certPem: proxy.tls_pem || "",
             certKey: proxy.tls_key || "",
             domain: proxy.sni || "",
-            target: proxy.addr_target || ""
+            target: proxy.addr_target || "",
+            highSpeed: proxy.high_speed || false,
+            highSpeedAddr: proxy.high_speed_addr || ""
         };
     }
     
     // Function to convert UI Proxy back to API format
     function uiToApiProxy(uiProxy: UIProxy): Proxy {
+        // For new proxies (id === ''), send empty string as ID to ensure the backend treats it as new
         return {
-            id: uiProxy.id.toString(),
+            id: uiProxy.id, // Directly use the string ID
             title: uiProxy.title,
             addr_listen: uiProxy.listen,
             addr_target: "", // Always send empty string as addr_target
@@ -48,7 +53,9 @@
             tls_pem: uiProxy.certPem || null,
             tls_key: uiProxy.certKey || null,
             tls_autron: uiProxy.autoTls,
-            sni: uiProxy.domain || null
+            sni: uiProxy.domain || null,
+            high_speed: uiProxy.highSpeed || false,
+            high_speed_addr: uiProxy.highSpeedAddr || null
         };
     }
     
@@ -98,21 +105,23 @@
     let showProxyModal = false;
     let isEditMode = false;
     let currentProxy: UIProxy = { 
-        id: 0, 
-        title: "", 
-        listen: "", 
-        useTls: false, 
-        autoTls: false, 
-        certPem: "", 
+        id: '', // Changed default ID to empty string
+        title: "",
+        listen: "",
+        useTls: false,
+        autoTls: false,
+        certPem: "",
         certKey: "",
         domain: "",
-        target: "" 
+        target: "",
+        highSpeed: false,
+        highSpeedAddr: ""
     };
     
     // Function to open modal for adding a new proxy
     function addProxy(): void {
         currentProxy = { 
-            id: 0, 
+            id: '', // Changed default ID to empty string
             title: "", 
             listen: "", 
             useTls: false, 
@@ -120,10 +129,13 @@
             certPem: "", 
             certKey: "",
             domain: "",
-            target: "" 
+            target: "",
+            highSpeed: false,
+            highSpeedAddr: ""
         };
         isEditMode = false;
         showProxyModal = true;
+        console.log("Opening modal for new proxy, isEditMode:", isEditMode);
     }
     
     // Function to open modal for editing an existing proxy
@@ -131,6 +143,7 @@
         currentProxy = { ...proxy };
         isEditMode = true;
         showProxyModal = true;
+        console.log("Opening modal for editing proxy ID:", proxy.id, "isEditMode:", isEditMode);
     }
     
     // Function to save proxy (create or update)
@@ -148,7 +161,7 @@
     }
     
     // Function to delete a proxy
-    async function deleteProxy(id: string): Promise<void> {
+    async function deleteProxy(id: string): Promise<void> { // id is already string
         if (confirm("Are you sure you want to delete this proxy?")) {
             try {
                 await proxyStore.deleteProxy(id);
@@ -233,7 +246,7 @@
                     <ProxyCard 
                         proxy={uiToApiProxy(proxy)} 
                         onEdit={() => editProxy(proxy)} 
-                        onDelete={() => deleteProxy(proxy.id.toString())} 
+                        onDelete={() => deleteProxy(proxy.id)}
                     />
                 </div>
             {/each}
@@ -255,7 +268,7 @@
     <!-- Proxy Modal component -->
     {#if showProxyModal}
         <ProxyModal 
-            showModal={showProxyModal}
+            bind:showModal={showProxyModal}
             isEditMode={isEditMode}
             proxy={currentProxy}
             onSave={saveProxy}

@@ -15,7 +15,8 @@ function getApiBaseUrl(): string {
 async function handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.message || `API Error: ${response.statusText}`);
+        console.error('API Error:', errorData);
+        throw new Error(errorData?.error || `API Error: ${response.statusText}`);
     }
     return await response.json() as T;
 }

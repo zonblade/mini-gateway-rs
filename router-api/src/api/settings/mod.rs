@@ -47,6 +47,8 @@ use super::users::JwtAuth;
 /// * `tls_key` - Private key for the certificate when TLS is manually configured
 /// * `tls_autron` - Whether automatic TLS certificate provisioning is enabled
 /// * `sni` - Server Name Indication value for TLS negotiation
+/// * `high_speed` - Whether speed mode is enabled for faster proxying (optional)
+/// * `high_speed_addr` - Specific address to use for speed mode (optional)
 ///
 /// # Examples
 ///
@@ -62,6 +64,8 @@ use super::users::JwtAuth;
 ///     tls_key: None,
 ///     tls_autron: false,
 ///     sni: None,
+///     high_speed: false,
+///     high_speed_addr: None,
 /// }
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -84,6 +88,10 @@ pub struct Proxy {
     pub tls_autron: bool,
     /// Server Name Indication value for TLS
     pub sni: Option<String>,
+    /// Whether speed mode is enabled for faster proxying
+    pub high_speed: bool,
+    /// Specific address to use for speed mode
+    pub high_speed_addr: Option<String>,
 }
 
 /// Represents a gateway node configuration in the system
@@ -215,22 +223,23 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/settings")
             .wrap(JwtAuth::new())
-            // Apply staff role authentication middleware to all settings endpoints
-            // This allows both staff and admin users to access the settings (staff_or_admin)
-            .wrap(RoleAuth::staff())
+            .wrap(RoleAuth::admin())
+            // Proxy endpoints
             .service(proxy_list::list_proxies)
             .service(proxy_get::get_proxy)
             .service(proxy_set::set_proxy)
             .service(proxy_set::delete_proxy)
+            // Gateway Node endpoints
             .service(gwnode_list::list_gateway_nodes)
             .service(gwnode_list::list_gateway_nodes_by_proxy)
             .service(gwnode_get::get_gateway_node)
             .service(gwnode_set::set_gateway_node)
             .service(gwnode_set::delete_gateway_node)
+            // Gateway endpoints
             .service(gateway_list::list_gateways)
             .service(gateway_list::list_gateways_by_gwnode)
             .service(gateway_get::get_gateway)
             .service(gateway_set::set_gateway)
-            .service(gateway_set::delete_gateway),
+            .service(gateway_set::delete_gateway)
     );
 }

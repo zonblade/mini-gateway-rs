@@ -6,7 +6,7 @@
     export let onDelete: () => void;
 </script>
 
-<div class="rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-200">
+<div class="rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-200 min-h-[220px]">
     <div class="p-4">
         <div class="flex justify-between items-start">
             <h3 class="text-lg font-medium text-gray-900 dark:text-white truncate">{proxy.title}</h3>
@@ -67,6 +67,26 @@
                         {proxy.sni}
                     </code>
                 </div>
+            {/if}
+            
+            {#if proxy.high_speed}
+                <div class="flex items-center mt-2">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" />
+                        </svg>
+                        High-Speed Mode
+                    </span>
+                </div>
+                
+                {#if proxy.high_speed_addr}
+                    <div class="flex items-center text-sm mt-2">
+                        <span class="font-medium text-gray-600 dark:text-gray-300 mr-2">Gateway:</span>
+                        <code class="text-xs bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded font-mono">
+                            {proxy.high_speed_addr}
+                        </code>
+                    </div>
+                {/if}
             {/if}
         </div>
     </div>
