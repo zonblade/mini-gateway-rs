@@ -37,17 +37,17 @@
 //! 5. Response from the backend is returned to the client.
 
 use async_trait::async_trait;
-use log::{debug, info, warn, error}; // Use log macros consistently
+use log::{debug, error, info, warn}; // Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::BasicPeer;
 use regex::{Captures, Regex};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, LazyLock, RwLock};
 use std::time::{Duration, Instant};
-use std::collections::hash_map::DefaultHasher;
 // lazy_static is not used anymore
 use lru::LruCache; // Use the standard LRU crate
 
@@ -69,7 +69,10 @@ struct ShardedLruCache<K, V> {
 impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
     fn new(per_shard_capacity: usize) -> Self {
         let capacity = NonZeroUsize::new(per_shard_capacity).unwrap_or_else(|| {
-            warn!("Invalid per_shard_capacity (0), using default: {}", DEFAULT_PER_SHARD_CAPACITY);
+            warn!(
+                "Invalid per_shard_capacity (0), using default: {}",
+                DEFAULT_PER_SHARD_CAPACITY
+            );
             NonZeroUsize::new(DEFAULT_PER_SHARD_CAPACITY).unwrap() // Default must be non-zero
         });
         let mut shards = Vec::with_capacity(CACHE_SHARDS);
@@ -129,11 +132,11 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
 /// Defines a single routing rule.
 #[derive(Clone, Debug)]
 struct RedirectRule {
-    pattern: Regex, // Compiled regex for matching
-    target_template: String, // Template string for path transformation (e.g., "/v2/api/$1")
-    alt_listen: String, // Listener address this rule applies to
+    pattern: Regex,             // Compiled regex for matching
+    target_template: String,    // Template string for path transformation (e.g., "/v2/api/$1")
+    alt_listen: String,         // Listener address this rule applies to
     alt_target: Arc<BasicPeer>, // Target backend service (Arc for cheap cloning)
-    priority: usize, // Rule evaluation priority (lower value = higher priority)
+    priority: usize,            // Rule evaluation priority (lower value = higher priority)
 }
 
 // --- Static Global State ---
@@ -148,7 +151,7 @@ static SAVED_CONFIG_ID: LazyLock<RwLock<String>> = LazyLock::new(|| RwLock::new(
 // Precompute the default fallback peer.
 static DEFAULT_FALLBACK_PEER: LazyLock<Box<HttpPeer>> = LazyLock::new(|| {
     let addr_str = DEFAULT_PORT.p404; // e.g., "127.0.0.1:4040"
-    // Create HttpPeer directly - it doesn't return a Result like the code assumed
+                                      // Create HttpPeer directly - it doesn't return a Result like the code assumed
     let peer = HttpPeer::new(addr_str, false, String::new());
     info!("Precomputed default fallback peer: {}", addr_str);
     Box::new(peer)
@@ -160,9 +163,9 @@ static DEFAULT_FALLBACK_PEER: LazyLock<Box<HttpPeer>> = LazyLock::new(|| {
 /// # Gateway Application
 /// The main application implementing HTTP proxy routing.
 pub struct GatewayApp {
-    source: String, // Listener address (e.g., "0.0.0.0:8080")
+    source: String,                   // Listener address (e.g., "0.0.0.0:8080")
     last_check_time: RwLock<Instant>, // Last time config was checked
-    check_interval: Duration, // How often to check for config changes
+    check_interval: Duration,         // How often to check for config changes
     route_cache: Arc<ShardedLruCache<String, (String, Arc<BasicPeer>)>>, // Cache: key=path+query, value=(rewritten_path+query, target_peer)
 }
 
@@ -186,23 +189,31 @@ impl GatewayApp {
     /// This is the main function responsible for loading and processing rules.
     fn populate_rules(&self) {
         let current_config_id = config::RoutingData::GatewayID.get();
-        debug!("Checking configuration. Current ID: '{}'", current_config_id);
+        debug!(
+            "Checking configuration. Current ID: '{}'",
+            current_config_id
+        );
 
         // Fast path: Check if config ID has changed using a read lock first.
         {
             let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
             if *saved_id_guard == current_config_id {
-                debug!("Configuration ID unchanged ('{}'). Skipping rule population.", current_config_id);
+                debug!(
+                    "Configuration ID unchanged ('{}'). Skipping rule population.",
+                    current_config_id
+                );
                 return; // No change detected
             }
             // Read lock is dropped here
         }
 
         // Config ID has changed, proceed with update.
-        info!("Configuration change detected ({} -> {}). Reloading rules for source: {}",
-              *SAVED_CONFIG_ID.read().unwrap(), // Read again briefly
-              current_config_id,
-              self.source);
+        info!(
+            "Configuration change detected ({} -> {}). Reloading rules for source: {}",
+            *SAVED_CONFIG_ID.read().unwrap(), // Read again briefly
+            current_config_id,
+            self.source
+        );
 
         // Clear the route cache as rules are changing.
         self.route_cache.clear();
@@ -211,7 +222,10 @@ impl GatewayApp {
         let gateway_nodes = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
             Some(nodes) if !nodes.is_empty() => nodes,
             _ => {
-                warn!("No valid gateway routing rules found in configuration for source '{}'.", self.source);
+                warn!(
+                    "No valid gateway routing rules found in configuration for source '{}'.",
+                    self.source
+                );
                 // Update state even if no rules are found
                 self.update_rules_and_config_id(Vec::new(), &current_config_id);
                 return;
@@ -226,12 +240,33 @@ impl GatewayApp {
                 continue;
             }
 
-            // Compile the regex pattern.
-            let pattern = match Regex::new(&node.path_listen) {
+            // Determine if this is a plain string path, a wildcard path, or a regex pattern.
+            // Process the pattern string to handle different formats
+            let processed_pattern = if is_regex_pattern(&node.path_listen) {
+                // Already a regex pattern (contains regex special chars other than * at the end)
+                debug!("Processing as regex pattern: '{}'", node.path_listen);
+                node.path_listen.clone()
+            } else if node.path_listen.ends_with("/*") {
+                // Wildcard pattern (e.g., "/api/*")
+                debug!("Processing as wildcard pattern: '{}'", node.path_listen);
+                // Convert "/api/*" to "^/api/.*$"
+                let base_path = &node.path_listen[..node.path_listen.len() - 1];
+                format!("^{}.*$", base_path)
+            } else {
+                // Plain string path (e.g., "/test")
+                debug!("Processing as exact match pattern: '{}'", node.path_listen);
+                // Convert "/test" to "^/test$"
+                format!("^{}$", node.path_listen)
+            };
+            
+            // Compile the processed regex pattern.
+            let pattern = match Regex::new(&processed_pattern) {
                 Ok(re) => re,
                 Err(e) => {
-                    warn!("Invalid regex pattern '{}' for source '{}': {}. Skipping rule.",
-                          node.path_listen, self.source, e);
+                    warn!(
+                        "Invalid regex pattern '{}' (from '{}') for source '{}': {}. Skipping rule.",
+                        processed_pattern, node.path_listen, self.source, e
+                    );
                     continue;
                 }
             };
@@ -250,12 +285,19 @@ impl GatewayApp {
         }
 
         if applicable_rules.is_empty() {
-            info!("No applicable redirect rules found for source: {}", self.source);
+            info!(
+                "No applicable redirect rules found for source: {}",
+                self.source
+            );
         } else {
             // Sort rules by priority (lower number = higher priority).
             // Use unstable sort as stability is not required.
             applicable_rules.sort_unstable_by_key(|rule| rule.priority);
-            info!("Loaded and sorted {} rules for source: {}", applicable_rules.len(), self.source);
+            info!(
+                "Loaded and sorted {} rules for source: {}",
+                applicable_rules.len(),
+                self.source
+            );
         }
 
         // Update the shared state with the new rules and config ID.
@@ -276,9 +318,11 @@ impl GatewayApp {
             *saved_id_guard = new_config_id.to_string();
             // Write lock is dropped here
         }
-        debug!("Successfully updated rules and saved config ID: '{}'", new_config_id);
+        debug!(
+            "Successfully updated rules and saved config ID: '{}'",
+            new_config_id
+        );
     }
-
 
     /// Gets a clone of the rules relevant to this gateway instance.
     /// Cloning the Arc is cheap.
@@ -286,14 +330,18 @@ impl GatewayApp {
     fn get_rules(&self) -> Arc<Vec<RedirectRule>> {
         let rules_map_guard = REDIRECT_RULES.read().unwrap();
         // Clone the Arc, not the Vec itself. Returns an empty Arc if not found.
-        rules_map_guard.get(&self.source).cloned().unwrap_or_else(|| Arc::new(Vec::new()))
+        rules_map_guard
+            .get(&self.source)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(Vec::new()))
         // Read lock is dropped here
     }
 
     /// Checks if the configuration should be reloaded based on time interval and ID change.
     fn check_and_reload_config_if_needed(&self) {
         let now = Instant::now();
-        let needs_check = { // Scoped read lock
+        let needs_check = {
+            // Scoped read lock
             let last_check_guard = self.last_check_time.read().unwrap();
             now.duration_since(*last_check_guard) >= self.check_interval
             // Read lock is dropped here
@@ -304,7 +352,7 @@ impl GatewayApp {
             let mut last_check_guard = self.last_check_time.write().unwrap();
             // Double-check in case another thread updated it between the read and write lock acquisition.
             if now.duration_since(*last_check_guard) >= self.check_interval {
-                 // Update last check time *before* potentially long-running populate_rules
+                // Update last check time *before* potentially long-running populate_rules
                 *last_check_guard = now;
                 // Drop the lock before calling populate_rules to avoid holding it too long
                 drop(last_check_guard);
@@ -318,6 +366,41 @@ impl GatewayApp {
     }
 }
 
+/// Helper function to determine if a pattern string contains regex special characters.
+/// 
+/// This function checks if a string has regex special metacharacters that would
+/// indicate it should be treated as a regex pattern rather than a literal string.
+/// 
+/// # Arguments
+/// 
+/// * `pattern` - The pattern string to check
+/// 
+/// # Returns
+/// 
+/// Returns `true` if the string contains regex special characters, `false` otherwise.
+fn is_regex_pattern(pattern: &str) -> bool {
+    // These are common regex metacharacters excluding the wildcard character at the end
+    // which we handle specially
+    let regex_special_chars = [
+        '^', '$', '.', '+', '?', '(', ')', '[', ']', '{', '}', '|', '\\',
+    ];
+    
+    // Check if the pattern contains any regex special characters
+    for &c in &regex_special_chars {
+        if pattern.contains(c) {
+            return true;
+        }
+    }
+    
+    // If the pattern has a wildcard in the middle (not at the end), treat as regex
+    if pattern.contains('*') && !pattern.ends_with("/*") {
+        return true;
+    }
+    
+    // Otherwise it's a plain string or a simple wildcard pattern
+    false
+}
+
 #[async_trait]
 impl ProxyHttp for GatewayApp {
     type CTX = (); // No context needed for this simple router
@@ -329,7 +412,8 @@ impl ProxyHttp for GatewayApp {
         &self,
         session: &mut Session,
         _ctx: &mut Self::CTX,
-    ) -> Result<Box<HttpPeer>> { // Use pingora::Result
+    ) -> Result<Box<HttpPeer>> {
+        // Use pingora::Result
 
         // 1. Check and potentially reload configuration first.
         self.check_and_reload_config_if_needed();
@@ -341,7 +425,7 @@ impl ProxyHttp for GatewayApp {
         // Use Cow for potential zero-allocation case when no query exists
         let cache_key = match query {
             Some(q) => format!("{}?{}", path, q), // Changed to String directly
-            None => path.to_string(), // Convert to String directly
+            None => path.to_string(),             // Convert to String directly
         };
 
         // 3. Check cache using the String key
@@ -350,7 +434,7 @@ impl ProxyHttp for GatewayApp {
             debug!("Cache hit for key: {}", cache_key);
             // Update request URI using the cached rewritten path and query.
             match http::uri::PathAndQuery::from_maybe_shared(rewritten_path_query.clone()) {
-                 Ok(pq) => {
+                Ok(pq) => {
                     let mut parts = session.req_header_mut().uri.clone().into_parts();
                     parts.path_and_query = Some(pq);
                     match http::Uri::from_parts(parts) {
@@ -361,12 +445,15 @@ impl ProxyHttp for GatewayApp {
                             return Ok(DEFAULT_FALLBACK_PEER.clone()); // Clone the precomputed Box<HttpPeer>
                         }
                     }
-                 },
-                 Err(e) => {
-                    error!("Invalid PathAndQuery in cache: '{}', error: {}", rewritten_path_query, e);
-                     // Fallback on error
+                }
+                Err(e) => {
+                    error!(
+                        "Invalid PathAndQuery in cache: '{}', error: {}",
+                        rewritten_path_query, e
+                    );
+                    // Fallback on error
                     return Ok(DEFAULT_FALLBACK_PEER.clone());
-                 }
+                }
             }
 
             // Return the cached peer. Cloning Arc is cheap.
@@ -383,7 +470,10 @@ impl ProxyHttp for GatewayApp {
             // Match against the path part only
             if let Some(captures) = rule.pattern.captures(path) {
                 // Rule matches!
-                debug!("Rule matched: pattern='{}', target='{}'", rule.pattern, rule.target_template);
+                debug!(
+                    "Rule matched: pattern='{}', target='{}'",
+                    rule.pattern, rule.target_template
+                );
 
                 // FIX: Use Captures::expand with a String buffer.
                 let mut rewritten_path_buf = String::new(); // Use String buffer
@@ -399,7 +489,7 @@ impl ProxyHttp for GatewayApp {
                 };
 
                 // Update request URI
-                 match http::uri::PathAndQuery::from_maybe_shared(final_path_query.clone()) {
+                match http::uri::PathAndQuery::from_maybe_shared(final_path_query.clone()) {
                     Ok(pq) => {
                         let mut parts = session.req_header_mut().uri.clone().into_parts();
                         parts.path_and_query = Some(pq);
@@ -411,9 +501,12 @@ impl ProxyHttp for GatewayApp {
                                 return Ok(DEFAULT_FALLBACK_PEER.clone());
                             }
                         }
-                    },
+                    }
                     Err(e) => {
-                        error!("Invalid PathAndQuery after rewrite: '{}', error: {}", final_path_query, e);
+                        error!(
+                            "Invalid PathAndQuery after rewrite: '{}', error: {}",
+                            final_path_query, e
+                        );
                         // Fallback on error
                         return Ok(DEFAULT_FALLBACK_PEER.clone());
                     }
@@ -421,7 +514,10 @@ impl ProxyHttp for GatewayApp {
 
                 // Cache the result (cloning Arc is cheap)
                 // Use into_owned() on cache_key if it was borrowed
-                self.route_cache.insert(cache_key.to_owned(), (final_path_query, rule.alt_target.clone()));
+                self.route_cache.insert(
+                    cache_key.to_owned(),
+                    (final_path_query, rule.alt_target.clone()),
+                );
                 debug!("Cached result for key used in insertion"); // Key might have been owned now
 
                 // Return the target peer for this rule.
@@ -433,14 +529,19 @@ impl ProxyHttp for GatewayApp {
         }
 
         // 5. No rules matched - use the precomputed default fallback
-        debug!("No matching rules for path '{}', using default fallback.", path);
+        debug!(
+            "No matching rules for path '{}', using default fallback.",
+            path
+        );
         // Clone the precomputed Box<HttpPeer>
         Ok(DEFAULT_FALLBACK_PEER.clone())
     }
 
     /// Logs request details after completion.
     async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {
-        let response_code = session.response_written().map_or(0, |resp| resp.status.as_u16());
+        let response_code = session
+            .response_written()
+            .map_or(0, |resp| resp.status.as_u16());
         let path = session.req_header().uri.path(); // Borrow path directly
         let body_size = session.body_bytes_sent();
 

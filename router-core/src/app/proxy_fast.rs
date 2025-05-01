@@ -36,7 +36,6 @@ struct RewriteRule {
 pub struct ProxyApp {
     client_connector: TransportConnector,
     proxy_to: BasicPeer,
-    high_speed: bool,
     path_rewrites: Vec<RewriteRule>,
 }
 
@@ -46,18 +45,17 @@ enum DuplexEvent {
 }
 
 impl ProxyApp {
-    pub fn new(proxy_to: BasicPeer, high_speed: bool) -> Self {
-        let path_rewrites = Self::fetch_config(proxy_to.clone(), high_speed);
+    pub fn new(proxy_to: BasicPeer) -> Self {
+        let path_rewrites = Self::fetch_config(proxy_to.clone());
 
         ProxyApp {
             client_connector: TransportConnector::new(None),
             proxy_to,
             path_rewrites,
-            high_speed,
         }
     }
 
-    fn fetch_config(proxy_to: BasicPeer, high_speed: bool) -> Vec<RewriteRule> {
+    fn fetch_config(proxy_to: BasicPeer) -> Vec<RewriteRule> {
         let current_addr = proxy_to._address.to_string();
         let config: Option<Vec<GatewayNode>> =
             config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
@@ -66,10 +64,34 @@ impl ProxyApp {
             for node in cfg {
                 // high speed only
                 if node.addr_target == current_addr {
-                    let rgx = match Regex::new(&node.path_listen) {
+                    // Determine if this is a plain string path, a wildcard path, or a regex pattern
+                    let processed_pattern = if Self::is_regex_pattern(&node.path_listen) {
+                        // Already a regex pattern (contains regex special chars other than * at the end)
+                        log::debug!("Processing as regex pattern: '{}'", node.path_listen);
+                        node.path_listen.clone()
+                    } else if node.path_listen.ends_with("/*") {
+                        // Wildcard pattern (e.g., "/api/*")
+                        log::debug!("Processing as wildcard pattern: '{}'", node.path_listen);
+                        // Convert "/api/*" to "^/api/.*$"
+                        let base_path = &node.path_listen[..node.path_listen.len() - 1];
+                        format!("^{}.*$", base_path)
+                    } else {
+                        // Plain string path (e.g., "/test")
+                        log::debug!("Processing as exact match pattern: '{}'", node.path_listen);
+                        // Convert "/test" to "^/test$"
+                        format!("^{}$", node.path_listen)
+                    };
+
+                    // Compile the processed regex pattern
+                    let rgx = match Regex::new(&processed_pattern) {
                         Ok(rgx) => rgx,
                         Err(e) => {
-                            log::error!("Failed to compile regex for path_listen: {}", e);
+                            log::error!(
+                                "Failed to compile regex pattern '{}' (from '{}'): {}",
+                                processed_pattern,
+                                node.path_listen,
+                                e
+                            );
                             continue;
                         }
                     };
@@ -82,6 +104,41 @@ impl ProxyApp {
             }
         }
         new_rewrites
+    }
+
+    /// Helper function to determine if a pattern string contains regex special characters.
+    ///
+    /// This function checks if a string has regex special metacharacters that would
+    /// indicate it should be treated as a regex pattern rather than a literal string.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - The pattern string to check
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the string contains regex special characters, `false` otherwise.
+    fn is_regex_pattern(pattern: &str) -> bool {
+        // These are common regex metacharacters excluding the wildcard character at the end
+        // which we handle specially
+        let regex_special_chars = [
+            '^', '$', '.', '+', '?', '(', ')', '[', ']', '{', '}', '|', '\\',
+        ];
+
+        // Check if the pattern contains any regex special characters
+        for &c in &regex_special_chars {
+            if pattern.contains(c) {
+                return true;
+            }
+        }
+
+        // If the pattern has a wildcard in the middle (not at the end), treat as regex
+        if pattern.contains('*') && !pattern.ends_with("/*") {
+            return true;
+        }
+
+        // Otherwise it's a plain string or a simple wildcard pattern
+        false
     }
 
     // Process a replacement string, handling $1, $2, etc. references
@@ -240,19 +297,14 @@ impl ProxyApp {
                     return;
                 }
                 DuplexEvent::DownstreamRead(n) => {
-                    if self.high_speed {
-                        // Try to rewrite the request if it's HTTP
-                        let write_len = self.rewrite_http_request(&mut upstream_buf, n);
+                    // Try to rewrite the request if it's HTTP
+                    let write_len = self.rewrite_http_request(&mut upstream_buf, n);
 
-                        client_session
-                            .write_all(&upstream_buf[0..write_len])
-                            .await
-                            .unwrap();
-                        client_session.flush().await.unwrap();
-                    } else {
-                        client_session.write_all(&upstream_buf[0..n]).await.unwrap();
-                        client_session.flush().await.unwrap();
-                    }
+                    client_session
+                        .write_all(&upstream_buf[0..write_len])
+                        .await
+                        .unwrap();
+                    client_session.flush().await.unwrap();
                 }
                 DuplexEvent::UpstreamRead(n) => {
                     server_session

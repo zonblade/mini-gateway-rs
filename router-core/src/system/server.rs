@@ -16,14 +16,49 @@
 
 use super::default_page;
 use crate::{
-    app::gateway_fast::GatewayApp, config::{self, GatewayNode, ProxyNode}, service
+    app::gateway_fast::GatewayApp,
+    config::{self, GatewayNode, ProxyNode},
+    service,
 };
 use pingora::{
+    listeners::tls::TlsSettings,
     prelude::Opt,
     server::{RunArgs, Server},
     services::Service,
 };
+use std::ops::DerefMut;
 use std::thread;
+
+mod boringssl_openssl {
+    use async_trait::async_trait;
+    use pingora::tls::pkey::{PKey, Private};
+    use pingora::tls::x509::X509;
+
+    pub(super) struct DynamicCert {
+        cert: X509,
+        key: PKey<Private>,
+    }
+
+    impl DynamicCert {
+        pub(super) fn new(cert: &str, key: &str) -> Box<Self> {
+            let cert_bytes = std::fs::read(cert).unwrap();
+            let cert = X509::from_pem(&cert_bytes).unwrap();
+
+            let key_bytes = std::fs::read(key).unwrap();
+            let key = PKey::private_key_from_pem(&key_bytes).unwrap();
+            Box::new(DynamicCert { cert, key })
+        }
+    }
+
+    #[async_trait]
+    impl pingora::listeners::TlsAccept for DynamicCert {
+        async fn certificate_callback(&self, ssl: &mut pingora::tls::ssl::SslRef) {
+            use pingora::tls::ext;
+            ext::ssl_use_certificate(ssl, &self.cert).unwrap();
+            ext::ssl_use_private_key(ssl, &self.key).unwrap();
+        }
+    }
+}
 
 /// Initialize and run all server components.
 ///
@@ -55,48 +90,100 @@ pub fn init() {
     let mut server_threads: Vec<thread::JoinHandle<()>> = Vec::new();
 
     // Gateway Service Thread - Handles HTTP routing based on path patterns
+    // cases are, if the proxy have a multiple address, it converted to normal gateway, either it's HTTPS or HTTP
     {
         let handle = thread::spawn(|| {
-            // Create server with default options
+            //
+            // 3010 -> x
+            //      -> y
+            // 3010 -> z
+            //      populated as
+            //     3010 -> x | y | z
+            // if there is any high speed setup, remove all of the associated
+            // because it will be handled by the high speed proxy
+
+            let gateway = config::RoutingData::GatewayRouting
+                .xget::<Vec<GatewayNode>>()
+                .unwrap_or(vec![]);
+            let proxy = config::RoutingData::ProxyRouting
+                .xget::<Vec<ProxyNode>>()
+                .unwrap_or(vec![]);
+
+            let proxy_with_high_speed = proxy.iter().filter(|px| px.high_speed).collect::<Vec<_>>();
+
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
             my_server.bootstrap();
-
-            // Configure listening addresses for gateway services
-            let mut addr = vec![];
-            let data = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
-                Some(data)=>{
-                    data
-                },
-                None=>{
-                    vec![]
-                }
-            };
-
-            println!("Gateway data: {:#?}", data);
-
-            for node in data {
-                // Check if the address is already in the list
-                if !addr.contains(&node.addr_listen) {
-                    addr.push(node.addr_listen);
-                }
-            }
-
             let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
 
-            // Create a gateway service for each address
-            for addr in addr.iter() {
-                log::info!("Creating gateway service for address: {}", addr);
+            for gw in gateway {
+                let listen_addr = gw.addr_listen.clone();
+
+                // find the proxy setup for the listen address
+                let proxy_setup = proxy
+                    .iter()
+                    .filter(|px| px.addr_target == listen_addr)
+                    .collect::<Vec<_>>();
+                if proxy_setup.len() == 0 {
+                    continue;
+                }
+                let proxy_setup = proxy_setup[0].clone();
+
+                // check if the proxy listen is in the high speed proxy list
+                let is_high_speed = proxy_with_high_speed
+                    .iter()
+                    .any(|px| px.addr_listen == proxy_setup.addr_listen);
+                if is_high_speed {
+                    continue;
+                }
+
+                // setup the gateway service
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
                     &my_server.configuration,
-                    GatewayApp::new(addr),
+                    GatewayApp::new(&proxy_setup.addr_target),
                 );
-                my_gateway_service.add_tcp(addr);
-                
+
+                // setup if there any SSL
+                let proxy_sni = proxy_setup.sni;
+                let proxy_tls = proxy_setup.tls;
+                let proxy_tls_pem = proxy_setup.tls_pem;
+                let proxy_tls_key = proxy_setup.tls_key;
+
+                let mut tls_settings;
+                // setup tls if needed
+                if proxy_tls
+                    && proxy_sni.is_some()
+                    && proxy_tls_pem.is_some()
+                    && proxy_tls_key.is_some()
+                {
+                    let cert_path = proxy_tls_pem.as_ref().unwrap();
+                    let key_path = proxy_tls_key.as_ref().unwrap();
+
+                    let dynamic_cert = boringssl_openssl::DynamicCert::new(&cert_path, &key_path);
+                    tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
+                    // by default intermediate supports both TLS 1.2 and 1.3. We force to tls 1.2 just for the demo
+
+                    tls_settings
+                        .deref_mut()
+                        .deref_mut()
+                        .set_max_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_2))
+                        .unwrap();
+
+                    tls_settings.enable_h2();
+
+                    my_gateway_service.add_tls_with_settings(
+                        &proxy_setup.addr_listen,
+                        None,
+                        tls_settings,
+                    );
+                } else {
+                    my_gateway_service.add_tcp(&proxy_setup.addr_listen);
+                }
+
+                // setup the proxy service
                 my_gateway.push(Box::new(my_gateway_service));
             }
-            log::info!("Gateway services created: {}", my_gateway.len());
-            // Add all gateway services to the server and run
+
             my_server.add_services(my_gateway);
             my_server.run(RunArgs::default());
         });
@@ -111,17 +198,19 @@ pub fn init() {
             my_server.bootstrap();
             let proxy = config::RoutingData::ProxyRouting
                 .xget::<Vec<ProxyNode>>()
-                .unwrap_or(vec![]);
+                .unwrap_or(vec![])
+                .into_iter()
+                .filter(|px| px.high_speed)
+                .collect::<Vec<_>>();
 
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 
             for px in proxy {
-
                 println!("Proxy node: {:#?}", px);
                 let addr_target = {
                     if px.high_speed {
                         px.high_speed_addr.unwrap_or(px.addr_target)
-                    }else{
+                    } else {
                         px.addr_target
                     }
                 };
@@ -132,7 +221,6 @@ pub fn init() {
                         &px.addr_listen,
                         &addr_target,
                         &px.sni.as_ref().unwrap_or(&"localhost".to_string()),
-                        px.high_speed,
                         &px.tls_pem.as_ref().unwrap(),
                         &px.tls_key.as_ref().unwrap(),
                     );
@@ -143,9 +231,11 @@ pub fn init() {
                 }
 
                 log::info!("Adding proxy fast service: {:?}", px.addr_listen);
-                let proxy_set = service::proxy::proxy_service_fast(&px.addr_listen, &addr_target, px.high_speed);
+                let proxy_set = service::proxy::proxy_service_fast(
+                    &px.addr_listen,
+                    &addr_target,
+                );
                 proxies.push(Box::new(proxy_set));
-
             }
 
             // Add all proxy services to the server

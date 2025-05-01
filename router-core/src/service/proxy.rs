@@ -4,14 +4,14 @@ use pingora::services::listening::Service;
 use pingora::upstreams::peer::BasicPeer;
 
 
-pub fn proxy_service_fast(addr: &str, addr_to: &str, addr_high_speed: bool) -> Service<proxy_fast::ProxyApp> {
+pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::ProxyApp> {
 
     let peer = BasicPeer::new(addr_to);
 
     Service::with_listeners(
         "Proxy Service".to_string(),
         Listeners::tcp(addr),
-        proxy_fast::ProxyApp::new(peer, addr_high_speed),
+        proxy_fast::ProxyApp::new(peer),
     )
 }
 
@@ -19,7 +19,6 @@ pub fn proxy_service_tls_fast(
     addr: &str,
     addr_to: &str,
     addr_sni: &str,
-    addr_high_speed: bool,
     cert_path: &str,
     key_path: &str,
 ) -> Service<proxy_fast::ProxyApp> {
@@ -47,6 +46,6 @@ pub fn proxy_service_tls_fast(
     Service::with_listeners(
         "Proxy Service TLS".to_string(),
         listeners,
-        proxy_fast::ProxyApp::new(peer, addr_high_speed),
+        proxy_fast::ProxyApp::new(peer),
     )
 }
