@@ -41,7 +41,7 @@ use log::{debug, error, info, warn}; // Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::BasicPeer;
-use regex::{Captures, Regex};
+use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -73,7 +73,9 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
                 "Invalid per_shard_capacity (0), using default: {}",
                 DEFAULT_PER_SHARD_CAPACITY
             );
-            NonZeroUsize::new(DEFAULT_PER_SHARD_CAPACITY).unwrap() // Default must be non-zero
+            // Use expect here as DEFAULT_PER_SHARD_CAPACITY is a known constant
+            NonZeroUsize::new(DEFAULT_PER_SHARD_CAPACITY)
+                .expect("Default shard capacity must be non-zero")
         });
         let mut shards = Vec::with_capacity(CACHE_SHARDS);
         for _ in 0..CACHE_SHARDS {
@@ -92,38 +94,51 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
     /// Gets a value from the cache without updating the LRU order.
     fn get(&self, key: &K) -> Option<V> {
         let shard_index = self.get_shard_index(key);
-        // Use read lock for concurrent access
-        // FIX: Remove `mut` as `peek` doesn't require it and it caused a warning.
-        let shard = self.shards[shard_index].read().unwrap();
-        // FIX: Use `peek` instead of `get` under a read lock.
-        // `get` requires `&mut self` because it updates LRU order,
-        // but we only have an immutable borrow (`&self`) via the read lock.
-        // `peek` provides read-only access without modifying order.
-        shard.peek(key).cloned()
+        match self.shards[shard_index].read() {
+            Ok(shard) => shard.peek(key).cloned(),
+            Err(e) => {
+                error!(
+                    "Failed to acquire read lock on cache shard {}: {}",
+                    shard_index, e
+                );
+                None // Handle poisoned lock
+            }
+        }
     }
 
     /// Inserts a value into the cache, potentially evicting the least recently used item.
     fn insert(&self, key: K, value: V) {
         let shard_index = self.get_shard_index(&key);
-        // Use write lock for mutation
-        let mut shard = self.shards[shard_index].write().unwrap();
-        // `put` is the correct method for insertion in the `lru` crate.
-        shard.put(key, value);
+        match self.shards[shard_index].write() {
+            Ok(mut shard) => {
+                shard.put(key, value); // Discard return value
+            }
+            Err(e) => {
+                error!(
+                    "Failed to acquire write lock on cache shard {}: {}",
+                    shard_index, e
+                );
+                // Handle poisoned lock - cannot insert
+            }
+        }
     }
 
     /// Clears all entries from all cache shards.
     fn clear(&self) {
-        for shard_lock in &self.shards {
-            let mut shard = shard_lock.write().unwrap();
-            shard.clear();
+        for (i, shard_lock) in self.shards.iter().enumerate() {
+            match shard_lock.write() {
+                Ok(mut shard) => shard.clear(),
+                Err(e) => {
+                    error!(
+                        "Failed to acquire write lock on cache shard {} for clearing: {}",
+                        i, e
+                    );
+                    // Handle poisoned lock - cannot clear this shard
+                }
+            }
         }
-        debug!("Cleared all entries from route cache");
+        debug!("Cleared entries from route cache (potentially skipping poisoned shards)");
     }
-
-    // Note: lru crate doesn't directly expose hit/miss counts per cache.
-    // If detailed stats are crucial, custom tracking or a different crate might be needed.
-    // For simplicity, stats are removed here. Consider adding AtomicUsize counters
-    // outside the cache if needed.
 }
 
 // --- Redirect Rule Definition ---
@@ -134,7 +149,7 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
 struct RedirectRule {
     pattern: Regex,             // Compiled regex for matching
     target_template: String,    // Template string for path transformation (e.g., "/v2/api/$1")
-    alt_listen: String,         // Listener address this rule applies to
+    _alt_listen: String,        // Listener address this rule applies to
     alt_target: Arc<BasicPeer>, // Target backend service (Arc for cheap cloning)
     priority: usize,            // Rule evaluation priority (lower value = higher priority)
 }
@@ -195,24 +210,33 @@ impl GatewayApp {
         );
 
         // Fast path: Check if config ID has changed using a read lock first.
-        {
-            let saved_id_guard = SAVED_CONFIG_ID.read().unwrap();
-            if *saved_id_guard == current_config_id {
-                debug!(
-                    "Configuration ID unchanged ('{}'). Skipping rule population.",
-                    current_config_id
-                );
-                return; // No change detected
+        let config_changed = {
+            match SAVED_CONFIG_ID.read() {
+                Ok(saved_id_guard) => *saved_id_guard != current_config_id,
+                Err(e) => {
+                    error!("Failed to acquire read lock on SAVED_CONFIG_ID: {}. Assuming config changed.", e);
+                    true // Assume change if we can't read
+                }
             }
-            // Read lock is dropped here
+        };
+
+        if !config_changed {
+            debug!(
+                "Configuration ID unchanged ('{}'). Skipping rule population.",
+                current_config_id
+            );
+            return; // No change detected
         }
 
-        // Config ID has changed, proceed with update.
+        // Config ID has changed (or lock failed), proceed with update.
+        // Log the old ID safely
+        let old_config_id_str = match SAVED_CONFIG_ID.read() {
+            Ok(guard) => guard.clone(),
+            Err(_) => "<unknown: read lock failed>".to_string(),
+        };
         info!(
             "Configuration change detected ({} -> {}). Reloading rules for source: {}",
-            *SAVED_CONFIG_ID.read().unwrap(), // Read again briefly
-            current_config_id,
-            self.source
+            old_config_id_str, current_config_id, self.source
         );
 
         // Clear the route cache as rules are changing.
@@ -258,7 +282,7 @@ impl GatewayApp {
                 // Convert "/test" to "^/test$"
                 format!("^{}$", node.path_listen)
             };
-            
+
             // Compile the processed regex pattern.
             let pattern = match Regex::new(&processed_pattern) {
                 Ok(re) => re,
@@ -278,7 +302,7 @@ impl GatewayApp {
             applicable_rules.push(RedirectRule {
                 pattern,
                 target_template: node.path_target, // Store the template string
-                alt_listen: node.addr_listen,      // Already checked, but store for completeness
+                _alt_listen: node.addr_listen,      // Already checked, but store for completeness
                 alt_target: target_peer,
                 priority: node.priority as usize,
             });
@@ -307,76 +331,108 @@ impl GatewayApp {
     /// Atomically updates the REDIRECT_RULES and SAVED_CONFIG_ID.
     fn update_rules_and_config_id(&self, rules: Vec<RedirectRule>, new_config_id: &str) {
         // Acquire write locks to update the shared data.
-        {
-            let mut rules_map_guard = REDIRECT_RULES.write().unwrap();
-            // Store rules wrapped in Arc for efficient cloning on read.
-            rules_map_guard.insert(self.source.clone(), Arc::new(rules));
-            // Write lock is dropped here
+        match REDIRECT_RULES.write() {
+            Ok(mut rules_map_guard) => {
+                // Store rules wrapped in Arc for efficient cloning on read.
+                rules_map_guard.insert(self.source.clone(), Arc::new(rules));
+            }
+            Err(e) => {
+                error!(
+                    "Failed to acquire write lock on REDIRECT_RULES: {}. Rules not updated.",
+                    e
+                );
+                // Decide if we should still try to update the config ID or return
+                return; // Let's return early to avoid inconsistent state
+            }
         }
-        {
-            let mut saved_id_guard = SAVED_CONFIG_ID.write().unwrap();
-            *saved_id_guard = new_config_id.to_string();
-            // Write lock is dropped here
+
+        match SAVED_CONFIG_ID.write() {
+            Ok(mut saved_id_guard) => {
+                *saved_id_guard = new_config_id.to_string();
+                debug!(
+                    "Successfully updated rules and saved config ID: '{}'",
+                    new_config_id
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Failed to acquire write lock on SAVED_CONFIG_ID: {}. Config ID not updated.",
+                    e
+                );
+                // Rules were updated, but ID wasn't. This might cause repeated reloads.
+            }
         }
-        debug!(
-            "Successfully updated rules and saved config ID: '{}'",
-            new_config_id
-        );
     }
 
     /// Gets a clone of the rules relevant to this gateway instance.
     /// Cloning the Arc is cheap.
     #[inline]
     fn get_rules(&self) -> Arc<Vec<RedirectRule>> {
-        let rules_map_guard = REDIRECT_RULES.read().unwrap();
-        // Clone the Arc, not the Vec itself. Returns an empty Arc if not found.
-        rules_map_guard
-            .get(&self.source)
-            .cloned()
-            .unwrap_or_else(|| Arc::new(Vec::new()))
-        // Read lock is dropped here
+        match REDIRECT_RULES.read() {
+            Ok(rules_map_guard) => rules_map_guard
+                .get(&self.source)
+                .cloned()
+                .unwrap_or_else(|| Arc::new(Vec::new())),
+            Err(e) => {
+                error!(
+                    "Failed to acquire read lock on REDIRECT_RULES: {}. Returning empty ruleset.",
+                    e
+                );
+                Arc::new(Vec::new()) // Return empty rules on error
+            }
+        }
     }
 
     /// Checks if the configuration should be reloaded based on time interval and ID change.
     fn check_and_reload_config_if_needed(&self) {
         let now = Instant::now();
         let needs_check = {
-            // Scoped read lock
-            let last_check_guard = self.last_check_time.read().unwrap();
-            now.duration_since(*last_check_guard) >= self.check_interval
-            // Read lock is dropped here
+            match self.last_check_time.read() {
+                Ok(last_check_guard) => {
+                    now.duration_since(*last_check_guard) >= self.check_interval
+                }
+                Err(e) => {
+                    error!("Failed to acquire read lock on last_check_time: {}. Assuming check needed.", e);
+                    true // Assume check needed if lock fails
+                }
+            }
         };
 
         if needs_check {
-            // Acquire write lock only if the time interval has passed.
-            let mut last_check_guard = self.last_check_time.write().unwrap();
-            // Double-check in case another thread updated it between the read and write lock acquisition.
-            if now.duration_since(*last_check_guard) >= self.check_interval {
-                // Update last check time *before* potentially long-running populate_rules
-                *last_check_guard = now;
-                // Drop the lock before calling populate_rules to avoid holding it too long
-                drop(last_check_guard);
-                // Now perform the actual check and potential reload
-                debug!("Checking rules due to interval check...");
-                self.populate_rules();
+            match self.last_check_time.write() {
+                Ok(mut last_check_guard) => {
+                    // Double-check in case another thread updated it between the read and write lock acquisition.
+                    if now.duration_since(*last_check_guard) >= self.check_interval {
+                        // Update last check time *before* potentially long-running populate_rules
+                        *last_check_guard = now;
+                        // Drop the lock before calling populate_rules to avoid holding it too long
+                        drop(last_check_guard);
+                        // Now perform the actual check and potential reload
+                        debug!("Checking rules due to interval check...");
+                        self.populate_rules();
+                    }
+                    // If the double-check fails, another thread already handled it.
+                }
+                Err(e) => {
+                    error!("Failed to acquire write lock on last_check_time: {}. Check interval not updated.", e);
+                    // Might lead to more frequent checks if this persists
+                }
             }
-            // If the double-check fails, another thread already handled it.
-            // Write lock is dropped here
         }
     }
 }
 
 /// Helper function to determine if a pattern string contains regex special characters.
-/// 
+///
 /// This function checks if a string has regex special metacharacters that would
 /// indicate it should be treated as a regex pattern rather than a literal string.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `pattern` - The pattern string to check
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns `true` if the string contains regex special characters, `false` otherwise.
 fn is_regex_pattern(pattern: &str) -> bool {
     // These are common regex metacharacters excluding the wildcard character at the end
@@ -384,19 +440,19 @@ fn is_regex_pattern(pattern: &str) -> bool {
     let regex_special_chars = [
         '^', '$', '.', '+', '?', '(', ')', '[', ']', '{', '}', '|', '\\',
     ];
-    
+
     // Check if the pattern contains any regex special characters
     for &c in &regex_special_chars {
         if pattern.contains(c) {
             return true;
         }
     }
-    
+
     // If the pattern has a wildcard in the middle (not at the end), treat as regex
     if pattern.contains('*') && !pattern.ends_with("/*") {
         return true;
     }
-    
+
     // Otherwise it's a plain string or a simple wildcard pattern
     false
 }
