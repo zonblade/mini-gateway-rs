@@ -8,6 +8,8 @@ export interface Proxy {
     tls_key: string | null;
     tls_autron: boolean;
     sni: string | null;
+    high_speed: boolean;
+    high_speed_addr: string | null;
 }
 
 export interface ProxyForm {
@@ -20,6 +22,8 @@ export interface ProxyForm {
     tls_key: string;
     tls_autron: boolean;
     sni: string;
+    high_speed: boolean;
+    high_speed_addr: string;
 }
 
 // Convert API response to form data
@@ -33,7 +37,9 @@ export function toFormData(proxy: Proxy): ProxyForm {
         tls_pem: proxy.tls_pem || '',
         tls_key: proxy.tls_key || '',
         tls_autron: proxy.tls_autron || false,
-        sni: proxy.sni || ''
+        sni: proxy.sni || '',
+        high_speed: proxy.high_speed || false,
+        high_speed_addr: proxy.high_speed_addr || ''
     };
 }
 
@@ -48,6 +54,8 @@ export function toApiData(form: ProxyForm): Proxy {
         tls_pem: form.tls_pem || null,
         tls_key: form.tls_key || null,
         tls_autron: form.tls_autron,
-        sni: form.sni || null
+        sni: form.sni || null,
+        high_speed: form.high_speed,
+        high_speed_addr: form.high_speed_addr || null
     };
 }

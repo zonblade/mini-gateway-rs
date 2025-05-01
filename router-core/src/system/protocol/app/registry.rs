@@ -5,6 +5,8 @@ use std::thread::sleep;
 use std::time::Duration;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
 
 use crate::config::{self, GatewayNode, ProxyNode};
 use crate::system::protocol::types::ConnectionParams;
@@ -36,17 +38,35 @@ impl DataRegistry {
         // if file not exist, create it
         let path = format!("/tmp/gwrs/cert/{}", checksum);
         let pem_path = format!("{}/{}.pem", path, checksum);
-        let key_path = format!("{}/{}.key", path, checksum);
+        let key_path = format!("{}/{}-key.pem", path, checksum);
 
         // save pem and key to file
         match std::fs::create_dir_all(&path) {
             Ok(_) => {
+                // Set directory permissions to 700
+                if let Err(e) = std::fs::set_permissions(&path, Permissions::from_mode(0o700)) {
+                    log::error!("Failed to set directory permissions: {}", e);
+                }
+                
                 match std::fs::write(&pem_path, pem) {
-                    Ok(_) => log::debug!("PEM file saved to {}", pem_path),
+                    Ok(_) => {
+                        log::debug!("PEM file saved to {}", pem_path);
+                        // Set certificate permissions to 644
+                        if let Err(e) = std::fs::set_permissions(&pem_path, Permissions::from_mode(0o644)) {
+                            log::error!("Failed to set PEM file permissions: {}", e);
+                        }
+                    },
                     Err(e) => log::error!("Failed to save PEM file: {}", e),
                 }
+                
                 match std::fs::write(&key_path, key) {
-                    Ok(_) => log::debug!("Key file saved to {}", key_path),
+                    Ok(_) => {
+                        log::debug!("Key file saved to {}", key_path);
+                        // Set key file permissions to 600
+                        if let Err(e) = std::fs::set_permissions(&key_path, Permissions::from_mode(0o600)) {
+                            log::error!("Failed to set Key file permissions: {}", e);
+                        }
+                    },
                     Err(e) => log::error!("Failed to save Key file: {}", e),
                 }
             }

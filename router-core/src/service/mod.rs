@@ -26,4 +26,3 @@
 //! 3. Request processing based on current configuration
 //! 4. Graceful shutdown when termination signals are received
 pub mod proxy;
-pub mod gateway;

@@ -19,6 +19,5 @@
 //! 
 //! The implementations in this module build on the lower-level system components
 //! to provide the actual gateway and proxy behavior defined by user configuration.
-
-pub mod proxy;
-pub mod gateway;
+pub mod proxy_fast;
+pub mod gateway_fast;

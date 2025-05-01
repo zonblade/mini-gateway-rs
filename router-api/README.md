@@ -277,17 +277,19 @@ Retrieves a list of all configured proxies.
 
 **Response:** Returns an array of proxy objects.
 
-| Field       | Type    | Description                                |
-|-------------|---------|--------------------------------------------|
-| id          | string  | Unique proxy identifier                    |
-| title       | string  | Human-readable proxy name                  |
-| addr_listen | string  | Listen address (format: "ip:port")         |
-| addr_target | string  | Target address (format: "ip:port")         |
-| tls         | boolean | Whether TLS is enabled                     |
-| tls_pem     | string  | PEM-encoded certificate (null if not used) |
-| tls_key     | string  | Private key for certificate (null if not used) |
-| tls_autron  | boolean | Whether automatic TLS provisioning is enabled |
-| sni         | string  | Server Name Indication value (null if not used) |
+| Field           | Type    | Description                                |
+|---------------|---------|--------------------------------------------|
+| id            | string  | Unique proxy identifier                    |
+| title         | string  | Human-readable proxy name                  |
+| addr_listen   | string  | Listen address (format: "ip:port")         |
+| addr_target   | string  | Target address (format: "ip:port")         |
+| tls           | boolean | Whether TLS is enabled                     |
+| tls_pem       | string  | PEM-encoded certificate (null if not used) |
+| tls_key       | string  | Private key for certificate (null if not used) |
+| tls_autron    | boolean | Whether automatic TLS provisioning is enabled |
+| sni           | string  | Server Name Indication value (null if not used) |
+| speed_mode    | boolean | Whether speed mode is enabled for faster proxying |
+| speed_mode_addr | string  | Specific address to use for speed mode (null if not used) |
 
 **Example Response:**
 ```json
@@ -301,7 +303,9 @@ Retrieves a list of all configured proxies.
     "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
     "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
     "tls_autron": false,
-    "sni": "api.example.com"
+    "sni": "api.example.com",
+    "speed_mode": true,
+    "speed_mode_addr": "10.0.0.1:8081"
   },
   {
     "id": "proxy-2",
@@ -312,7 +316,9 @@ Retrieves a list of all configured proxies.
     "tls_pem": null,
     "tls_key": null,
     "tls_autron": false,
-    "sni": null
+    "sni": null,
+    "speed_mode": false,
+    "speed_mode_addr": null
   }
 ]
 ```
@@ -339,17 +345,19 @@ Creates a new proxy or updates an existing one.
 
 **Request:**
 
-| Field       | Type    | Description                                | Required |
-|-------------|---------|--------------------------------------------|----------|
-| id          | string  | Unique ID (empty for new)                  | No       |
-| title       | string  | Human-readable proxy name                  | Yes      |
-| addr_listen | string  | Listen address (format: "ip:port")         | Yes      |
-| addr_target | string  | Target address (format: "ip:port")         | Yes      |
-| tls         | boolean | Whether TLS is enabled                     | Yes      |
-| tls_pem     | string  | PEM-encoded certificate content            | No       |
-| tls_key     | string  | Private key content                        | No       |
-| tls_autron  | boolean | Whether to use automatic TLS provisioning  | No       |
-| sni         | string  | Server Name Indication value for TLS       | No       |
+| Field          | Type    | Description                                | Required |
+|----------------|---------|--------------------------------------------|----------|
+| id             | string  | Unique ID (empty for new)                  | No       |
+| title          | string  | Human-readable proxy name                  | Yes      |
+| addr_listen    | string  | Listen address (format: "ip:port")         | Yes      |
+| addr_target    | string  | Target address (format: "ip:port")         | Yes      |
+| tls            | boolean | Whether TLS is enabled                     | Yes      |
+| tls_pem        | string  | PEM-encoded certificate content            | No       |
+| tls_key        | string  | Private key content                        | No       |
+| tls_autron     | boolean | Whether to use automatic TLS provisioning  | No       |
+| sni            | string  | Server Name Indication value for TLS       | No       |
+| speed_mode     | boolean | Whether speed mode is enabled              | No       |
+| speed_mode_addr| string  | Specific address to use for speed mode     | No       |
 
 **Response:** Returns the saved proxy object.
 
@@ -363,7 +371,9 @@ Creates a new proxy or updates an existing one.
   "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
   "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
   "tls_autron": false,
-  "sni": "api.newservice.com"
+  "sni": "api.newservice.com",
+  "speed_mode": true,
+  "speed_mode_addr": "10.0.0.1:9091"
 }
 ```
 

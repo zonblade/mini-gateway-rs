@@ -143,7 +143,7 @@ impl Database {
             fs::create_dir_all(db_dir)?;
         }
         
-        let db_path = db_dir.join("core");
+        let db_path = db_dir.join("core.sqlite");
         let connection = Connection::open(db_path)?;
         
         Ok(Self {
@@ -157,7 +157,7 @@ impl Database {
             fs::create_dir_all(db_dir)?;
         }
         
-        let db_path = db_dir.join("core_logging");
+        let db_path = db_dir.join("core_logging.sqlite");
         let connection = Connection::open(db_path)?;
         
         Ok(Self {

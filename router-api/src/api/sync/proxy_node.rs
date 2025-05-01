@@ -24,6 +24,8 @@ use super::proxy_node_tcp::sync_proxy_nodes_to_registry;
 /// * `tls_pem` - PEM certificate content when TLS is enabled (optional)
 /// * `tls_key` - Private key content when TLS is enabled (optional)
 /// * `sni` - Server Name Indication value for TLS negotiation (optional)
+/// * `high_speed` - Whether speed mode is enabled for faster proxying 
+/// * `high_speed_addr` - Specific address to use for speed mode (optional)
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProxyNode {
     /// Address where the proxy listens for connections
@@ -43,6 +45,12 @@ pub struct ProxyNode {
     
     /// Server Name Indication value for TLS
     pub sni: Option<String>,
+    
+    /// Whether speed mode is enabled for faster proxying
+    pub high_speed: bool,
+    
+    /// Specific address to use for speed mode
+    pub high_speed_addr: Option<String>,
 }
 
 #[post("/proxy")]

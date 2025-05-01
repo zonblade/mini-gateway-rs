@@ -18,7 +18,7 @@
 //! which provides the `Configure` trait for simple configuration storage and retrieval.
 
 use mini_config::Configure;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Default port configuration for special service endpoints.
 ///
@@ -76,30 +76,6 @@ pub enum RoutingData {
     GatewayRouting,
 }
 
-/// General configuration keys.
-///
-/// This enum defines configuration keys for general system settings.
-/// These settings are typically used for connectivity and core system
-/// behavior rather than routing rules.
-///
-/// # Examples
-///
-/// ```
-/// // Get the storage connection string
-/// let storage_uri = GeneralConfig::StorageURI.get::<String>();
-/// ```
-#[derive(Debug, Clone, Configure)]
-pub enum GeneralConfig {
-    /// Storage system connection URI for component communication and persistence
-    StorageURI,
-    
-    /// Storage system type (e.g., "memory", "file", "database")
-    StorageType,
-    
-    /// Connection timeout in milliseconds
-    ConnectionTimeout
-}
-
 /// Proxy node configuration.
 ///
 /// This structure defines the configuration for a proxy endpoint, including
@@ -114,6 +90,9 @@ pub enum GeneralConfig {
 /// * `addr_listen` - Address and port the proxy listens on (e.g., "0.0.0.0:443")
 /// * `addr_target` - Target address to proxy requests to (e.g., "127.0.0.1:8080")
 /// * `priority` - Processing priority (higher values = higher priority)
+/// * `buffer_size` - Optional custom buffer size in bytes (default: 16KB)
+/// * `timeout_secs` - Optional custom connection timeout in seconds (default: 60s)
+/// * `adaptive_buffer` - Whether to use adaptive buffer sizing based on traffic patterns
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProxyNode {
     /// Whether TLS is enabled for this proxy node
@@ -133,6 +112,24 @@ pub struct ProxyNode {
     
     /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
     pub addr_target: String,
+
+    #[serde(default)]    
+    pub high_speed: bool,
+    
+    #[serde(default)]    
+    pub high_speed_addr: Option<String>,
+    
+    /// Custom buffer size in bytes (optional)
+    #[serde(default)]    
+    pub buffer_size: Option<usize>,
+    
+    /// Custom connection timeout in seconds (optional)
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    
+    /// Whether to use adaptive buffer sizing based on traffic patterns
+    #[serde(default)]
+    pub adaptive_buffer: bool,
 }
 
 /// Gateway node configuration.
@@ -163,37 +160,6 @@ pub struct GatewayNode {
     
     /// Target path to rewrite matched paths to (e.g., "/")
     pub path_target: String,
-}
-
-/// Convert a JSON string to a typed struct.
-///
-/// This helper function deserializes a JSON string into a typed Rust struct,
-/// panicking if deserialization fails.
-///
-/// # Arguments
-///
-/// * `json_str` - JSON string to deserialize
-///
-/// # Returns
-///
-/// The deserialized data structure of type T
-///
-/// # Panics
-///
-/// This function will panic if the JSON string cannot be deserialized into
-/// the requested type T.
-///
-/// # Examples
-///
-/// ```
-/// let json = r#"{"priority": 10, "addr_listen": "0.0.0.0:80", ...}"#;
-/// let node: GatewayNode = str_to_json(json);
-/// ```
-pub fn str_to_json<T>(json_str: &str) -> T
-where
-    T: DeserializeOwned,
-{
-    serde_json::from_str(json_str).unwrap()
 }
 
 /// Initialize the configuration system with default values.

@@ -17,7 +17,7 @@ use mini_config::Configure;
 ///   Default is `127.0.0.1:30099`.
 ///
 /// * `BufferSize` - Size of the buffer (in bytes) for reading from and writing to socket connections.
-///   Default is 1024 bytes.
+///   Default is 16384 bytes.
 ///
 /// * `ProtocolPrefix` - Prefix string that identifies messages using this protocol.
 ///   Default is `gate://`.
@@ -67,7 +67,7 @@ pub const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:30099";
 ///
 /// This determines how much data can be read from or written to a socket in a single operation.
 /// The value represents a balance between memory usage and efficient I/O operations.
-pub const DEFAULT_BUFFER_SIZE: usize = 1024;
+pub const DEFAULT_BUFFER_SIZE: usize = 16384;
 
 /// Default prefix that identifies protocol messages
 ///
