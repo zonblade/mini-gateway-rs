@@ -44,6 +44,7 @@ pub struct ExampleService {
     name: String,
 }
 
+#[allow(dead_code)]
 impl ExampleService {
     /// Create a custom instance with a specific name
     ///
@@ -64,6 +65,7 @@ impl ExampleService {
 }
 
 #[async_trait]
+#[allow(dead_code)]
 impl ServiceProtocol for ExampleService {
     /// Creates a new instance with the default name "example"
     ///
@@ -91,7 +93,7 @@ impl ServiceProtocol for ExampleService {
         socket: &mut TcpStream,
         buffer: &[u8],
         _buffer_size: usize,
-        params: &ConnectionParams,
+        _params: &ConnectionParams,
     ) -> io::Result<()> {
         // Example processing - echo the request with a prefix
         let request_str = String::from_utf8_lossy(buffer);

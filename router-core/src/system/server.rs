@@ -113,11 +113,22 @@ pub fn init() {
 
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
-            my_server.bootstrap();
+            // my_server.bootstrap();
             let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
+
+            let mut already_listened: Vec<String> = vec![];
+
+            log::info!("Gateway Added: {:#?}", &gateway);
 
             for gw in gateway {
                 let listen_addr = gw.addr_listen.clone();
+
+                // check if the listen address is already listened
+                if already_listened.contains(&listen_addr) {
+                    log::warn!("Gateway service {} is already listened", &listen_addr);
+                    continue;
+                }
+                already_listened.push(listen_addr.clone());
 
                 // find the proxy setup for the listen address
                 let proxy_setup = proxy
@@ -134,14 +145,22 @@ pub fn init() {
                     .iter()
                     .any(|px| px.addr_listen == proxy_setup.addr_listen);
                 if is_high_speed {
+                    log::warn!(
+                        "Gateway service {} is already handled by high speed proxy",
+                        &proxy_setup.addr_listen
+                    );
                     continue;
                 }
+
+                log::info!("Setting up gateway service for {}", &gw.addr_target);
 
                 // setup the gateway service
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
                     &my_server.configuration,
-                    GatewayApp::new(&proxy_setup.addr_target),
+                    GatewayApp::new(&gw.addr_listen),
                 );
+
+                log::warn!("Gateway Added: {:#?}", &proxy_setup.addr_listen);
 
                 // setup if there any SSL
                 let proxy_sni = proxy_setup.sni;
@@ -149,7 +168,6 @@ pub fn init() {
                 let proxy_tls_pem = proxy_setup.tls_pem;
                 let proxy_tls_key = proxy_setup.tls_key;
 
-                let mut tls_settings;
                 // setup tls if needed
                 if proxy_tls
                     && proxy_sni.is_some()
@@ -160,8 +178,8 @@ pub fn init() {
                     let key_path = proxy_tls_key.as_ref().unwrap();
 
                     let dynamic_cert = boringssl_openssl::DynamicCert::new(&cert_path, &key_path);
-                    tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
-                    // by default intermediate supports both TLS 1.2 and 1.3. We force to tls 1.2 just for the demo
+                    let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
+                    // // by default intermediate supports both TLS 1.2 and 1.3. We force to tls 1.2 just for the demo
 
                     tls_settings
                         .deref_mut()
@@ -206,15 +224,8 @@ pub fn init() {
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 
             for px in proxy {
-                println!("Proxy node: {:#?}", px);
-                let addr_target = {
-                    if px.high_speed {
-                        px.high_speed_addr.unwrap_or(px.addr_target)
-                    } else {
-                        px.addr_target
-                    }
-                };
-                println!("Proxy target address: {}", addr_target);
+                let addr_target = px.high_speed_addr.unwrap_or(px.addr_target);
+                log::warn!("Proxy Added: {}", &px.addr_listen);
 
                 if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
                     let proxy_tls = service::proxy::proxy_service_tls_fast(

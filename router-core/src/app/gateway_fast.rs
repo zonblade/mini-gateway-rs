@@ -37,7 +37,10 @@
 //! 5. Response from the backend is returned to the client.
 
 use async_trait::async_trait;
-use log::{debug, error, info, warn}; // Use log macros consistently
+use bytes::Bytes;
+use http::StatusCode;
+use log::{debug, error, info, warn}; use pingora::http::ResponseHeader;
+// Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::BasicPeer;
@@ -196,23 +199,29 @@ impl GatewayApp {
             route_cache: Arc::new(ShardedLruCache::new(DEFAULT_PER_SHARD_CAPACITY)),
         };
         // Initial population of rules
-        app.populate_rules();
+        app.populate_rules(true);
         app
     }
 
     /// Populates or refreshes the routing rules from the configuration source.
     /// This is the main function responsible for loading and processing rules.
-    fn populate_rules(&self) {
+    fn populate_rules(&self, init: bool) {
         let current_config_id = config::RoutingData::GatewayID.get();
         debug!(
             "Checking configuration. Current ID: '{}'",
             current_config_id
         );
-
         // Fast path: Check if config ID has changed using a read lock first.
         let config_changed = {
             match SAVED_CONFIG_ID.read() {
-                Ok(saved_id_guard) => *saved_id_guard != current_config_id,
+                Ok(saved_id_guard) => {
+                    log::debug!(
+                        "Comparing saved config ID '{}' with current ID '{}'",
+                        *saved_id_guard,
+                        current_config_id
+                    );
+                    *saved_id_guard != current_config_id
+                }
                 Err(e) => {
                     error!("Failed to acquire read lock on SAVED_CONFIG_ID: {}. Assuming config changed.", e);
                     true // Assume change if we can't read
@@ -220,7 +229,7 @@ impl GatewayApp {
             }
         };
 
-        if !config_changed {
+        if !init && !config_changed {
             debug!(
                 "Configuration ID unchanged ('{}'). Skipping rule population.",
                 current_config_id
@@ -259,10 +268,25 @@ impl GatewayApp {
         // Process and compile rules relevant to *this* gateway instance's source.
         let mut applicable_rules = Vec::new();
         for node in gateway_nodes {
-            // Filter rules for the current listener source.
+            log::debug!(
+                "Processing node: addr_listen={}, addr_target={}, path_listen={}, path_target={}, targetd={}",
+                node.addr_listen, node.addr_target, node.path_listen, node.path_target, self.source
+            );
             if node.addr_listen != self.source {
                 continue;
             }
+            // Filter rules for the current listener source.
+            log::debug!(
+                "Processing rule for source: {}, target: {}",
+                node.addr_target,
+                self.source
+            );
+
+            log::debug!(
+                "Path listen: {}, path target: {}",
+                node.path_listen,
+                node.path_target
+            );
 
             // Determine if this is a plain string path, a wildcard path, or a regex pattern.
             // Process the pattern string to handle different formats
@@ -297,17 +321,25 @@ impl GatewayApp {
 
             // Create the target peer (use Arc for cheap sharing).
             // BasicPeer::new takes &str, so clone addr_target if needed or pass reference
+            log::debug!(
+                "Creating target peer for address: {}",
+                node.addr_target
+            );
             let target_peer = Arc::new(BasicPeer::new(&node.addr_target));
 
             applicable_rules.push(RedirectRule {
                 pattern,
                 target_template: node.path_target, // Store the template string
-                _alt_listen: node.addr_listen,      // Already checked, but store for completeness
+                _alt_listen: node.addr_listen,     // Already checked, but store for completeness
                 alt_target: target_peer,
                 priority: node.priority as usize,
             });
         }
-
+        log::info!(
+            "Found {} applicable rules for source: {}",
+            applicable_rules.len(),
+            self.source
+        );
         if applicable_rules.is_empty() {
             info!(
                 "No applicable redirect rules found for source: {}",
@@ -369,10 +401,18 @@ impl GatewayApp {
     #[inline]
     fn get_rules(&self) -> Arc<Vec<RedirectRule>> {
         match REDIRECT_RULES.read() {
-            Ok(rules_map_guard) => rules_map_guard
-                .get(&self.source)
-                .cloned()
-                .unwrap_or_else(|| Arc::new(Vec::new())),
+            Ok(rules_map_guard) => {
+                rules_map_guard
+                    .get(&self.source)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        log::warn!(
+                            "No rules found for source '{}'. Returning empty ruleset.",
+                            self.source
+                        );
+                        Arc::new(Vec::new())
+                    })
+            }
             Err(e) => {
                 error!(
                     "Failed to acquire read lock on REDIRECT_RULES: {}. Returning empty ruleset.",
@@ -409,7 +449,7 @@ impl GatewayApp {
                         drop(last_check_guard);
                         // Now perform the actual check and potential reload
                         debug!("Checking rules due to interval check...");
-                        self.populate_rules();
+                        self.populate_rules(false);
                     }
                     // If the double-check fails, another thread already handled it.
                 }
@@ -520,9 +560,14 @@ impl ProxyHttp for GatewayApp {
 
         // 4. Cache Miss - Apply routing rules
         debug!("Cache miss for key: {}", cache_key);
+        debug!("Checking rules for path: {}", path);
+        
         let rules = self.get_rules(); // Gets an Arc<Vec<RedirectRule>>
 
         for rule in rules.iter() {
+            // ADD THIS LINE FOR DEBUGGING:
+            debug!("Testing path '{}' against rule pattern: '{}' (priority: {})", path, rule.pattern, rule.priority);
+
             // Match against the path part only
             if let Some(captures) = rule.pattern.captures(path) {
                 // Rule matches!
@@ -575,7 +620,6 @@ impl ProxyHttp for GatewayApp {
                     (final_path_query, rule.alt_target.clone()),
                 );
                 debug!("Cached result for key used in insertion"); // Key might have been owned now
-
                 // Return the target peer for this rule.
                 // Use the address string from BasicPeer directly
                 let peer_address = &rule.alt_target._address; // Get address string
@@ -592,6 +636,7 @@ impl ProxyHttp for GatewayApp {
         // Clone the precomputed Box<HttpPeer>
         Ok(DEFAULT_FALLBACK_PEER.clone())
     }
+    
 
     /// Logs request details after completion.
     async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {

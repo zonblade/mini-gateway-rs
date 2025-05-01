@@ -38,6 +38,7 @@ const CACHE_SHARDS: usize = 8;
 // Default capacity per shard if not otherwise specified
 const DEFAULT_PER_SHARD_CAPACITY: usize = 100; // ~800 total routes
 
+#[derive(Debug)]
 struct RewriteRule {
     pattern: Regex,
     replacement: String,
@@ -313,6 +314,20 @@ impl ProxyApp {
         let request_line = &request_str[..line_end];
         let rest_of_request = &request_str[line_end..];
 
+        // Log the full request line for debugging
+        debug!("Received request line: '{}'", request_line);
+
+        // Parse the request line to extract Method, Path, and Protocol
+        let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
+        if parts.len() < 3 {
+            debug!("Malformed request line: '{}'", request_line);
+            return length; // Malformed, return original
+        }
+        let method = parts[0];
+        let request_path = parts[1];
+        let protocol = parts[2];
+        debug!("Parsed request path: '{}'", request_path);
+
         // Try each rewrite rule
         let rules_guard = match self.path_rewrites.read() {
             Ok(guard) => guard,
@@ -326,14 +341,16 @@ impl ProxyApp {
             let mut matches = Vec::new();
             let mut captures = Vec::new();
 
-            // Use regex-automata to find matches
-            for mat in rule.pattern.find_iter(request_line.as_bytes()) {
+            log::debug!("Checking rewrite rule pattern for request_path: '{}'", request_path);
+
+            // Use regex-automata to find matches in the path
+            for mat in rule.pattern.find_iter(request_path.as_bytes()) {
                 matches.push((mat.start(), mat.end()));
 
                 // Extract capture groups
                 // This is simplified since regex-automata's Match doesn't directly provide captures
                 // In a real implementation, you'd need to extract captures based on the match bounds
-                let matched_text = &request_line[mat.start()..mat.end()];
+                let matched_text = &request_path[mat.start()..mat.end()];
                 captures.push(matched_text);
             }
 
@@ -341,9 +358,9 @@ impl ProxyApp {
             if let Some((start, end)) = matches.first() {
                 debug!("Matched regex pattern for rewrite");
 
-                // Get parts before and after the match
-                let before = &request_line[..*start];
-                let after = &request_line[*end..];
+                // Get parts of the *path* before and after the match
+                let before = &request_path[..*start];
+                let after = &request_path[*end..];
 
                 // Process replacement template with capture references
                 let replacement = self.process_replacement(
@@ -351,8 +368,9 @@ impl ProxyApp {
                     &rule.replacement,
                 );
 
-                // Create the new request line and full request
-                let new_request_line = format!("{}{}{}", before, replacement, after);
+                // Create the new *path* and then the new request line
+                let new_request_path = format!("{}{}{}", before, replacement, after);
+                let new_request_line = format!("{} {} {}", method, new_request_path, protocol);
                 let new_request = format!("{}{}", new_request_line, rest_of_request);
 
                 // Log rewrite information with special note for WebSocket upgrades
@@ -382,8 +400,10 @@ impl ProxyApp {
             }
         }
 
-        // No rewrite performed, return original length
-        length
+        // No rewrite performed
+        debug!("No rewrite rule matched for request path: {}", request_path);
+        // should close if no match
+        0
     }
 
     /// Checks if the configuration should be reloaded based on time interval.
@@ -476,22 +496,22 @@ impl ProxyApp {
                 result = downstream_read => match result {
                     Ok(Ok(n)) => event = DuplexEvent::DownstreamRead(n),
                     Ok(Err(e)) => {
-                        log::error!("Error reading from downstream: {}", e);
+                        log::debug!("Error reading from downstream: {}", e);
                         return;
                     },
                     Err(_) => {
-                        log::error!("Timeout reading from downstream");
+                        log::debug!("Timeout reading from downstream");
                         return;
                     }
                 },
                 result = upstream_read => match result {
                     Ok(Ok(n)) => event = DuplexEvent::UpstreamRead(n),
                     Ok(Err(e)) => {
-                        log::error!("Error reading from upstream: {}", e);
+                        log::debug!("Error reading from upstream: {}", e);
                         return;
                     },
                     Err(_) => {
-                        log::error!("Timeout reading from upstream");
+                        log::debug!("Timeout reading from upstream");
                         return;
                     }
                 },
@@ -508,27 +528,31 @@ impl ProxyApp {
                 DuplexEvent::DownstreamRead(n) => {
                     // Try to rewrite the request if it's HTTP
                     let write_len = self.rewrite_http_request(&mut upstream_buf, n);
-
+                    if write_len == 0 {
+                        debug!("Request rewrite failed, closing connection");
+                        return; // Close connection on rewrite failure
+                    }
                     if let Err(e) = client_session
                         .write_all(&upstream_buf[0..write_len])
                         .await {
-                            error!("Error writing to upstream client: {}", e);
+                            debug!("Error writing to upstream client: {}", e);
                             return; // Close connection on write error
                         }
                     if let Err(e) = client_session.flush().await {
-                        error!("Error flushing upstream client: {}", e);
+                        debug!("Error flushing upstream client: {}", e);
                         return; // Close connection on flush error
                     }
                 }
                 DuplexEvent::UpstreamRead(n) => {
+                    log::debug!("Incoming data from upstream: {}", n);
                      if let Err(e) = server_session
                         .write_all(&downstream_buf[0..n])
                         .await {
-                            error!("Error writing to downstream server: {}", e);
+                            debug!("Error writing to downstream server: {}", e);
                             return; // Close connection on write error
                         }
                     if let Err(e) = server_session.flush().await {
-                        error!("Error flushing downstream server: {}", e);
+                        debug!("Error flushing downstream server: {}", e);
                         return; // Close connection on flush error
                     }
                 }

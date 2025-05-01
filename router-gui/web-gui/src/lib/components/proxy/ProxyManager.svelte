@@ -8,6 +8,7 @@
     import Button from "$lib/components/common/Button.svelte";
     import { proxyStore } from "$lib/stores/proxyStore";
     import type { Proxy } from "$lib/types/proxy";
+    import gwnodeActions from "$lib/actions/gwnodeActions";
     
     // For adapting our API Proxy type to match the UI's expected format
     interface UIProxy {
@@ -178,6 +179,7 @@
     async function syncProxies(): Promise<void> {
         try {
             const result = await proxyStore.syncProxies();
+            await gwnodeActions.syncGatewayNodes();
             alert(result.message);
         } catch (error) {
             console.error('Error syncing proxies:', error);

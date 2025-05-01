@@ -18,7 +18,7 @@
 //! which provides the `Configure` trait for simple configuration storage and retrieval.
 
 use mini_config::Configure;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Default port configuration for special service endpoints.
 ///
@@ -74,30 +74,6 @@ pub enum RoutingData {
     
     /// Key for gateway routing configuration data
     GatewayRouting,
-}
-
-/// General configuration keys.
-///
-/// This enum defines configuration keys for general system settings.
-/// These settings are typically used for connectivity and core system
-/// behavior rather than routing rules.
-///
-/// # Examples
-///
-/// ```
-/// // Get the storage connection string
-/// let storage_uri = GeneralConfig::StorageURI.get::<String>();
-/// ```
-#[derive(Debug, Clone, Configure)]
-pub enum GeneralConfig {
-    /// Storage system connection URI for component communication and persistence
-    StorageURI,
-    
-    /// Storage system type (e.g., "memory", "file", "database")
-    StorageType,
-    
-    /// Connection timeout in milliseconds
-    ConnectionTimeout
 }
 
 /// Proxy node configuration.
@@ -184,37 +160,6 @@ pub struct GatewayNode {
     
     /// Target path to rewrite matched paths to (e.g., "/")
     pub path_target: String,
-}
-
-/// Convert a JSON string to a typed struct.
-///
-/// This helper function deserializes a JSON string into a typed Rust struct,
-/// panicking if deserialization fails.
-///
-/// # Arguments
-///
-/// * `json_str` - JSON string to deserialize
-///
-/// # Returns
-///
-/// The deserialized data structure of type T
-///
-/// # Panics
-///
-/// This function will panic if the JSON string cannot be deserialized into
-/// the requested type T.
-///
-/// # Examples
-///
-/// ```
-/// let json = r#"{"priority": 10, "addr_listen": "0.0.0.0:80", ...}"#;
-/// let node: GatewayNode = str_to_json(json);
-/// ```
-pub fn str_to_json<T>(json_str: &str) -> T
-where
-    T: DeserializeOwned,
-{
-    serde_json::from_str(json_str).unwrap()
 }
 
 /// Initialize the configuration system with default values.
