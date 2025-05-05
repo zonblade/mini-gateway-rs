@@ -22,11 +22,8 @@ use std::net::TcpListener;
 /// - `title`: TEXT NOT NULL - Human-readable name for the proxy
 /// - `addr_listen`: TEXT NOT NULL - Address where the proxy listens for connections
 /// - `addr_target`: TEXT NOT NULL - Target address where requests are forwarded
-/// - `tls`: BOOLEAN NOT NULL DEFAULT 0 - Whether TLS is enabled
-/// - `tls_pem`: TEXT - PEM certificate content
-/// - `tls_key`: TEXT - Private key content
-/// - `tls_autron`: BOOLEAN NOT NULL DEFAULT 0 - Whether automatic TLS is enabled
-/// - `sni`: TEXT - Server Name Indication value
+/// - `high_speed`: BOOLEAN NOT NULL DEFAULT 0 - Whether speed mode is enabled
+/// - `high_speed_addr`: TEXT - Specific address to use for speed mode
 ///
 /// # Returns
 ///
@@ -41,22 +38,79 @@ use std::net::TcpListener;
 pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
 
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS proxies (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            addr_listen TEXT NOT NULL,
-            addr_target TEXT NOT NULL,
-            tls BOOLEAN NOT NULL DEFAULT 0,
-            tls_pem TEXT,
-            tls_key TEXT,
-            tls_autron BOOLEAN NOT NULL DEFAULT 0,
-            sni TEXT,
-            high_speed BOOLEAN NOT NULL DEFAULT 0,
-            high_speed_addr TEXT
-        )",
+    // Check if we need to migrate from old table structure
+    let needs_migration = db.query(
+        "SELECT tls FROM proxies LIMIT 1",
         [],
-    )?;
+        |_| Ok(true)
+    ).is_ok();
+
+    if needs_migration {
+        // If old table structure exists, we'll create a temporary table and migrate data
+        log::info!("Migrating proxies table to new structure...");
+        
+        // Create temporary table with new structure
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS proxies_new (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                addr_listen TEXT NOT NULL,
+                addr_target TEXT NOT NULL,
+                high_speed BOOLEAN NOT NULL DEFAULT 0,
+                high_speed_addr TEXT
+            )",
+            [],
+        )?;
+        
+        // Copy data from old table to new table, dropping TLS-related fields
+        db.execute(
+            "INSERT INTO proxies_new (id, title, addr_listen, addr_target, high_speed, high_speed_addr)
+             SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies",
+            [],
+        )?;
+        
+        // Create ProxyDomain entries for any proxy with TLS enabled
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS proxy_domains (
+                id TEXT PRIMARY KEY,
+                proxy_id TEXT NOT NULL,
+                gwnode_id TEXT NOT NULL DEFAULT '',
+                tls BOOLEAN NOT NULL DEFAULT 0,
+                tls_pem TEXT,
+                tls_key TEXT,
+                sni TEXT,
+                FOREIGN KEY(proxy_id) REFERENCES proxies(id)
+            )",
+            [],
+        )?;
+        
+        // Migrate TLS data to proxy_domains table
+        db.execute(
+            "INSERT INTO proxy_domains (id, proxy_id, gwnode_id, tls, tls_pem, tls_key, sni)
+             SELECT hex(randomblob(16)), id, '', tls, tls_pem, tls_key, sni
+             FROM proxies WHERE tls = 1",
+            [],
+        )?;
+        
+        // Rename tables to complete migration
+        db.execute("DROP TABLE proxies", [])?;
+        db.execute("ALTER TABLE proxies_new RENAME TO proxies", [])?;
+        
+        log::info!("Migration completed successfully.");
+    } else {
+        // If no migration needed, just create the new table
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS proxies (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                addr_listen TEXT NOT NULL,
+                addr_target TEXT NOT NULL,
+                high_speed BOOLEAN NOT NULL DEFAULT 0,
+                high_speed_addr TEXT
+            )",
+            [],
+        )?;
+    }
 
     Ok(())
 }
@@ -111,23 +165,6 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
                 title: row.get(1)?,
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
-                tls: row.get(4)?,
-                tls_pem: match row.get::<_, String>(5) {
-                    Ok(s) if s == "\u{0000}" => None,
-                    Ok(s) => Some(s),
-                    Err(_) => None,
-                },
-                tls_key: match row.get::<_, String>(6) {
-                    Ok(s) if s == "\u{0000}" => None,
-                    Ok(s) => Some(s),
-                    Err(_) => None,
-                },
-                tls_autron: row.get(7)?,
-                sni: match row.get::<_, String>(8) {
-                    Ok(s) if s == "\u{0000}" => None,
-                    Ok(s) => Some(s),
-                    Err(_) => None,
-                },
                 high_speed: row.get(9)?,
                 high_speed_addr: match row.get::<_, String>(10) {
                     Ok(s) if s == "\u{0000}" => None,
@@ -193,23 +230,6 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
                 title: row.get(1)?,
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
-                tls: row.get(4)?,
-                tls_pem: match row.get::<_, String>(5) {
-                    Ok(s) if s == "\\u{0000}" => None,
-                    Ok(s) => Some(s),
-                    Err(_) => None,
-                },
-                tls_key: match row.get::<_, String>(6) {
-                    Ok(s) if s == "\\u{0000}" => None,
-                    Ok(s) => Some(s),
-                    Err(_) => None,
-                },
-                tls_autron: row.get(7)?,
-                sni: match row.get::<_, String>(8) {
-                    Ok(s) if s == "\\u{0000}" => None,
-                    Ok(s) => Some(s),
-                    Err(_) => None,
-                },
                 high_speed: row.get(9)?,
                 high_speed_addr: match row.get::<_, String>(10) {
                     Ok(s) if s == "\\u{0000}" => None,
@@ -288,11 +308,6 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
             &proxy.title,
             &proxy.addr_listen,
             &proxy.addr_target,
-            &(if proxy.tls { "1" } else { "0" }).to_string(),
-            &proxy.tls_pem.clone().unwrap_or("\u{0000}".to_string()),
-            &proxy.tls_key.clone().unwrap_or("\u{0000}".to_string()),
-            &(if proxy.tls_autron { "1" } else { "0" }).to_string(),
-            &proxy.sni.clone().unwrap_or("\u{0000}".to_string()),
             &(if proxy.high_speed { "1" } else { "0" }).to_string(),
             &proxy.high_speed_addr.clone().unwrap_or("\u{0000}".to_string()),
         ],

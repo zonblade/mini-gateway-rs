@@ -27,13 +27,10 @@ use crate::module::database::DatabaseError;
 /// - `id` (optional): The unique identifier for the proxy. If empty, a new UUID will be generated.
 /// - `title`: Human-readable name for the proxy.
 /// - `addr_listen`: Address where the proxy listens for connections (format: "ip:port").
-/// - `tls` (optional): Whether TLS is enabled for incoming connections (default: false).
-/// - `tls_pem` (optional): PEM certificate content when TLS is manually configured.
-/// - `tls_key` (optional): Private key content when TLS is manually configured.
-/// - `tls_autron` (optional): Whether automatic TLS certificate provisioning is enabled (default: false).
-/// - `sni` (optional): Server Name Indication value for TLS negotiation.
 /// - `high_speed` (optional): Whether speed mode is enabled for faster proxying (default: false).
 /// - `high_speed_addr` (optional): Specific address to use for speed mode.
+///
+/// Note: TLS configuration has been moved to the ProxyDomain entity.
 ///
 /// Note: The `addr_target` field does not need to be provided in the request as it is
 /// automatically generated with an available port on 127.0.0.1.

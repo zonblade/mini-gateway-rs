@@ -24,6 +24,7 @@ use uuid::Uuid;
 /// - `proxy_id`: TEXT NOT NULL - Reference to the associated proxy's ID
 /// - `title`: TEXT NOT NULL - Human-readable name for this gateway node
 /// - `alt_target`: TEXT NOT NULL - Alternative target URL for routing
+/// - `priority`: INTEGER NOT NULL DEFAULT 100 - Processing priority
 ///
 /// A foreign key constraint is established to ensure referential integrity with the
 /// proxies table, though gateway nodes can exist with a special "unbound" proxy_id
@@ -42,24 +43,49 @@ use uuid::Uuid;
 pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
-    // Check if the table structure is correct by trying to select the columns we need
-    let check_result = db.query(
+    // Check if we need to migrate from old table structure
+    let needs_migration = db.query(
         "SELECT id, proxy_id, title, alt_target FROM gateway_nodes LIMIT 1",
         [],
-        |_| Ok(()),
-    );
+        |_| Ok(())
+    ).is_ok() && db.query(
+        "SELECT priority FROM gateway_nodes LIMIT 1",
+        [],
+        |_| Ok(())
+    ).is_err();
     
-    if check_result.is_err() {
-        match check_result {
-            Err(e)=>{
-                log::error!("Error checking gateway_nodes table structure: {}", e);
-            },
-            _=>{}
-        }
-        // If there's an error, the table might not exist or has an incorrect structure
-        // First try to drop the table if it exists
+    if needs_migration {
+        // If old table structure exists, we'll create a temporary table and migrate data
+        log::info!("Migrating gateway_nodes table to add priority field...");
+        
+        // Create temporary table with new structure
+        db.execute(
+            "CREATE TABLE gateway_nodes_new (
+                id TEXT PRIMARY KEY,
+                proxy_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                alt_target TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 100,
+                FOREIGN KEY(proxy_id) REFERENCES proxies(id)
+            )",
+            [],
+        )?;
+        
+        // Copy data from old table to new table, adding default priority
+        db.execute(
+            "INSERT INTO gateway_nodes_new (id, proxy_id, title, alt_target, priority)
+             SELECT id, proxy_id, title, alt_target, 100 FROM gateway_nodes",
+            [],
+        )?;
+        
+        // Rename tables to complete migration
+        db.execute("DROP TABLE gateway_nodes", [])?;
+        db.execute("ALTER TABLE gateway_nodes_new RENAME TO gateway_nodes", [])?;
+        
+        log::info!("Migration completed successfully.");
+    } else {
+        // If no migration needed, or table doesn't exist yet, just create the new table
         let _ = db.execute("DROP TABLE IF EXISTS gateway_nodes", []);
-        log::warn!("Recreating gateway_nodes table with correct structure");
         
         // Create the table with the correct structure
         db.execute(
@@ -68,6 +94,7 @@ pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
                 proxy_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 alt_target TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 100,
                 FOREIGN KEY(proxy_id) REFERENCES proxies(id)
             )",
             [],
@@ -119,7 +146,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
     
     // Query all gateway nodes
     let nodes = db.query(
-        "SELECT id, proxy_id, title, alt_target FROM gateway_nodes",
+        "SELECT id, proxy_id, title, alt_target, priority FROM gateway_nodes",
         [],
         |row| {
             Ok(GatewayNode {
@@ -127,6 +154,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
                 proxy_id: row.get(1)?,
                 title: row.get(2)?,
                 alt_target: row.get(3)?,
+                priority: row.get(4)?,
             })
         },
     )?;
@@ -181,7 +209,7 @@ pub fn get_gateway_node_by_id(id: &str) -> Result<Option<GatewayNode>, DatabaseE
     
     // Query the gateway node by ID
     let node = db.query_one(
-        "SELECT id, proxy_id, title, alt_target FROM gateway_nodes WHERE id = ?1",
+        "SELECT id, proxy_id, title, alt_target, priority FROM gateway_nodes WHERE id = ?1",
         [id],
         |row| {
             Ok(GatewayNode {
@@ -189,6 +217,7 @@ pub fn get_gateway_node_by_id(id: &str) -> Result<Option<GatewayNode>, DatabaseE
                 proxy_id: row.get(1)?,
                 title: row.get(2)?,
                 alt_target: row.get(3)?,
+                priority: row.get(4)?,
             })
         },
     )?;
@@ -244,7 +273,8 @@ pub fn get_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<Vec<GatewayNode>,
     
     // Query gateway nodes by proxy ID
     let nodes = db.query(
-        "SELECT id, proxy_id, title, alt_target FROM gateway_nodes WHERE proxy_id = ?1",
+        "SELECT id, proxy_id, title, alt_target, priority FROM gateway_nodes WHERE proxy_id = ?1
+         ORDER BY priority DESC",
         [proxy_id],
         |row| {
             Ok(GatewayNode {
@@ -252,6 +282,7 @@ pub fn get_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<Vec<GatewayNode>,
                 proxy_id: row.get(1)?,
                 title: row.get(2)?,
                 alt_target: row.get(3)?,
+                priority: row.get(4)?,
             })
         },
     )?;
@@ -296,6 +327,7 @@ pub fn get_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<Vec<GatewayNode>,
 ///     proxy_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
 ///     title: "API Backup Gateway".to_string(),
 ///     alt_target: "http://backup-server.internal:8080".to_string(),
+///     priority: 150, // Higher priority than default
 /// };
 ///
 /// match gwnode_queries::save_gateway_node(&node) {
@@ -309,15 +341,21 @@ pub fn save_gateway_node(node: &GatewayNode) -> Result<(), DatabaseError> {
     // Ensure the table exists
     ensure_gateway_nodes_table()?;
     
-    // Insert or replace the gateway node
+    // Insert or update the gateway node
     db.execute(
-        "INSERT OR REPLACE INTO gateway_nodes (id, proxy_id, title, alt_target) 
-         VALUES (?1, ?2, ?3, ?4)",
-        [
-            &node.id,
-            &node.proxy_id,
-            &node.title,
-            &node.alt_target,
+        "INSERT INTO gateway_nodes (id, proxy_id, title, alt_target, priority)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(id) DO UPDATE SET
+         proxy_id = ?2,
+         title = ?3,
+         alt_target = ?4,
+         priority = ?5",
+        rusqlite::params![
+            node.id,
+            node.proxy_id,
+            node.title,
+            node.alt_target,
+            node.priority,
         ],
     )?;
     

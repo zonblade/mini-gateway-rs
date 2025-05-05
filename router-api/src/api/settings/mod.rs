@@ -21,6 +21,10 @@ pub mod proxy_get;
 pub mod proxy_list;
 pub mod proxy_queries;
 pub mod proxy_set;
+pub mod proxydomain_get;
+pub mod proxydomain_list;
+pub mod proxydomain_queries;
+pub mod proxydomain_set;
 
 use serde::{Deserialize, Serialize};
 
@@ -31,10 +35,11 @@ use crate::api::users::RoleAuth;
 
 use super::users::JwtAuth;
 
+
 /// Represents a proxy configuration in the system
 ///
 /// A proxy is the most basic routing component that listens on a specific address and
-/// forwards traffic to a target address. It can optionally use TLS for secure connections.
+/// forwards traffic to a target address.
 ///
 /// # Fields
 ///
@@ -42,11 +47,6 @@ use super::users::JwtAuth;
 /// * `title` - Human-readable name for easy identification in user interfaces
 /// * `addr_listen` - Network address where the proxy listens (format: "ip:port")
 /// * `addr_target` - Destination address where traffic is forwarded (format: "ip:port")
-/// * `tls` - Whether HTTPS/TLS is enabled for incoming connections
-/// * `tls_pem` - PEM-encoded certificate when TLS is manually configured
-/// * `tls_key` - Private key for the certificate when TLS is manually configured
-/// * `tls_autron` - Whether automatic TLS certificate provisioning is enabled
-/// * `sni` - Server Name Indication value for TLS negotiation
 /// * `high_speed` - Whether speed mode is enabled for faster proxying (optional)
 /// * `high_speed_addr` - Specific address to use for speed mode (optional)
 ///
@@ -59,11 +59,6 @@ use super::users::JwtAuth;
 ///     title: "Web Server",
 ///     addr_listen: "0.0.0.0:80",
 ///     addr_target: "127.0.0.1:8080",
-///     tls: false,
-///     tls_pem: None,
-///     tls_key: None,
-///     tls_autron: false,
-///     sni: None,
 ///     high_speed: false,
 ///     high_speed_addr: None,
 /// }
@@ -78,20 +73,56 @@ pub struct Proxy {
     pub addr_listen: String,
     /// Target address where requests are forwarded to
     pub addr_target: String,
-    /// Whether TLS is enabled for this proxy
+    /// Whether speed mode is enabled for faster proxying
+    pub high_speed: bool,
+    /// Specific address to use for speed mode
+    pub high_speed_addr: Option<String>,
+}
+
+/// Represents a proxy domain configuration in the system
+///
+/// A proxy domain extends a proxy by providing TLS configuration for specific domains.
+/// This allows a single proxy to serve multiple domains with different TLS certificates.
+///
+/// # Fields
+///
+/// * `id` - Unique identifier for this proxy domain
+/// * `proxy_id` - The ID of the proxy this domain is associated with
+/// * `gwnode_id` - The ID of the gateway node to route requests to (optional)
+/// * `tls` - Whether TLS is enabled for this domain
+/// * `tls_pem` - PEM-encoded certificate when TLS is manually configured
+/// * `tls_key` - Private key for the certificate when TLS is manually configured
+/// * `sni` - Server Name Indication value for TLS negotiation
+///
+/// # Examples
+///
+/// ```
+/// ProxyDomain {
+///     id: "9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d",
+///     proxy_id: "550e8400-e29b-41d4-a716-446655440000",
+///     gwnode_id: "7f9c24e5-1315-43a7-9f31-6eb9772cb46a",
+///     tls: true,
+///     tls_pem: Some("-----BEGIN CERTIFICATE-----\n..."),
+///     tls_key: Some("-----BEGIN PRIVATE KEY-----\n..."),
+///     sni: Some("example.com"),
+/// }
+/// ```
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProxyDomain {
+    /// Unique identifier for the proxy domain
+    pub id: String,
+    /// Reference to the proxy ID that this domain is associated with
+    pub proxy_id: String,
+    /// Reference to the gateway node ID that this domain routes to (optional)
+    pub gwnode_id: String,
+    /// Whether TLS is enabled for this domain
     pub tls: bool,
     /// PEM certificate content for TLS
     pub tls_pem: Option<String>,
     /// Private key content for TLS
     pub tls_key: Option<String>,
-    /// Whether automatic TLS is enabled
-    pub tls_autron: bool,
     /// Server Name Indication value for TLS
     pub sni: Option<String>,
-    /// Whether speed mode is enabled for faster proxying
-    pub high_speed: bool,
-    /// Specific address to use for speed mode
-    pub high_speed_addr: Option<String>,
 }
 
 /// Represents a gateway node configuration in the system
@@ -106,6 +137,7 @@ pub struct Proxy {
 /// * `proxy_id` - The ID of the proxy this gateway node is associated with
 /// * `title` - Human-readable name for this gateway node
 /// * `alt_target` - An alternative target URL that can be used for routing
+/// * `priority` - Processing priority (default: 100, higher values = higher priority)
 ///
 /// # Relationships
 ///
@@ -120,6 +152,7 @@ pub struct Proxy {
 ///     proxy_id: "550e8400-e29b-41d4-a716-446655440000",
 ///     title: "API Backup Gateway",
 ///     alt_target: "http://backup-server.internal:8080",
+///     priority: 100,
 /// }
 /// ```
 ///
@@ -135,6 +168,14 @@ pub struct GatewayNode {
     pub title: String,
     /// Alternative target URL
     pub alt_target: String,
+    /// Processing priority (default: 100, higher values = higher priority)
+    #[serde(default = "default_priority")]
+    pub priority: i32,
+}
+
+/// Default priority value for gateway nodes
+fn default_priority() -> i32 {
+    100
 }
 
 /// Represents a gateway configuration in the system
@@ -241,5 +282,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(gateway_get::get_gateway)
             .service(gateway_set::set_gateway)
             .service(gateway_set::delete_gateway)
+            // ProxyDomain endpoints
+            .service(proxydomain_list::list_proxy_domains)
+            .service(proxydomain_list::list_proxy_domains_by_proxy)
+            .service(proxydomain_get::get_proxy_domain)
+            .service(proxydomain_set::set_proxy_domain)
+            .service(proxydomain_set::delete_proxy_domain)
     );
 }

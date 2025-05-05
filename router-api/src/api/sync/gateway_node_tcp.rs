@@ -113,11 +113,6 @@ mod test {
             title: "Test Proxy".to_string(),
             addr_listen: "127.0.0.1:7070".to_string(),
             addr_target: "127.0.0.1:8081".to_string(),
-            tls: false,
-            tls_pem: None,
-            tls_key: None,
-            tls_autron: false,
-            sni: None,
             high_speed: false,
             high_speed_addr: None,
         };
@@ -136,6 +131,7 @@ mod test {
             proxy_id: proxy_id.to_string(),
             title: "Test Gateway Node".to_string(),
             alt_target: "127.0.0.1:8082".to_string(),
+            priority: 1,
         };
 
         if let Err(e) = gwnode_queries::save_gateway_node(&gwnode) {

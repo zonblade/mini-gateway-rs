@@ -36,41 +36,18 @@ pub fn get_all_proxy_nodes() -> Result<Vec<ProxyNode>, DatabaseError> {
             title,
             addr_listen,
             addr_target,
-            tls,
-            tls_pem,
-            tls_key,
-            tls_autron,
-            sni, 
             high_speed,
             high_speed_addr
         FROM 
             proxies",
         [],
         |row| {
-            // Handle Option<String> fields properly
-            // For tls_pem, tls_key, and sni, ensure empty strings and null characters become None
-            let tls_pem: Option<String> = row.get(5)?;
-            let tls_key: Option<String> = row.get(6)?;
-            let sni: Option<String> = row.get(8)?;
-            
-            // Convert empty strings or null character strings to None
-            let clean_string_option = |opt: Option<String>| -> Option<String> {
-                opt.and_then(|s| {
-                    if s.is_empty() || s == "\u{0000}" {
-                        None
-                    } else {
-                        Some(s)
-                    }
-                })
-            };
             
             let data = ProxyNode {
+                id: row.get(0)?,
+                domains: vec![],
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
-                tls: row.get(4).unwrap_or(false),
-                tls_pem: clean_string_option(tls_pem),
-                tls_key: clean_string_option(tls_key),
-                sni: clean_string_option(sni),
                 high_speed: row.get(9)?,
                 high_speed_addr: match row.get::<_, String>(10) {
                     Ok(s) if s == "\u{0000}" => None,
