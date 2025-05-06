@@ -279,7 +279,7 @@
                                 on:change={handleDomainChange}
                                 class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             >
-                                <option value="">No domain (HTTP only)</option>
+                                <option value="">No domain binding</option>
                                 {#each availableDomains as domain}
                                     <option value={domain.id}>{domain.sni}</option>
                                 {/each}
