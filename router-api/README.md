@@ -8,7 +8,7 @@ The Router API is designed around the following core components and their relati
 
 1. **Proxy**: The base configuration that handles listening on specific network addresses and forwarding traffic to target addresses. A Proxy represents a basic network endpoint listener.
 
-2. **ProxyDomain**: Extends a Proxy by adding TLS configuration for specific domains. This allows a single Proxy to handle multiple domains with different TLS certificates and configurations. Each ProxyDomain is associated with exactly one Proxy.
+2. **ProxyDomain**: Extends a Proxy by adding TLS configuration for specific domains. This allows a single Proxy to handle multiple domains with different TLS certificates and configurations. Each ProxyDomain is associated with exactly one Proxy and can optionally be linked to a GatewayNode for routing.
 
 3. **GatewayNode**: Extends a Proxy by providing alternative routing targets. Each GatewayNode is associated with one Proxy and has a priority value that determines processing order (higher values = higher priority).
 
@@ -38,14 +38,15 @@ The Router API is designed around the following core components and their relati
   - [Get User by ID](#get-user-by-id)
   - [Create User](#create-user)
   - [Update User](#update-user)
-  - [Delete User](#delete-user)  - [Settings Management](#settings-management)
-    - [Proxy Management](#proxy-management)
-    - [Gateway Node Management](#gateway-node-management)
-    - [Gateway Management](#gateway-management)
-    - [Proxy Domain Management](#proxy-domain-management)
-  - [Synchronization](#synchronization)
-  - [Proxy Node Sync](#proxy-node-sync)
-  - [Gateway Node Sync](#gateway-node-sync)
+  - [Delete User](#delete-user)
+- [Settings Management](#settings-management)
+  - [Proxy Management](#proxy-management)
+  - [Gateway Node Management](#gateway-node-management)
+  - [Gateway Management](#gateway-management)
+  - [Proxy Domain Management](#proxy-domain-management)
+- [Synchronization](#synchronization)
+- [Proxy Node Sync](#proxy-node-sync)
+- [Gateway Node Sync](#gateway-node-sync)
 
 ## Authentication
 
@@ -298,46 +299,55 @@ All settings endpoints require staff or admin role to access.
 
 #### List All Proxies
 
-Retrieves a list of all configured proxies.
+Retrieves a list of all configured proxies with their associated domains (simplified).
 
 **Endpoint:** `GET /api/v1/settings/proxies`
 
-**Response:** Returns an array of proxy objects.
+**Response:** Returns an array of objects, each containing a proxy and its domains.
 
 | Field           | Type    | Description                                |
 |---------------|---------|--------------------------------------------|
-| id            | string  | Unique proxy identifier                    |
-| title         | string  | Human-readable proxy name                  |
-| addr_listen   | string  | Listen address (format: "ip:port")         |
-| addr_target   | string  | Target address (format: "ip:port")         |
-| high_speed    | boolean | Whether high speed mode is enabled for faster proxying |
-| high_speed_addr | string  | Specific address to use for high speed mode (null if not used) |
+| proxy         | object  | The proxy configuration object             |
+| domains       | array   | Array of simplified domain objects (ID, SNI, TLS status only) |
+| warning       | string  | Optional warning message if domain fetch failed |
 
 **Example Response:**
 ```json
 [
   {
-    "id": "proxy-1",
-    "title": "Main API Proxy",
-    "addr_listen": "0.0.0.0:443",
-    "addr_target": "127.0.0.1:8080",
-    "high_speed": true,
-    "high_speed_addr": "10.0.0.1:8081"
+    "proxy": {
+      "id": "proxy-1",
+      "title": "Main API Proxy",
+      "addr_listen": "0.0.0.0:443",
+      "addr_target": "127.0.0.1:8080",
+      "high_speed": true,
+      "high_speed_addr": "10.0.0.1:8081"
+    },
+    "domains": [
+      {
+        "id": "domain-1", 
+        "sni": "api.example.com",
+        "tls": true
+      }
+    ]
   },
   {
-    "id": "proxy-2",
-    "title": "Web Frontend",
-    "addr_listen": "0.0.0.0:80",
-    "addr_target": "127.0.0.1:3000",
-    "high_speed": false,
-    "high_speed_addr": null
+    "proxy": {
+      "id": "proxy-2",
+      "title": "Web Frontend",
+      "addr_listen": "0.0.0.0:80",
+      "addr_target": "127.0.0.1:3000",
+      "high_speed": false,
+      "high_speed_addr": null
+    },
+    "domains": []
   }
 ]
 ```
 
 #### Get Proxy by ID
 
-Retrieves a specific proxy by its ID.
+Retrieves a specific proxy by its ID, along with all its associated domains.
 
 **Endpoint:** `GET /api/v1/settings/proxy/{id}`
 
@@ -347,41 +357,139 @@ Retrieves a specific proxy by its ID.
 |-----------|-------------------------|
 | id        | ID of the proxy to get  |
 
-**Response:** Returns a proxy object (same structure as in List All Proxies).
+**Response:** Returns an object containing the proxy and its domains.
+
+| Field           | Type    | Description                                |
+|---------------|---------|--------------------------------------------|
+| proxy         | object  | The proxy configuration object             |
+| domains       | array   | Array of associated domain objects         |
+| warning       | string  | Optional warning message if domain fetch failed |
+
+**Example Response:**
+```json
+{
+  "proxy": {
+    "id": "proxy-1",
+    "title": "Main API Proxy",
+    "addr_listen": "0.0.0.0:443",
+    "addr_target": "127.0.0.1:8080",
+    "high_speed": true,
+    "high_speed_addr": "10.0.0.1:8081"
+  },
+  "domains": [
+    {
+      "id": "domain-1",
+      "proxy_id": "proxy-1",
+      "gwnode_id": "gwnode-1",
+      "tls": true,
+      "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+      "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+      "sni": "api.example.com"
+    },
+    {
+      "id": "domain-2",
+      "proxy_id": "proxy-1",
+      "gwnode_id": null,
+      "tls": true,
+      "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+      "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+      "sni": "admin.example.com"
+    }
+  ]
+}
+```
 
 #### Create or Update Proxy
 
-Creates a new proxy or updates an existing one.
+Creates a new proxy or updates an existing one. This endpoint supports submitting both the proxy configuration and its associated domains in a single request.
 
 **Endpoint:** `POST /api/v1/settings/proxy`
 
-**Request:**
+**Request Format:**
+
+| Field          | Type    | Description                                | Required |
+|----------------|---------|--------------------------------------------|----------|
+| proxy          | object  | The proxy configuration object             | Yes      |
+| domains        | array   | Array of proxy domain objects              | No       |
+
+**Proxy Object Fields:**
 
 | Field          | Type    | Description                                | Required |
 |----------------|---------|--------------------------------------------|----------|
 | id             | string  | Unique ID (empty for new)                  | No       |
 | title          | string  | Human-readable proxy name                  | Yes      |
 | addr_listen    | string  | Listen address (format: "ip:port")         | Yes      |
-| addr_target    | string  | Target address (format: "ip:port")         | Yes      |
-| high_speed     | boolean | Whether high speed mode is enabled              | No       |
-| high_speed_addr| string  | Specific address to use for high speed mode     | No       |
+| addr_target    | string  | Target address (automatically generated)   | No       |
+| high_speed     | boolean | Whether high speed mode is enabled         | No       |
+| high_speed_addr| string  | Specific address to use for high speed mode| No       |
 
-**Response:** Returns the saved proxy object.
+**Response:** Returns the saved proxy object along with its associated domains.
 
 **Example Request:**
 ```json
 {
-  "title": "New API Proxy",
-  "addr_listen": "0.0.0.0:8443",
-  "addr_target": "127.0.0.1:9090",
-  "high_speed": true,
-  "high_speed_addr": "10.0.0.1:9091"
+  "proxy": {
+    "title": "New API Proxy with Domains",
+    "addr_listen": "0.0.0.0:8443",
+    "high_speed": false
+  },
+  "domains": [
+    {
+      "tls": true,
+      "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+      "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+      "sni": "api.example.com",
+      "gwnode_id": "gwnode-1"
+    },
+    {
+      "tls": true,
+      "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+      "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+      "sni": "admin.example.com"
+    }
+  ]
+}
+```
+
+**Example Response:**
+```json
+{
+  "proxy": {
+    "id": "new-proxy-id",
+    "title": "New API Proxy with Domains",
+    "addr_listen": "0.0.0.0:8443",
+    "addr_target": "127.0.0.1:45023",
+    "high_speed": false,
+    "high_speed_addr": null
+  },
+  "domains": [
+    {
+      "id": "domain-1",
+      "proxy_id": "new-proxy-id",
+      "gwnode_id": "gwnode-1",
+      "tls": true,
+      "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+      "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+      "sni": "api.example.com"
+    },
+    {
+      "id": "domain-2",
+      "proxy_id": "new-proxy-id",
+      "gwnode_id": null,
+      "tls": true,
+      "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
+      "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
+      "sni": "admin.example.com"
+    }
+  ]
 }
 ```
 
 #### Delete Proxy
 
-Deletes a proxy by its ID.
+Deletes a proxy by its ID. When a proxy is deleted, the following actions occur:
+1. All associated proxy domains are automatically deleted
+2. Any gateway nodes associated with the proxy are unbound (but not deleted)
 
 **Endpoint:** `DELETE /api/v1/settings/proxy/{id}`
 
@@ -400,7 +508,7 @@ Deletes a proxy by its ID.
 **Example Response:**
 ```json
 {
-  "message": "Proxy successfully deleted"
+  "message": "Proxy with ID proxy-123 deleted. 2 proxy domains were removed. 1 gateway nodes were unbound."
 }
 ```
 
@@ -669,6 +777,8 @@ Deletes a gateway routing rule.
 
 ### Proxy Domain Management
 
+**Note:** Proxy domain management is now integrated with the proxy management endpoints. When creating or updating a proxy using the `POST /api/v1/settings/proxy` endpoint, you can include domain configurations in the same request. The standalone proxy domain endpoints are maintained for compatibility but new implementations should prefer using the combined proxy endpoints.
+
 #### List All Proxy Domains
 
 Retrieves a list of all proxy domains.
@@ -681,7 +791,7 @@ Retrieves a list of all proxy domains.
 |------------|---------|--------------------------------------------------|
 | id         | string  | Unique proxy domain identifier                   |
 | proxy_id   | string  | ID of the proxy this domain is associated with   |
-| gwnode_id  | string  | ID of the gateway node for routing (if applicable) |
+| gwnode_id  | string  | ID of the gateway node for routing (optional)    |
 | tls        | boolean | Whether TLS is enabled for this domain           |
 | tls_pem    | string  | PEM-encoded certificate (null if not used)       |
 | tls_key    | string  | Private key for certificate (null if not used)   |
@@ -702,7 +812,7 @@ Retrieves a list of all proxy domains.
   {
     "id": "domain-2",
     "proxy_id": "proxy-1",
-    "gwnode_id": "gwnode-2",
+    "gwnode_id": null,
     "tls": true,
     "tls_pem": "-----BEGIN CERTIFICATE-----\nMIIE...",
     "tls_key": "-----BEGIN PRIVATE KEY-----\nMIIE...",
@@ -765,7 +875,7 @@ Creates a new proxy domain or updates an existing one.
 |------------|---------|----------------------------------------------|----------|
 | id         | string  | Unique ID (empty for new)                    | No       |
 | proxy_id   | string  | ID of the proxy this domain uses             | Yes      |
-| gwnode_id  | string  | ID of the gateway node for routing           | Yes      |
+| gwnode_id  | string  | ID of the gateway node for routing           | No       |
 | tls        | boolean | Whether TLS is enabled for this domain       | Yes      |
 | tls_pem    | string  | PEM-encoded certificate content              | No       |
 | tls_key    | string  | Private key content                          | No       |
@@ -897,3 +1007,25 @@ When using capture groups in patterns, you can reference them in the target usin
 ## Priority System
 
 Gateways are processed in order of priority, with lower numbers having higher precedence. When multiple patterns match an incoming request, the one with the lowest priority value is used.
+
+## API Endpoints
+
+## Proxy endpoints:
+- GET /settings/proxies - List all proxies
+- GET /settings/proxy/{id} - Get a specific proxy by ID
+- POST /settings/proxy - Create or update a proxy
+- DELETE /settings/proxy/{id} - Delete a proxy
+
+## Gateway Node endpoints:
+- GET /settings/gwnode/list - List all gateway nodes
+- GET /settings/gwnode/list/{proxy_id} - List gateway nodes for a specific proxy
+- GET /settings/gwnode/{id} - Get a specific gateway node by ID
+- POST /settings/gwnode/set - Create or update a gateway node
+- POST /settings/gwnode/delete - Delete a gateway node
+
+## Gateway endpoints:
+- GET /settings/gateway/list - List all gateways
+- GET /settings/gateway/list/{gwnode_id} - List gateways for a specific gateway node
+- GET /settings/gateway/{id} - Get a specific gateway by ID
+- POST /settings/gateway/set - Create or update a gateway
+- POST /settings/gateway/delete - Delete a gateway

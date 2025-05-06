@@ -48,8 +48,8 @@ pub fn get_all_proxy_nodes() -> Result<Vec<ProxyNode>, DatabaseError> {
                 domains: vec![],
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
-                high_speed: row.get(9)?,
-                high_speed_addr: match row.get::<_, String>(10) {
+                high_speed: row.get(4)?,
+                high_speed_addr: match row.get::<_, String>(5) {
                     Ok(s) if s == "\u{0000}" => None,
                     Ok(s) => Some(s),
                     Err(_) => None,

@@ -5,11 +5,24 @@
 //! traffic to target destinations.
 
 use actix_web::{delete, post, web, HttpResponse, Responder, HttpRequest};
-use super::{Proxy, proxy_queries};
+use super::{Proxy, ProxyDomain, proxy_queries, proxydomain_queries};
 use super::gwnode_queries;
 use uuid::Uuid;
 use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 use crate::module::database::DatabaseError;
+use serde::{Deserialize, Serialize};
+
+/// Composite input structure for proxy creation/update with domains
+///
+/// This structure allows submitting a proxy configuration along with its
+/// associated domains in a single request.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProxyInputObject {
+    /// The core proxy configuration
+    pub proxy: Proxy,
+    /// Optional vector of associated domains
+    pub domains: Option<Vec<ProxyDomain>>,
+}
 
 /// Creates or updates a proxy configuration
 ///
@@ -84,7 +97,7 @@ use crate::module::database::DatabaseError;
 #[post("/proxy")]
 pub async fn set_proxy(
     req: HttpRequest,
-    proxy: web::Json<Proxy>
+    input: web::Json<ProxyInputObject>
 ) -> impl Responder {
     // Extract authenticated user's claims
     let claims = match req.get_claims() {
@@ -103,7 +116,7 @@ pub async fn set_proxy(
         );
     }
     
-    let mut proxy = proxy.into_inner();
+    let mut proxy = input.proxy.clone();
     
     // Generate an ID if none was provided
     if proxy.id.is_empty() {
@@ -139,13 +152,148 @@ pub async fn set_proxy(
                 proxy.high_speed_addr = None;
             }
             
-            match proxy_queries::save_proxy(&proxy) {
-                Ok(()) => HttpResponse::Ok().json(proxy),
+            // Save the proxy first
+            if let Err(e) = proxy_queries::save_proxy(&proxy) {
+                log::error!("Error saving proxy {}: {}", proxy.id, e);
+                return HttpResponse::InternalServerError().body("Failed to save proxy");
+            }
+            
+            // Verify that proxy was saved successfully
+            match proxy_queries::get_proxy_by_id(&proxy.id) {
+                Ok(Some(_)) => {
+                    log::debug!("Proxy {} created/updated successfully", proxy.id);
+                },
+                Ok(None) => {
+                    log::error!("Failed to verify proxy {}: not found after save", proxy.id);
+                    return HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": "Proxy was saved but could not be verified. Domain creation was skipped."
+                    }));
+                },
                 Err(e) => {
-                    log::error!("Error saving proxy {}: {}", proxy.id, e);
-                    HttpResponse::InternalServerError().body("Failed to save proxy")
+                    log::error!("Error verifying proxy {}: {}", proxy.id, e);
+                    return HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": "Failed to verify proxy after save. Domain creation was skipped."
+                    }));
                 }
             }
+            
+            // Fetch existing domains for this proxy to compare with incoming domains
+            let existing_domains = match proxydomain_queries::get_proxy_domains_by_proxy_id(&proxy.id) {
+                Ok(domains) => domains,
+                Err(e) => {
+                    log::error!("Error fetching existing proxy domains for {}: {}", proxy.id, e);
+                    return HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": "Failed to fetch existing proxy domains for comparison"
+                    }));
+                }
+            };
+            
+            // Track which existing domains should be kept
+            let mut existing_domain_ids_to_keep = Vec::new();
+            
+            // Process associated domains if provided
+            if let Some(incoming_domains) = &input.domains {
+                // Check for duplicate domain names in the incoming domains
+                let mut seen_domain_names = std::collections::HashSet::new();
+                
+                for domain in incoming_domains.iter() {
+                    if let Some(domain_name) = &domain.sni {
+                        if !domain_name.is_empty() {
+                            // Check if this domain name has been seen before
+                            if !seen_domain_names.insert(domain_name.clone()) {
+                                // Domain name already exists in the incoming domains
+                                return HttpResponse::BadRequest().json(serde_json::json!({
+                                    "error": format!("Duplicate domain name '{}' found in the request. Each domain name must be unique.", domain_name)
+                                }));
+                            }
+                        }
+                    }
+                }
+                
+                for mut domain in incoming_domains.clone() {
+                    // Ensure domain is associated with this proxy
+                    domain.proxy_id = Some(proxy.id.clone());
+                    
+                    // Generate domain ID if not provided (empty string)
+                    if domain.id.is_empty() {
+                        domain.id = proxydomain_queries::generate_proxy_domain_id();
+                    } else {
+                        // If domain has an ID, it exists, so add it to the keep list
+                        existing_domain_ids_to_keep.push(domain.id.clone());
+                    }
+                    
+                    // Log domain data before saving (for debugging)
+                    log::debug!("Saving proxy domain: id={}, proxy_id={:?}", 
+                               domain.id, domain.proxy_id);
+                    
+                    // Save the domain with proper error handling
+                    if let Err(e) = proxydomain_queries::save_proxy_domain(&domain) {
+                        log::error!("Error saving proxy domain {}: {}", domain.id, e);
+                        
+                        // Return a more descriptive error based on the error type
+                        let error_message = match e {
+                            DatabaseError::Sqlite(sqlite_error) => {
+                                if let rusqlite::Error::SqliteFailure(err, _) = sqlite_error {
+                                    if err.code == rusqlite::ffi::ErrorCode::ConstraintViolation {
+                                        format!("Foreign key constraint failed for domain {}. Make sure the proxy_id is valid.", domain.id)
+                                    } else {
+                                        format!("Database error while saving domain {}: {}", domain.id, sqlite_error)
+                                    }
+                                } else {
+                                    format!("SQLite error: {}", sqlite_error)
+                                }
+                            },
+                            _ => format!("Failed to save proxy domain {}: {}", domain.id, e)
+                        };
+                        
+                        return HttpResponse::InternalServerError().json(serde_json::json!({
+                            "error": error_message,
+                            "domain_id": domain.id,
+                            "proxy_id": domain.proxy_id
+                        }));
+                    }
+                }
+            }
+            
+            // Delete domains that exist in the database but not in the incoming data
+            let mut deleted_count = 0;
+            for existing_domain in existing_domains {
+                if !existing_domain_ids_to_keep.contains(&existing_domain.id) {
+                    match proxydomain_queries::delete_proxy_domain_by_id(&existing_domain.id) {
+                        Ok(_) => {
+                            deleted_count += 1;
+                            log::debug!("Deleted proxy domain {} as it was removed from frontend", existing_domain.id);
+                        },
+                        Err(e) => {
+                            log::error!("Error deleting removed proxy domain {}: {}", existing_domain.id, e);
+                            // We continue processing other domains despite this error
+                        }
+                    }
+                }
+            }
+            
+            if deleted_count > 0 {
+                log::info!("Deleted {} proxy domains that were removed from the frontend", deleted_count);
+            }
+            
+            // Fetch all domains for this proxy to include in response (after modifications)
+            let domains = match proxydomain_queries::get_proxy_domains_by_proxy_id(&proxy.id) {
+                Ok(domains) => domains,
+                Err(e) => {
+                    log::error!("Error fetching proxy domains for {}: {}", proxy.id, e);
+                    return HttpResponse::Ok().json(serde_json::json!({
+                        "proxy": proxy,
+                        "domains": Vec::<ProxyDomain>::new(),
+                        "warning": "Proxy saved but could not fetch associated domains"
+                    }));
+                }
+            };
+            
+            // Return the complete proxy with its domains
+            HttpResponse::Ok().json(serde_json::json!({
+                "proxy": proxy,
+                "domains": domains
+            }))
         },
         Err(e) => {
             log::error!("Error generating target address: {}", e);
@@ -220,18 +368,32 @@ pub async fn delete_proxy(
     
     let id = path.into_inner();
     
-    // First unbind any gateway nodes associated with this proxy
+    // First delete any proxy domains associated with this proxy
+    let domains_deleted = match proxydomain_queries::delete_proxy_domains_by_proxy_id(&id) {
+        Ok(count) => count,
+        Err(e) => {
+            log::error!("Error deleting proxy domains for proxy {}: {}", id, e);
+            return HttpResponse::InternalServerError().body("Failed to delete proxy domains");
+        }
+    };
+    
+    // Then unbind any gateway nodes associated with this proxy
     match gwnode_queries::unbind_gateway_nodes_by_proxy_id(&id) {
         Ok(unbound_count) => {
             // Now delete the proxy
             match proxy_queries::delete_proxy_by_id(&id) {
                 Ok(deleted) => {
                     if deleted {
-                        let message = if unbound_count > 0 {
-                            format!("Proxy with ID {} deleted. {} gateway nodes were unbound.", id, unbound_count)
-                        } else {
-                            format!("Proxy with ID {} deleted.", id)
-                        };
+                        let mut message = format!("Proxy with ID {} deleted.", id);
+                        
+                        if domains_deleted > 0 {
+                            message.push_str(&format!(" {} proxy domains were removed.", domains_deleted));
+                        }
+                        
+                        if unbound_count > 0 {
+                            message.push_str(&format!(" {} gateway nodes were unbound.", unbound_count));
+                        }
+                        
                         HttpResponse::Ok().body(message)
                     } else {
                         HttpResponse::NotFound().body(format!("Proxy with ID {} not found", id))

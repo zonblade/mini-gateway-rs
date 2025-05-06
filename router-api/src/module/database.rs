@@ -78,6 +78,30 @@ pub enum DatabaseError {
     /// This typically occurs when there is a mutex poisoning or other threading issues.
     #[error("Database connection not initialized")]
     NotInitialized,
+    
+    /// Custom error with a specific message.
+    ///
+    /// This is useful for domain-specific errors that are not directly
+    /// related to SQLite or IO operations.
+    #[error("{0}")]
+    Custom(String),
+}
+
+impl DatabaseError {
+    /// Creates a new DatabaseError with a custom message.
+    ///
+    /// This is a convenience method for creating a DatabaseError::Custom variant.
+    ///
+    /// # Parameters
+    ///
+    /// * `msg` - The custom error message
+    ///
+    /// # Returns
+    ///
+    /// A new DatabaseError::Custom instance
+    pub fn from_msg<S: Into<String>>(msg: S) -> Self {
+        DatabaseError::Custom(msg.into())
+    }
 }
 
 /// Result type for database operations.

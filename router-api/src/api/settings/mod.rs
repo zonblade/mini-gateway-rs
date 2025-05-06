@@ -21,10 +21,7 @@ pub mod proxy_get;
 pub mod proxy_list;
 pub mod proxy_queries;
 pub mod proxy_set;
-pub mod proxydomain_get;
-pub mod proxydomain_list;
 pub mod proxydomain_queries;
-pub mod proxydomain_set;
 
 use serde::{Deserialize, Serialize};
 
@@ -112,9 +109,9 @@ pub struct ProxyDomain {
     /// Unique identifier for the proxy domain
     pub id: String,
     /// Reference to the proxy ID that this domain is associated with
-    pub proxy_id: String,
+    pub proxy_id: Option<String>,
     /// Reference to the gateway node ID that this domain routes to (optional)
-    pub gwnode_id: String,
+    pub gwnode_id: Option<String>,
     /// Whether TLS is enabled for this domain
     pub tls: bool,
     /// PEM certificate content for TLS
@@ -282,11 +279,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(gateway_get::get_gateway)
             .service(gateway_set::set_gateway)
             .service(gateway_set::delete_gateway)
-            // ProxyDomain endpoints
-            .service(proxydomain_list::list_proxy_domains)
-            .service(proxydomain_list::list_proxy_domains_by_proxy)
-            .service(proxydomain_get::get_proxy_domain)
-            .service(proxydomain_set::set_proxy_domain)
-            .service(proxydomain_set::delete_proxy_domain)
+            // ProxyDomain endpoints - REMOVED, functionality now in proxy endpoints
     );
 }

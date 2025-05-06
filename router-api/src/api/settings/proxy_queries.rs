@@ -157,7 +157,7 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
 
     // Query all proxies
     let proxies = db.query(
-        "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni, high_speed, high_speed_addr FROM proxies",
+        "SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies",
         [],
         |row| {
             Ok(Proxy {
@@ -165,8 +165,8 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
                 title: row.get(1)?,
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
-                high_speed: row.get(9)?,
-                high_speed_addr: match row.get::<_, String>(10) {
+                high_speed: row.get(4)?,
+                high_speed_addr: match row.get::<_, String>(5) {
                     Ok(s) if s == "\u{0000}" => None,
                     Ok(s) => Some(s),
                     Err(_) => None,
@@ -222,7 +222,7 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
 
     // Query the proxy by ID
     let proxy = db.query_one(
-        "SELECT id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni, high_speed, high_speed_addr FROM proxies WHERE id = ?1",
+        "SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies WHERE id = ?1",
         [id],
         |row| {
             Ok(Proxy {
@@ -230,9 +230,9 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
                 title: row.get(1)?,
                 addr_listen: row.get(2)?,
                 addr_target: row.get(3)?,
-                high_speed: row.get(9)?,
-                high_speed_addr: match row.get::<_, String>(10) {
-                    Ok(s) if s == "\\u{0000}" => None,
+                high_speed: row.get(4)?,
+                high_speed_addr: match row.get::<_, String>(5) {
+                    Ok(s) if s == "\u{0000}" => None,
                     Ok(s) => Some(s),
                     Err(_) => None,
                 },
@@ -301,8 +301,8 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
 
     // Insert or replace the proxy
     db.execute(
-        "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, tls, tls_pem, tls_key, tls_autron, sni, high_speed, high_speed_addr) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, high_speed, high_speed_addr) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         [
             &proxy.id,
             &proxy.title,

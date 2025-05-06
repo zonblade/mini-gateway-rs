@@ -41,21 +41,34 @@ use uuid::Uuid;
 pub fn ensure_proxy_domains_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
 
+    // First, check if table exists already
+    let table_exists = db.query_one(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='proxy_domains'",
+        [],
+        |row| Ok(row.get::<_, String>(0).is_ok())
+    )?.unwrap_or(false);
+    
+    // If table exists, drop and recreate it without foreign key constraints
+    if table_exists {
+        log::debug!("Proxy domains table exists already");
+        return Ok(());
+    }
+    
+    // Create table without foreign key constraints
     db.execute(
         "CREATE TABLE IF NOT EXISTS proxy_domains (
             id TEXT PRIMARY KEY,
             proxy_id TEXT NOT NULL,
-            gwnode_id TEXT NOT NULL,
+            gwnode_id TEXT,
             tls BOOLEAN NOT NULL DEFAULT 0,
             tls_pem TEXT,
             tls_key TEXT,
-            sni TEXT,
-            FOREIGN KEY(proxy_id) REFERENCES proxies(id),
-            FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
+            sni TEXT
         )",
         [],
     )?;
 
+    log::info!("Created proxy_domains table without foreign key constraints");
     Ok(())
 }
 
@@ -103,7 +116,11 @@ pub fn get_all_proxy_domains() -> Result<Vec<ProxyDomain>, DatabaseError> {
             Ok(ProxyDomain {
                 id: row.get(0)?,
                 proxy_id: row.get(1)?,
-                gwnode_id: row.get(2)?,
+                gwnode_id: match row.get::<_, Option<String>>(2) {
+                    Ok(Some(s)) if !s.is_empty() => Some(s),
+                    Ok(Some(s)) if s == "\u{0000}" => None,
+                    _ => None,
+                },
                 tls: row.get(3)?,
                 tls_pem: match row.get::<_, String>(4) {
                     Ok(s) if s == "\u{0000}" => None,
@@ -164,7 +181,11 @@ pub fn get_proxy_domain_by_id(id: &str) -> Result<Option<ProxyDomain>, DatabaseE
             Ok(ProxyDomain {
                 id: row.get(0)?,
                 proxy_id: row.get(1)?,
-                gwnode_id: row.get(2)?,
+                gwnode_id: match row.get::<_, Option<String>>(2) {
+                    Ok(Some(s)) if !s.is_empty() => Some(s),
+                    Ok(Some(s)) if s == "\u{0000}" => None,
+                    _ => None,
+                },
                 tls: row.get(3)?,
                 tls_pem: match row.get::<_, String>(4) {
                     Ok(s) if s == "\u{0000}" => None,
@@ -224,7 +245,11 @@ pub fn get_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<Vec<ProxyDomain>,
             Ok(ProxyDomain {
                 id: row.get(0)?,
                 proxy_id: row.get(1)?,
-                gwnode_id: row.get(2)?,
+                gwnode_id: match row.get::<_, Option<String>>(2) {
+                    Ok(Some(s)) if !s.is_empty() => Some(s),
+                    Ok(Some(s)) if s == "\u{0000}" => None,
+                    _ => None,
+                },
                 tls: row.get(3)?,
                 tls_pem: match row.get::<_, String>(4) {
                     Ok(s) if s == "\u{0000}" => None,
@@ -270,26 +295,41 @@ pub fn get_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<Vec<ProxyDomain>,
 /// - The table does not exist and could not be created
 /// - The SQL statement could not be executed
 /// - The foreign key constraint is violated (if the referenced proxy or gateway node does not exist)
+/// - The proxy_id is missing or empty (which would violate NOT NULL constraint)
 pub fn save_proxy_domain(domain: &ProxyDomain) -> Result<(), DatabaseError> {
     let db = get_connection()?;
 
     // Ensure the table exists
     ensure_proxy_domains_table()?;
-
-    // Insert or replace the proxy domain
+    
+    // Validate that proxy_id is valid - return more specific error if not present
+    let proxy_id = match &domain.proxy_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        Some(_) => return Err(DatabaseError::from_msg("Proxy ID is empty")),
+        None => return Err(DatabaseError::from_msg("Proxy ID is missing (null)"))
+    };
+    
+    // Log the domain data we're trying to save
+    log::debug!("Attempting to save domain: id={}, proxy_id={}, sni={:?}", 
+               domain.id, proxy_id, domain.sni);
+    
+    // Insert or replace the proxy domain with validated proxy_id
     db.execute(
         "INSERT OR REPLACE INTO proxy_domains (id, proxy_id, gwnode_id, tls, tls_pem, tls_key, sni) 
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         [
             &domain.id,
-            &domain.proxy_id,
-            &domain.gwnode_id,
+            &proxy_id,
+            &domain.gwnode_id.clone().unwrap_or("\u{0000}".to_string()),
             &(if domain.tls { "1" } else { "0" }).to_string(),
             &domain.tls_pem.clone().unwrap_or("\u{0000}".to_string()),
             &domain.tls_key.clone().unwrap_or("\u{0000}".to_string()),
             &domain.sni.clone().unwrap_or("\u{0000}".to_string()),
         ],
-    )?;
+    ).map_err(|e| {
+        log::error!("Database error when saving domain {}: {}", domain.id, e);
+        DatabaseError::from(e)
+    })?;
 
     Ok(())
 }

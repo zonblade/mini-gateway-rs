@@ -1,13 +1,13 @@
 import { writable, derived } from 'svelte/store';
-import type { Proxy } from '$lib/types/proxy';
+import type { Proxy, ProxyWithDomains, DomainConfig } from '$lib/types/proxy';
 import { proxyActions } from '$lib/actions/proxyActions';
 
-// Re-export the Proxy type for convenience
-export type { Proxy } from '$lib/types/proxy';
+// Re-export the types for convenience
+export type { Proxy, ProxyWithDomains, DomainConfig } from '$lib/types/proxy';
 
 // Define the store state interface
 interface ProxyState {
-    proxies: Proxy[];
+    proxies: ProxyWithDomains[];
     loading: boolean;
     error: string | null;
     currentPage: number;
@@ -72,20 +72,33 @@ function createProxyStore() {
             }
         },
         
-        // Create or update a proxy
-        saveProxy: async (proxy: Proxy) => {
+        // Create or update a proxy with domains
+        saveProxy: async (data: any) => {
             update(state => ({ ...state, loading: true, error: null }));
             
             try {
-                const savedProxy = await proxyActions.saveProxy(proxy);
+                // Check if data is in the new format (with proxy and domains properties)
+                const isNewFormat = data && data.proxy && 'domains' in data;
+                let savedProxyWithDomains;
+                
+                if (isNewFormat) {
+                    // New format: data is already { proxy, domains }
+                    savedProxyWithDomains = await proxyActions.saveProxy(data.proxy, data.domains);
+                } else {
+                    // Legacy format: data is just a Proxy object, possibly with tls_domains
+                    const proxy = data as Proxy;
+                    savedProxyWithDomains = await proxyActions.saveProxy(proxy);
+                }
                 
                 update(state => {
                     // If it's an existing proxy (non-empty ID), update it in the array
-                    if (proxy.id && proxy.id !== '') {
-                        const index = state.proxies.findIndex(p => p.id === proxy.id);
+                    const proxyId = isNewFormat ? data.proxy.id : data.id;
+                    
+                    if (proxyId && proxyId !== '') {
+                        const index = state.proxies.findIndex(p => p.proxy.id === proxyId);
                         if (index >= 0) {
                             const updatedProxies = [...state.proxies];
-                            updatedProxies[index] = savedProxy;
+                            updatedProxies[index] = savedProxyWithDomains;
                             return { ...state, proxies: updatedProxies, loading: false };
                         }
                     }
@@ -93,12 +106,12 @@ function createProxyStore() {
                     // Otherwise add as new proxy
                     return { 
                         ...state, 
-                        proxies: [...state.proxies, savedProxy], 
+                        proxies: [...state.proxies, savedProxyWithDomains], 
                         loading: false 
                     };
                 });
                 
-                return savedProxy;
+                return savedProxyWithDomains;
             } catch (err) {
                 console.error('Error saving proxy:', err);
                 update(state => ({ 
@@ -120,7 +133,7 @@ function createProxyStore() {
                 if (success) {
                     update(state => ({
                         ...state,
-                        proxies: state.proxies.filter(p => p.id !== id),
+                        proxies: state.proxies.filter(p => p.proxy.id !== id),
                         loading: false
                     }));
                 }
@@ -162,11 +175,23 @@ function createProxyStore() {
             
             // Filter proxies based on search term
             const filtered = searchTerm 
-                ? proxies.filter(proxy => 
-                    proxy.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    proxy.addr_listen.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    proxy.addr_target.toLowerCase().includes(searchTerm.toLowerCase())
-                )
+                ? proxies.filter(proxyWithDomains => {
+                    const proxy = proxyWithDomains.proxy;
+                    const domains = proxyWithDomains.domains || [];
+                    
+                    // Check if the search term matches proxy data
+                    const matchesProxy = 
+                        proxy.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        proxy.addr_listen.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        (proxy.addr_target && proxy.addr_target.toLowerCase().includes(searchTerm.toLowerCase()));
+                    
+                    // Check if the search term matches any domain
+                    const matchesDomain = domains.some(domain => 
+                        domain.sni && domain.sni.toLowerCase().includes(searchTerm.toLowerCase())
+                    );
+                    
+                    return matchesProxy || matchesDomain;
+                })
                 : proxies;
                 
             // Calculate pagination
