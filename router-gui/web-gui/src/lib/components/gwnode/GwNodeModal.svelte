@@ -39,73 +39,62 @@
         label: proxy.title,
     }));
     
-    // Fetch latest proxies when modal appears
+    // Fetch latest proxies when modal appears - using a more sequential approach
     $: if (showModal) {
-        fetchLatestProxies();
+        initializeModal();
     }
 
-    // Function to fetch the latest proxies from the API
-    async function fetchLatestProxies() {
+    // Sequential initialization to ensure data is loaded properly
+    async function initializeModal() {
         try {
+            // Step 1: Get the latest proxies
             await proxyStore.fetchProxies();
-            proxyStore.subscribe(state => {
-                proxyWithDomains = state.proxies;
-            })();
-        } catch (error) {
-            console.error("Error fetching proxies:", error);
-        }
-    }
-
-    // Selected proxy information - track both proxy_id and proxies to ensure reactivity
-    $: {
-        if (gwnode.proxy_id && proxies.length > 0) {
-            const selectedProxy = proxies.find((p) => p.id === gwnode.proxy_id);
-            if (selectedProxy) {
-                // Create a new object to ensure reactivity
-                gwnode = {
-                    ...gwnode,
-                    proxyTitle: selectedProxy.title || "",
-                };
-                // Update additional proxy details
-                proxyListen = selectedProxy.addr_listen || "";
-                proxyTls = false;
-                proxyDomain = "";
-                
-                // Update available domains for this proxy
-                const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === gwnode.proxy_id);
-                availableDomains = proxyWithDomainsObj ? proxyWithDomainsObj.domains || [] : [];
-                
-                // Clear domain selection if the proxy changes and the current domain 
-                // doesn't belong to this proxy
-                if (gwnode.domain_id) {
-                    const domainExists = availableDomains.some(
-                        domain => domain.id === gwnode.domain_id
-                    );
-                    if (!domainExists) {
-                        gwnode.domain_id = "";
-                        gwnode.domain_name = "";
+            
+            // Step 2: Get the proxy details with domains from the store
+            proxyWithDomains = [];
+            const unsubscribe = proxyStore.subscribe(state => {
+                proxyWithDomains = [...state.proxies]; // Create new array to ensure reactivity
+            });
+            unsubscribe();
+            
+            // Step 3: Now that we have proxy data, update the domains and proxy info
+            if (gwnode.proxy_id) {
+                // Find the selected proxy
+                const selectedProxy = proxies.find(p => p.id === gwnode.proxy_id);
+                if (selectedProxy) {
+                    // Set proxy details
+                    proxyListen = selectedProxy.addr_listen || "";
+                    
+                    // Find domains for this proxy
+                    const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === gwnode.proxy_id);
+                    
+                    // Set available domains
+                    availableDomains = proxyWithDomainsObj ? [...proxyWithDomainsObj.domains] : [];
+                    
+                    // Set domain info if applicable
+                    if (gwnode.domain_id && availableDomains.length > 0) {
+                        const selectedDomain = availableDomains.find(d => d.id === gwnode.domain_id);
+                        if (selectedDomain) {
+                            proxyTls = selectedDomain.tls || false;
+                            proxyDomain = selectedDomain.sni || "";
+                        } else {
+                            // Domain no longer exists or isn't valid for this proxy
+                            gwnode = {
+                                ...gwnode,
+                                domain_id: "",
+                                domain_name: ""
+                            };
+                            proxyTls = false;
+                            proxyDomain = "";
+                        }
+                    } else {
+                        proxyTls = false;
+                        proxyDomain = "";
                     }
                 }
             }
-        }
-    }
-
-    // Update gwnode when proxy_id changes
-    $: if (gwnode.proxy_id) {
-        const selectedProxy = proxies.find((p) => p.id === gwnode.proxy_id);
-        if (selectedProxy) {
-            gwnode = {
-                ...gwnode,
-                proxyTitle: selectedProxy.title || "",
-            };
-            // Update additional proxy details
-            proxyListen = selectedProxy.addr_listen || "";
-            proxyTls = false;
-            proxyDomain = "";
-            
-            // Update available domains
-            const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === gwnode.proxy_id);
-            availableDomains = proxyWithDomainsObj ? proxyWithDomainsObj.domains || [] : [];
+        } catch (error) {
+            console.error("Error initializing modal:", error);
         }
     }
 
@@ -121,7 +110,7 @@
         event.stopPropagation();
     }
 
-    // Handle proxy selection
+    // Handle proxy selection - with explicit update of domains
     function handleProxyChange(event: Event) {
         const target = event.target as HTMLSelectElement;
         const selectedId = target.value;
@@ -130,26 +119,28 @@
             const selectedProxy = proxies.find((p) => p.id === selectedId);
             
             if (selectedProxy) {
-                // Create a new object to ensure reactivity
+                // First update the gwnode proxy selection
                 gwnode = {
                     ...gwnode,
-                    proxy_id: selectedProxy.id,
+                    proxy_id: selectedId,
                     proxyTitle: selectedProxy.title || "",
                     domain_id: "", // Clear domain selection when proxy changes
                     domain_name: "",
                 };
                 
-                // Update additional proxy details
+                // Then update proxy details
                 proxyListen = selectedProxy.addr_listen || "";
                 proxyTls = false;
                 proxyDomain = "";
                 
-                // Update available domains
-                const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === gwnode.proxy_id);
-                availableDomains = proxyWithDomainsObj ? proxyWithDomainsObj.domains || [] : [];
+                // Then find domains for this proxy
+                const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === selectedId);
+                
+                // Finally update available domains
+                availableDomains = proxyWithDomainsObj ? [...proxyWithDomainsObj.domains] : [];
             }
         } else {
-            // If no proxy is selected, clear the proxy-related fields
+            // If no proxy is selected, clear all fields
             gwnode = {
                 ...gwnode,
                 proxy_id: "",
@@ -164,18 +155,19 @@
         }
     }
     
-    // Handle domain selection
+    // Handle domain selection - simplified to just handle the selected domain
     function handleDomainChange(event: Event) {
         const target = event.target as HTMLSelectElement;
         const selectedId = target.value;
         
-        if (selectedId) {
+        if (selectedId && availableDomains.length > 0) {
             const selectedDomain = availableDomains.find(d => d.id === selectedId);
             
             if (selectedDomain) {
+                // Update domain info
                 gwnode = {
                     ...gwnode,
-                    domain_id: selectedDomain.id || "",
+                    domain_id: selectedDomain.id,
                     domain_name: selectedDomain.sni || "",
                 };
                 
@@ -184,7 +176,7 @@
                 proxyDomain = selectedDomain.sni || "";
             }
         } else {
-            // If no domain is selected
+            // No domain selected
             gwnode = {
                 ...gwnode,
                 domain_id: "",

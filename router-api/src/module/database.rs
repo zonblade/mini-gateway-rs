@@ -51,7 +51,6 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 /// Errors that can occur during database operations.
@@ -110,56 +109,28 @@ impl DatabaseError {
 /// for all database operations that includes the appropriate error type.
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
-/// A thread-safe wrapper around a SQLite connection.
+/// A simplified database wrapper for SQLite operations.
 ///
-/// The `Database` struct provides a safe, easy-to-use interface for interacting with
-/// a SQLite database. It handles connection management and provides methods for
-/// executing queries, fetching results, and managing transactions.
-///
-/// The underlying connection is wrapped in an `Arc<Mutex<>>` to make it safely
-/// shareable between threads, which is particularly useful in concurrent contexts
-/// like web servers.
+/// This implementation creates a new connection for each operation and
+/// closes it immediately afterward, avoiding any potential locking issues
+/// at the cost of a slight performance overhead. This is ideal for
+/// low-concurrency applications where database locking is more problematic
+/// than the overhead of creating new connections.
 pub struct Database {
-    /// The SQLite connection wrapped in thread-safe containers.
-    ///
-    /// The connection is wrapped in an Arc (for shared ownership) and a Mutex
-    /// (for exclusive access), allowing the Database instance to be cloned and
-    /// shared between threads while ensuring thread safety.
-    connection: Arc<Mutex<Connection>>,
+    /// Path to the SQLite database file
+    db_path: String,
 }
 
 #[allow(dead_code)]
 impl Database {
-    /// Creates a new database connection to the specified path.
+    /// Creates a new database connection to the main database.
     ///
-    /// This function ensures that the directory structure exists before opening
-    /// the connection. If the directory doesn't exist, it will be created.
-    ///
-    /// The database file is located at `/tmp/gwrs/data/core`.
+    /// The database file is located at `/tmp/gwrs/data/core.sqlite`.
     ///
     /// # Returns
     ///
     /// A `DatabaseResult` containing either the new `Database` instance or an error
-    /// if the connection could not be established.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    /// - The directory structure could not be created
-    /// - The database file could not be opened or created
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use router_api::module::database::Database;
-    ///
-    /// fn main() {
-    ///     match Database::new() {
-    ///         Ok(db) => println!("Database connection established"),
-    ///         Err(e) => eprintln!("Failed to connect to database: {}", e),
-    ///     }
-    /// }
-    /// ```
+    /// if the database directory could not be created.
     pub fn new() -> DatabaseResult<Self> {
         // Ensure the directory exists
         let db_dir = Path::new("/tmp/gwrs/data");
@@ -167,13 +138,19 @@ impl Database {
             fs::create_dir_all(db_dir)?;
         }
         
-        let db_path = db_dir.join("core.sqlite");
-        let connection = Connection::open(db_path)?;
+        let db_path = db_dir.join("core.sqlite").to_string_lossy().to_string();
         
-        Ok(Self {
-            connection: Arc::new(Mutex::new(connection)),
-        })
+        Ok(Self { db_path })
     }
+    
+    /// Creates a new database connection to the logging database.
+    ///
+    /// The database file is located at `/tmp/gwrs/data/core_logging.sqlite`.
+    ///
+    /// # Returns
+    ///
+    /// A `DatabaseResult` containing either the new `Database` instance or an error
+    /// if the database directory could not be created.
     pub fn new_log() -> DatabaseResult<Self> {
         // Ensure the directory exists
         let db_dir = Path::new("/tmp/gwrs/data");
@@ -181,18 +158,37 @@ impl Database {
             fs::create_dir_all(db_dir)?;
         }
         
-        let db_path = db_dir.join("core_logging.sqlite");
-        let connection = Connection::open(db_path)?;
+        let db_path = db_dir.join("core_logging.sqlite").to_string_lossy().to_string();
         
-        Ok(Self {
-            connection: Arc::new(Mutex::new(connection)),
-        })
+        Ok(Self { db_path })
+    }
+    
+    /// Creates a new connection to the database.
+    ///
+    /// This function is used internally to open a fresh connection for each operation.
+    /// It also sets up necessary SQLite pragmas for better reliability.
+    ///
+    /// # Returns
+    ///
+    /// A `DatabaseResult` containing either the new Connection or an error
+    fn connect(&self) -> DatabaseResult<Connection> {
+        let conn = Connection::open(&self.db_path)?;
+        
+        // Configure SQLite for better reliability
+        conn.execute_batch("
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA busy_timeout = 1000;
+            PRAGMA foreign_keys = ON;
+        ")?;
+        
+        Ok(conn)
     }
     
     /// Executes a raw SQL query with optional parameters.
     ///
-    /// This method is used for queries that modify the database, such as
-    /// INSERT, UPDATE, DELETE, or CREATE TABLE statements.
+    /// This method creates a new connection, executes the statement, and then
+    /// automatically closes the connection.
     ///
     /// # Parameters
     ///
@@ -207,7 +203,6 @@ impl Database {
     /// # Errors
     ///
     /// This function will return an error if:
-    /// - The database connection is locked or unavailable
     /// - The SQL statement is invalid
     /// - A parameter binding fails
     /// - The statement execution fails
@@ -245,7 +240,7 @@ impl Database {
     where
         P: rusqlite::Params,
     {
-        let conn = self.connection.lock().map_err(|_| DatabaseError::NotInitialized)?;
+        let conn = self.connect()?;
         let result = conn.execute(sql, params)?;
         Ok(result)
     }
@@ -276,7 +271,6 @@ impl Database {
     /// # Errors
     ///
     /// This function will return an error if:
-    /// - The database connection is locked or unavailable
     /// - The SQL statement is invalid
     /// - A parameter binding fails
     /// - The statement execution fails
@@ -321,7 +315,7 @@ impl Database {
         F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
         P: rusqlite::Params,
     {
-        let conn = self.connection.lock().map_err(|_| DatabaseError::NotInitialized)?;
+        let conn = self.connect()?;
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params, f)?;
         
@@ -359,7 +353,6 @@ impl Database {
     /// # Errors
     ///
     /// This function will return an error if:
-    /// - The database connection is locked or unavailable
     /// - The SQL statement is invalid
     /// - A parameter binding fails
     /// - The statement execution fails
@@ -410,7 +403,7 @@ impl Database {
         F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
         P: rusqlite::Params,
     {
-        let conn = self.connection.lock().map_err(|_| DatabaseError::NotInitialized)?;
+        let conn = self.connect()?;
         let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query_map(params, f)?;
         
@@ -445,7 +438,6 @@ impl Database {
     /// # Errors
     ///
     /// This function will return an error if:
-    /// - The database connection is locked or unavailable
     /// - The transaction could not be started
     /// - The function returns an error
     /// - The transaction could not be committed
@@ -498,11 +490,86 @@ impl Database {
     where
         F: FnOnce(&Connection) -> SqliteResult<T>,
     {
-        let mut conn = self.connection.lock().map_err(|_| DatabaseError::NotInitialized)?;
+        let mut conn = self.connect()?;
         let tx = conn.transaction()?;
         let result = f(&tx)?;
         tx.commit()?;
         Ok(result)
+    }
+    
+    /// Checks if a table exists and has the expected columns
+    ///
+    /// This is a simple utility method to check if a table exists with its expected structure.
+    /// It returns true only if the table exists and all specified columns are present.
+    ///
+    /// # Parameters
+    ///
+    /// * `table_name` - The name of the table to check
+    /// * `expected_columns` - Array of column names that should exist in the table
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(true)` - If the table exists with all expected columns
+    /// * `Ok(false)` - If the table doesn't exist or is missing columns
+    /// * `Err(DatabaseError)` - If there was a database error during the check
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let db = get_connection()?;
+    /// if !db.table_exists_with_columns("users", &["id", "username", "email"])? {
+    ///     // Create or fix the table
+    /// }
+    /// ```
+    pub fn table_exists_with_columns(
+        &self, 
+        table_name: &str, 
+        expected_columns: &[&str]
+    ) -> DatabaseResult<bool> {
+        let conn = self.connect()?;
+        
+        // First check if the table exists
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+                [table_name],
+                |row| row.get::<_, i64>(0)
+            )
+            .map(|count| count > 0)
+            .map_err(DatabaseError::from)?;
+            
+        if !table_exists {
+            return Ok(false);
+        }
+        
+        // Then check if the table has the expected columns
+        for column_name in expected_columns {
+            let column_exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?",
+                    rusqlite::params![table_name, column_name],
+                    |row| row.get::<_, i64>(0)
+                )
+                .map(|count| count > 0)
+                .map_err(DatabaseError::from)?;
+                
+            if !column_exists {
+                return Ok(false);
+            }
+        }
+        
+        // Run a quick integrity check on the table
+        let result = conn.query_row(
+            "PRAGMA quick_check", 
+            [],
+            |row| row.get::<_, String>(0)
+        );
+        
+        match result {
+            Ok(ok_msg) if ok_msg == "ok" => Ok(true),
+            Ok(_) => Ok(false),  // If we get any message other than "ok", table is corrupt
+            Err(_) => Ok(false), // Error during quick_check indicates issues with the table
+        }
     }
 }
 

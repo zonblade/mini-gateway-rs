@@ -110,8 +110,6 @@ pub struct ProxyDomain {
     pub id: String,
     /// Reference to the proxy ID that this domain is associated with
     pub proxy_id: Option<String>,
-    /// Reference to the gateway node ID that this domain routes to (optional)
-    pub gwnode_id: Option<String>,
     /// Whether TLS is enabled for this domain
     pub tls: bool,
     /// PEM certificate content for TLS
@@ -150,6 +148,7 @@ pub struct ProxyDomain {
 ///     title: "API Backup Gateway",
 ///     alt_target: "http://backup-server.internal:8080",
 ///     priority: 100,
+///     domain_id: "123e4567-e89b-12d3-a456-426614174000"
 /// }
 /// ```
 ///
@@ -168,6 +167,10 @@ pub struct GatewayNode {
     /// Processing priority (default: 100, higher values = higher priority)
     #[serde(default = "default_priority")]
     pub priority: i32,
+    // domain associated with this gateway node
+    pub domain_id: Option<String>,
+    // domain name associated with this gateway node
+    pub domain_name: Option<String>,
 }
 
 /// Default priority value for gateway nodes

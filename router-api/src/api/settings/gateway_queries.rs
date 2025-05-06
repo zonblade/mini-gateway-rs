@@ -42,33 +42,34 @@ use uuid::Uuid;
 pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
-    // Check if the table structure is correct by trying to select the columns we need
-    let check_result = db.query(
-        "SELECT id, gwnode_id, pattern, target, priority FROM gateways LIMIT 1",
-        [],
-        |_| Ok(()),
-    );
+    // Define the expected columns
+    let expected_columns = ["id", "gwnode_id", "pattern", "target", "priority"];
     
-    if check_result.is_err() {
-        // If there's an error, the table might not exist or has an incorrect structure
-        // First try to drop the table if it exists
-        let _ = db.execute("DROP TABLE IF EXISTS gateways", []);
-        log::warn!("Recreating gateways table with correct structure");
-        
-        // Create the table with the correct structure
-        db.execute(
-            "CREATE TABLE gateways (
-                id TEXT PRIMARY KEY,
-                gwnode_id TEXT NOT NULL,
-                pattern TEXT NOT NULL,
-                target TEXT NOT NULL,
-                priority INTEGER NOT NULL,
-                FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
-            )",
-            [],
-        )?;
+    // Check if the table exists with the expected columns and is not corrupted
+    if db.table_exists_with_columns("gateways", &expected_columns)? {
+        log::debug!("gateways table exists and has expected structure");
+        return Ok(());
     }
     
+    log::info!("Creating or repairing gateways table");
+    
+    // Drop the table if it exists but is corrupted or missing columns
+    db.execute("DROP TABLE IF EXISTS gateways", [])?;
+    
+    // Create the table with the full correct structure
+    db.execute(
+        "CREATE TABLE gateways (
+            id TEXT PRIMARY KEY,
+            gwnode_id TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            target TEXT NOT NULL,
+            priority INTEGER NOT NULL,
+            FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
+        )",
+        [],
+    )?;
+    
+    log::info!("Created gateways table with correct structure");
     Ok(())
 }
 

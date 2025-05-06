@@ -132,6 +132,8 @@ mod test {
             title: "Test Gateway Node".to_string(),
             alt_target: "127.0.0.1:8082".to_string(),
             priority: 1,
+            domain_id: None,
+            domain_name: None,
         };
 
         if let Err(e) = gwnode_queries::save_gateway_node(&gwnode) {

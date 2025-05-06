@@ -8,6 +8,7 @@ use super::Proxy;
 use crate::module::database::{get_connection, DatabaseError};
 use rand::Rng;
 use std::net::TcpListener;
+use uuid;
 
 /// Creates the proxies table in the database if it doesn't already exist
 ///
@@ -37,79 +38,129 @@ use std::net::TcpListener;
 /// - The SQL statement to create the table could not be executed
 pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
-
-    // Check if we need to migrate from old table structure
-    let needs_migration = db.query(
-        "SELECT tls FROM proxies LIMIT 1",
-        [],
-        |_| Ok(true)
-    ).is_ok();
-
-    if needs_migration {
-        // If old table structure exists, we'll create a temporary table and migrate data
-        log::info!("Migrating proxies table to new structure...");
-        
-        // Create temporary table with new structure
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS proxies_new (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                addr_listen TEXT NOT NULL,
-                addr_target TEXT NOT NULL,
-                high_speed BOOLEAN NOT NULL DEFAULT 0,
-                high_speed_addr TEXT
-            )",
+    
+    // Define the expected columns for proxies table
+    let expected_columns = ["id", "title", "addr_listen", "addr_target", "high_speed", "high_speed_addr"];
+    
+    // Check if the table exists with the expected columns and is not corrupted
+    let proxies_table_valid = db.table_exists_with_columns("proxies", &expected_columns)?;
+    
+    // Define the expected columns for proxy_domains table
+    let expected_domain_columns = ["id", "proxy_id", "tls", "tls_pem", "tls_key", "sni"];
+    
+    // Check if the proxy_domains table exists with the expected columns and is not corrupted
+    let proxy_domains_table_valid = db.table_exists_with_columns("proxy_domains", &expected_domain_columns)?;
+    
+    if proxies_table_valid && proxy_domains_table_valid {
+        log::debug!("proxies and proxy_domains tables exist and have expected structure");
+        return Ok(());
+    }
+    
+    log::info!("Creating or repairing proxies and/or proxy_domains tables");
+    
+    // Handle proxies table
+    if !proxies_table_valid {
+        // Check if an old version of the proxies table exists (with tls column)
+        let old_table_exists = db.query(
+            "SELECT tls FROM proxies LIMIT 1",
             [],
-        )?;
+            |_| Ok(true)
+        ).is_ok();
         
-        // Copy data from old table to new table, dropping TLS-related fields
-        db.execute(
-            "INSERT INTO proxies_new (id, title, addr_listen, addr_target, high_speed, high_speed_addr)
-             SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies",
-            [],
-        )?;
+        if old_table_exists {
+            log::info!("Migrating proxies table to new structure...");
+            
+            // Create temporary table with new structure
+            db.execute(
+                "CREATE TABLE proxies_new (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    addr_listen TEXT NOT NULL,
+                    addr_target TEXT NOT NULL,
+                    high_speed BOOLEAN NOT NULL DEFAULT 0,
+                    high_speed_addr TEXT
+                )",
+                [],
+            )?;
+            
+            // Copy data from old table to new table, dropping TLS-related fields
+            db.execute(
+                "INSERT INTO proxies_new (id, title, addr_listen, addr_target, high_speed, high_speed_addr)
+                SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies",
+                [],
+            )?;
+            
+            // Migrate TLS data to proxy_domains table if it exists
+            if !proxy_domains_table_valid {
+                // Create proxy_domains table first if it doesn't exist
+                db.execute("DROP TABLE IF EXISTS proxy_domains", [])?;
+                
+                db.execute(
+                    "CREATE TABLE proxy_domains (
+                        id TEXT PRIMARY KEY,
+                        proxy_id TEXT NOT NULL,
+                        tls BOOLEAN NOT NULL DEFAULT 0,
+                        tls_pem TEXT,
+                        tls_key TEXT,
+                        sni TEXT
+                    )",
+                    [],
+                )?;
+                
+                // Migrate TLS data to proxy_domains table
+                db.execute(
+                    "INSERT INTO proxy_domains (id, proxy_id, tls, tls_pem, tls_key, sni)
+                    SELECT hex(randomblob(16)), id, tls, tls_pem, tls_key, sni
+                    FROM proxies WHERE tls = 1",
+                    [],
+                )?;
+                
+                log::info!("Created proxy_domains table with correct structure");
+            }
+            
+            // Rename tables to complete migration
+            db.execute("DROP TABLE proxies", [])?;
+            db.execute("ALTER TABLE proxies_new RENAME TO proxies", [])?;
+            
+            log::info!("Migration completed successfully.");
+        } else {
+            // Drop the table if it exists but is corrupted or missing columns
+            db.execute("DROP TABLE IF EXISTS proxies", [])?;
+            
+            // Create the table with the full correct structure
+            db.execute(
+                "CREATE TABLE proxies (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    addr_listen TEXT NOT NULL,
+                    addr_target TEXT NOT NULL,
+                    high_speed BOOLEAN NOT NULL DEFAULT 0,
+                    high_speed_addr TEXT
+                )",
+                [],
+            )?;
+            
+            log::info!("Created proxies table with correct structure");
+        }
+    }
+    
+    // Handle proxy_domains table separately if needed
+    if !proxy_domains_table_valid {
+        db.execute("DROP TABLE IF EXISTS proxy_domains", [])?;
         
-        // Create ProxyDomain entries for any proxy with TLS enabled
         db.execute(
-            "CREATE TABLE IF NOT EXISTS proxy_domains (
+            "CREATE TABLE proxy_domains (
                 id TEXT PRIMARY KEY,
                 proxy_id TEXT NOT NULL,
-                gwnode_id TEXT NOT NULL DEFAULT '',
                 tls BOOLEAN NOT NULL DEFAULT 0,
                 tls_pem TEXT,
                 tls_key TEXT,
-                sni TEXT,
-                FOREIGN KEY(proxy_id) REFERENCES proxies(id)
+                sni TEXT
             )",
             [],
         )?;
         
-        // Migrate TLS data to proxy_domains table
-        db.execute(
-            "INSERT INTO proxy_domains (id, proxy_id, gwnode_id, tls, tls_pem, tls_key, sni)
-             SELECT hex(randomblob(16)), id, '', tls, tls_pem, tls_key, sni
-             FROM proxies WHERE tls = 1",
-            [],
-        )?;
-        
-        // Rename tables to complete migration
-        db.execute("DROP TABLE proxies", [])?;
-        db.execute("ALTER TABLE proxies_new RENAME TO proxies", [])?;
-        
-        log::info!("Migration completed successfully.");
-    } else {
-        // If no migration needed, just create the new table
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS proxies (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                addr_listen TEXT NOT NULL,
-                addr_target TEXT NOT NULL,
-                high_speed BOOLEAN NOT NULL DEFAULT 0,
-                high_speed_addr TEXT
-            )",
-            [],
-        )?;
+        log::info!("Created proxy_domains table with correct structure");
     }
 
     Ok(())
@@ -268,51 +319,31 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
 /// # Security Notes
 ///
 /// This function uses parameterized SQL queries to prevent SQL injection attacks.
-/// The `tls_pem`, `tls_key`, and `sni` fields are stored as `\u{0000}` (NULL character)
-/// when they are `None` to maintain consistent storage.
+/// The `high_speed_addr` field is stored as `\u{0000}` (NULL character)
+/// when it is `None` to maintain consistent storage.
 ///
-/// # Example
-///
-/// ```
-/// use router_api::api::settings::{Proxy, proxy_queries};
-///
-/// let proxy = Proxy {
-///     id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-///     title: "Web Server".to_string(),
-///     addr_listen: "0.0.0.0:80".to_string(),
-///     addr_target: "127.0.0.1:8080".to_string(),
-///     tls: false,
-///     tls_pem: None,
-///     tls_key: None,
-///     tls_autron: false,
-///     sni: None,
-/// };
-///
-/// match proxy_queries::save_proxy(&proxy) {
-///     Ok(()) => println!("Proxy saved successfully"),
-///     Err(err) => eprintln!("Error saving proxy: {}", err),
-/// }
-/// ```
 pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
-    let db = get_connection()?;
-
     // Ensure the table exists
     ensure_proxies_table()?;
-
-    // Insert or replace the proxy
+    
+    // Get a fresh database connection for this operation
+    let db = get_connection()?;
+    
+    // Insert or replace the proxy with a simple execute operation
     db.execute(
         "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, high_speed, high_speed_addr) 
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        [
+        rusqlite::params![
             &proxy.id,
             &proxy.title,
             &proxy.addr_listen,
             &proxy.addr_target,
-            &(if proxy.high_speed { "1" } else { "0" }).to_string(),
+            &(if proxy.high_speed { 1 } else { 0 }),
             &proxy.high_speed_addr.clone().unwrap_or("\u{0000}".to_string()),
         ],
     )?;
-
+    
+    // Connection is closed automatically when db goes out of scope
     Ok(())
 }
 
@@ -459,4 +490,16 @@ pub fn has_duplicate_listen_address(listen_addr: &str, exclude_id: Option<&str>)
     }
     
     Ok(count > 0)
+}
+
+/// Generates a unique ID for a new proxy domain
+///
+/// This is a utility function that generates a UUID v4 string to use
+/// as the identifier for a new proxy domain record.
+///
+/// # Returns
+///
+/// A string containing a random UUID v4 value
+pub fn generate_proxy_domain_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
