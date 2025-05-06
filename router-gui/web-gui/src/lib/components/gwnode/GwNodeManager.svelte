@@ -26,7 +26,7 @@
     });
     
     const unsubProxies = proxies.subscribe(items => {
-        proxyList = items;
+        proxyList = items.map(item => item.proxy);
     });
     
     // Load data when component mounts
@@ -106,7 +106,8 @@
                     proxy_id: currentGwNode.proxy_id,
                     title: currentGwNode.title,
                     alt_target: currentGwNode.alt_target,
-                    source: "" // Include empty source when updating
+                    source: "", // Include empty source when updating
+                    domain_id: currentGwNode.domain_id || undefined
                 };
                 await gwnodeActions.updateGwNode(updateRequest);
             } else {
@@ -116,7 +117,8 @@
                     proxy_id: currentGwNode.proxy_id,
                     title: currentGwNode.title,
                     alt_target: currentGwNode.alt_target,
-                    source: "" // Include empty source for new nodes
+                    source: "", // Include empty source for new nodes
+                    domain_id: currentGwNode.domain_id || undefined
                 };
                 await gwnodeActions.createGwNode(createRequest);
             }

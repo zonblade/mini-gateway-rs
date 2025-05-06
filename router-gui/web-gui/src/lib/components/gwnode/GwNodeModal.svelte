@@ -1,7 +1,7 @@
 <script lang="ts">
     import { fade } from "svelte/transition";
     import type { GwNode } from "$lib/types/gwnode";
-    import type { Proxy } from "$lib/types/proxy";
+    import type { Proxy, TlsDomain, ProxyWithDomains } from "$lib/types/proxy";
     import Button from "$lib/components/common/Button.svelte";
     import InputField from "$lib/components/common/InputField.svelte";
     import { proxyStore } from "$lib/stores/proxyStore";
@@ -15,6 +15,8 @@
         proxyTitle: "",
         alt_target: "",
         source: "",
+        domain_id: "",
+        domain_name: "",
     };
     export let proxies: Proxy[] = [];
     export let onSave: () => void;
@@ -24,13 +26,19 @@
     let proxyListen: string = "";
     let proxyTls: boolean = false;
     let proxyDomain: string = "";
-
+    
+    // Available domains for the selected proxy
+    let availableDomains: TlsDomain[] = [];
+    
+    // Store for full proxies with domains
+    let proxyWithDomains: ProxyWithDomains[] = [];
+    
     // Convert proxies to options for select field
     $: proxyOptions = proxies.map((proxy) => ({
         value: proxy.id,
         label: proxy.title,
     }));
-
+    
     // Fetch latest proxies when modal appears
     $: if (showModal) {
         fetchLatestProxies();
@@ -40,6 +48,9 @@
     async function fetchLatestProxies() {
         try {
             await proxyStore.fetchProxies();
+            proxyStore.subscribe(state => {
+                proxyWithDomains = state.proxies;
+            })();
         } catch (error) {
             console.error("Error fetching proxies:", error);
         }
@@ -57,8 +68,24 @@
                 };
                 // Update additional proxy details
                 proxyListen = selectedProxy.addr_listen || "";
-                proxyTls = selectedProxy.tls || false;
-                proxyDomain = selectedProxy.sni || "";
+                proxyTls = false;
+                proxyDomain = "";
+                
+                // Update available domains for this proxy
+                const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === gwnode.proxy_id);
+                availableDomains = proxyWithDomainsObj ? proxyWithDomainsObj.domains || [] : [];
+                
+                // Clear domain selection if the proxy changes and the current domain 
+                // doesn't belong to this proxy
+                if (gwnode.domain_id) {
+                    const domainExists = availableDomains.some(
+                        domain => domain.id === gwnode.domain_id
+                    );
+                    if (!domainExists) {
+                        gwnode.domain_id = "";
+                        gwnode.domain_name = "";
+                    }
+                }
             }
         }
     }
@@ -73,8 +100,12 @@
             };
             // Update additional proxy details
             proxyListen = selectedProxy.addr_listen || "";
-            proxyTls = selectedProxy.tls || false;
-            proxyDomain = selectedProxy.sni || "";
+            proxyTls = false;
+            proxyDomain = "";
+            
+            // Update available domains
+            const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === gwnode.proxy_id);
+            availableDomains = proxyWithDomainsObj ? proxyWithDomainsObj.domains || [] : [];
         }
     }
 
@@ -104,12 +135,18 @@
                     ...gwnode,
                     proxy_id: selectedProxy.id,
                     proxyTitle: selectedProxy.title || "",
+                    domain_id: "", // Clear domain selection when proxy changes
+                    domain_name: "",
                 };
                 
                 // Update additional proxy details
                 proxyListen = selectedProxy.addr_listen || "";
-                proxyTls = selectedProxy.tls || false;
-                proxyDomain = selectedProxy.sni || "";
+                proxyTls = false;
+                proxyDomain = "";
+                
+                // Update available domains
+                const proxyWithDomainsObj = proxyWithDomains.find(p => p.proxy.id === gwnode.proxy_id);
+                availableDomains = proxyWithDomainsObj ? proxyWithDomainsObj.domains || [] : [];
             }
         } else {
             // If no proxy is selected, clear the proxy-related fields
@@ -117,8 +154,44 @@
                 ...gwnode,
                 proxy_id: "",
                 proxyTitle: "",
+                domain_id: "",
+                domain_name: "",
             };
             proxyListen = "";
+            proxyTls = false;
+            proxyDomain = "";
+            availableDomains = [];
+        }
+    }
+    
+    // Handle domain selection
+    function handleDomainChange(event: Event) {
+        const target = event.target as HTMLSelectElement;
+        const selectedId = target.value;
+        
+        if (selectedId) {
+            const selectedDomain = availableDomains.find(d => d.id === selectedId);
+            
+            if (selectedDomain) {
+                gwnode = {
+                    ...gwnode,
+                    domain_id: selectedDomain.id || "",
+                    domain_name: selectedDomain.sni || "",
+                };
+                
+                // Update TLS info
+                proxyTls = selectedDomain.tls || false;
+                proxyDomain = selectedDomain.sni || "";
+            }
+        } else {
+            // If no domain is selected
+            gwnode = {
+                ...gwnode,
+                domain_id: "",
+                domain_name: "",
+            };
+            
+            // Reset domain-specific details
             proxyTls = false;
             proxyDomain = "";
         }
@@ -195,6 +268,25 @@
                         </select>
                     </div>
 
+                    {#if gwnode.proxy_id && availableDomains.length > 0}
+                        <div>
+                            <label for="domain_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Domain
+                            </label>
+                            <select
+                                id="domain_id"
+                                value={gwnode.domain_id}
+                                on:change={handleDomainChange}
+                                class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            >
+                                <option value="">No domain (HTTP only)</option>
+                                {#each availableDomains as domain}
+                                    <option value={domain.id}>{domain.sni}</option>
+                                {/each}
+                            </select>
+                        </div>
+                    {/if}
+
                     {#if gwnode.proxy_id}
                         <div class="rounded-md bg-gray-50 dark:bg-gray-800 p-3">
                             <h3
@@ -211,13 +303,28 @@
                                 <div class="mb-1 font-mono text-xs">
                                     <span class="font-medium">Listen:</span> {proxyListen || "Not specified"}
                                 </div>
-                                <div class="mb-1 text-xs">
-                                    <span class="font-medium">TLS:</span> {proxyTls ? "Enabled" : "Disabled"}
-                                </div>
-                                {#if proxyDomain}
-                                <div class="text-xs">
-                                    <span class="font-medium">Domain:</span> {proxyDomain}
-                                </div>
+                                
+                                {#if gwnode.domain_id && gwnode.domain_name}
+                                    <div class="pt-1 border-t border-gray-200 dark:border-gray-700 mt-1 mb-1">
+                                        <span class="font-medium">Domain:</span> {gwnode.domain_name}
+                                    </div>
+                                    <div class="mb-1 text-xs">
+                                        <span class="font-medium">TLS:</span> 
+                                        {#if proxyTls}
+                                            <span class="text-green-600 dark:text-green-400">Enabled</span>
+                                        {:else}
+                                            <span class="text-red-600 dark:text-red-400">Disabled</span>
+                                        {/if}
+                                    </div>
+                                {:else}
+                                    <div class="mb-1 text-xs">
+                                        <span class="font-medium">TLS:</span> {proxyTls ? "Enabled" : "Disabled"}
+                                    </div>
+                                    {#if proxyDomain}
+                                    <div class="text-xs">
+                                        <span class="font-medium">Domain:</span> {proxyDomain}
+                                    </div>
+                                    {/if}
                                 {/if}
                             </div>
                         </div>
