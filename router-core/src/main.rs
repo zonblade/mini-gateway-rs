@@ -78,6 +78,7 @@ async fn main() {
         let running_clone = Arc::clone(&active_state);
         ctrlc::set_handler(move || {
             log::debug!("SIGINT received, shutting down servers...");
+            eprintln!("SIGINT received, shutting down servers...");
             running_clone.store(false, Ordering::SeqCst);
         })
         .expect("Error setting Ctrl-C handler");

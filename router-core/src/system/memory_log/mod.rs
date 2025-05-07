@@ -55,6 +55,13 @@ impl QueueControl {
     pub fn unlock(&self) {
         self.lock.store(0, Ordering::Release);
     }
+    // Use stronger memory ordering for visibility across processes
+    pub fn enqueue_item(&self, write_idx: usize, capacity: usize) {
+        // Update write index with Release ordering to make changes visible 
+        self.write_index.store((write_idx + 1) % capacity, Ordering::Release);
+        // Update count with Release ordering
+        self.count.fetch_add(1, Ordering::Release);
+    }
 }
 
 // Producer side
@@ -153,19 +160,18 @@ impl SharedMemoryProducer {
         unsafe {
             // Lock the queue
             (*self.control).lock();
-
-            // Check if queue is full
-            let count = (*self.control).count.load(Ordering::Relaxed);
-            let capacity = (*self.control).capacity.load(Ordering::Relaxed);
+            
+            // Use explicit memory ordering for cross-process visibility
+            let count = (*self.control).count.load(Ordering::Acquire);
+            let capacity = (*self.control).capacity.load(Ordering::Acquire);
             
             if count >= capacity {
                 (*self.control).unlock();
                 return Err(Error::new(ErrorKind::Other, "Queue is full"));
             }
-
-            // Get current write position
-            let write_idx = (*self.control).write_index.load(Ordering::Relaxed);
             
+            // Get current write position with explicit Acquire ordering
+            let write_idx = (*self.control).write_index.load(Ordering::Acquire);
             // Calculate offset in buffer
             let offset = write_idx * ENTRY_MAX_SIZE;
             
@@ -190,6 +196,9 @@ impl SharedMemoryProducer {
             
             // Update count
             (*self.control).count.fetch_add(1, Ordering::Relaxed);
+            
+            // Use the new helper method to update indices
+            (*self.control).enqueue_item(write_idx, capacity);
             
             // Unlock
             (*self.control).unlock();
@@ -296,8 +305,8 @@ impl LogProducer {
 
 // Default configuration for global logger
 const DEFAULT_LOGGER_SIZE: usize = MAX_MEMORY_SIZE; // 1GB
-const PROXY_LOGGER_NAME: &str = "/gwrs/proxy";
-const GATEWAY_LOGGER_NAME: &str = "/gwrs/gateway";
+const PROXY_LOGGER_NAME: &str = "/gwrs-proxy";
+const GATEWAY_LOGGER_NAME: &str = "/gwrs-gateway";
 
 // Global logger instances
 static mut GLOBAL_LOG_PROXY: Option<LogProducer> = None;
@@ -398,6 +407,42 @@ mod tests {
         }
         
         println!("Logged 10 messages, queue size: {}", log_producer.queue_size());
+    }
+
+    #[test]
+    pub fn test_producer() {
+        let log_producer = LogProducer::new(PROXY_LOGGER_NAME, 100 * 1024 * 1024)
+            .expect("Failed to create shared memory");
+        
+        println!("Starting continuous message production...");
+        
+        let mut counter = 0;
+        loop {
+            // Create a message with timestamp and counter
+            let message = format!("[INFO] [PXY] Test message #{} at {}", 
+                                 counter, chrono::Local::now());
+            
+            // Log the message
+            match log_producer.log(2, &message) {
+                Ok(_) => {
+                    println!("Produced message #{}, queue size: {}", 
+                             counter, log_producer.queue_size());
+                },
+                Err(e) => {
+                    println!("Failed to produce message: {}", e);
+                }
+            }
+            
+            counter += 1;
+            
+            // Sleep between messages
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            
+            // Optional: exit after some number of messages for testing
+            if counter >= 1000 {
+                break;
+            }
+        }
     }
 
     // // Example logger.rs

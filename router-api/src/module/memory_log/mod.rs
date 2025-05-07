@@ -1,5 +1,6 @@
 // -- lib.rs --
 // A raw implementation of shared memory in Rust using direct system calls
+pub mod spawner;
 
 use std::ffi::CString;
 use std::io::{self, Error, ErrorKind};
@@ -11,6 +12,8 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 pub const MAX_MEMORY_SIZE: usize = 1024 * 1024 * 1024; // 1GB max memory
 const ENTRY_MAX_SIZE: usize = 64 * 1024; // 64KB per entry
 const SHM_METADATA_SIZE: usize = 4096; // Space for metadata at the beginning
+const PROXY_LOGGER_NAME: &str = "/gwrs-proxy";
+const GATEWAY_LOGGER_NAME: &str = "/gwrs-gateway";
 
 // Control structure at the beginning of shared memory
 #[repr(C, align(64))]
@@ -48,6 +51,12 @@ impl QueueControl {
 
     pub fn unlock(&self) {
         self.lock.store(0, Ordering::Release);
+    }
+    pub fn dequeue_item(&self, read_idx: usize, capacity: usize) {
+        // Update read index with Release ordering
+        self.read_index.store((read_idx + 1) % capacity, Ordering::Release);
+        // Update count with Release ordering
+        self.count.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -118,18 +127,18 @@ impl SharedMemoryConsumer {
         unsafe {
             // Lock the queue
             (*self.control).lock();
-
-            // Check if queue is empty
-            let count = (*self.control).count.load(Ordering::Relaxed);
+            
+            // Use explicit Acquire ordering for cross-process visibility
+            let count = (*self.control).count.load(Ordering::Acquire);
             if count == 0 {
                 (*self.control).unlock();
                 return Ok(None);
             }
-
-            // Get current read position
-            let read_idx = (*self.control).read_index.load(Ordering::Relaxed);
-            let capacity = (*self.control).capacity.load(Ordering::Relaxed);
             
+            // Get current read position with explicit Acquire ordering
+            let read_idx = (*self.control).read_index.load(Ordering::Acquire);
+            let capacity = (*self.control).capacity.load(Ordering::Acquire);
+
             // Calculate offset in buffer
             let offset = read_idx * ENTRY_MAX_SIZE;
             
@@ -155,6 +164,9 @@ impl SharedMemoryConsumer {
             
             // Update count
             (*self.control).count.fetch_sub(1, Ordering::Relaxed);
+            
+            // Use the new helper method to update indices
+            (*self.control).dequeue_item(read_idx, capacity);
             
             // Unlock
             (*self.control).unlock();
@@ -306,64 +318,92 @@ impl LogConsumer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+
+// Example logger.rs
+pub fn listen_proxy() {
+    // Open shared memory
+    let log_consumer = LogConsumer::new(PROXY_LOGGER_NAME, MAX_MEMORY_SIZE)
+        .expect("Failed to open shared memory");
     
-    // Example logger.rs
-    pub fn logger_example() {
-        // Open shared memory
-        let log_consumer = LogConsumer::new("/my-app-logs", 100 * 1024 * 1024)
-            .expect("Failed to open shared memory");
+    // Process logs in batches with a controlled rate
+    let mut batch = Vec::new();
+    const BATCH_SIZE: usize = 100;
+    
+    log::info!("Starting log processing, queue size: {}", log_consumer.queue_size());
+    
+    let mut consecutive_empty = 0;
+    let mut message_counter = 0;
+    
+    loop {
+        // Add detailed queue monitoring
+        let queue_size = log_consumer.queue_size();
+        println!("Queue status: size={}, capacity={}", 
+                queue_size, log_consumer.capacity());
         
-        // Process logs in batches with a controlled rate
-        let mut batch = Vec::new();
-        const BATCH_SIZE: usize = 100;
-        
-        println!("Starting log processing, queue size: {}", log_consumer.queue_size());
-        
-        loop {
-            // Try to get a log entry with a timeout of 100ms
-            match log_consumer.get_log_with_timeout(100) {
-                Ok(Some((timestamp, level, message))) => {
-                    // Process log entry
-                    let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0)
-                        .unwrap_or(chrono::DateTime::UNIX_EPOCH);
-                    
-                    batch.push((datetime, level, message));
-                    
-                    // If batch is full, commit to database
-                    if batch.len() >= BATCH_SIZE {
-                        println!("Processing batch of {} logs", batch.len());
-                        // Here you would save to database
-                        batch.clear();
+        // Try to get a log entry with a timeout of 100ms
+        match log_consumer.get_log_with_timeout(100) {
+            Ok(Some((timestamp, level, message))) => {
+                consecutive_empty = 0;
+                message_counter += 1;
+                
+                // Process log entry with more detailed output
+                let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0)
+                    .unwrap_or(chrono::DateTime::UNIX_EPOCH);
+                
+                println!("Message #{}: {} - {}: {}", 
+                         message_counter, datetime, level, message);
+                log::info!("{} - {}: {}", datetime, level, message);
+
+                batch.push((datetime, level, message));
+                
+                // If batch is full, commit to database
+                if batch.len() >= BATCH_SIZE {
+                    log::info!("Processing batch of {} logs", batch.len());
+                    batch.clear();
+                }
+                
+                // Don't sleep after successful reads to catch up quickly
+            },
+            Ok(None) => {
+                consecutive_empty += 1;
+                
+                // Timeout occurred, process any remaining logs
+                if !batch.is_empty() {
+                    log::info!("Processing partial batch of {} logs", batch.len());
+                    for (datetime, level, message) in &batch {
+                        println!("Batch item: {} - {}: {}", datetime, level, message);
                     }
-                },
-                Ok(None) => {
-                    // Timeout occurred, process any remaining logs
-                    if !batch.is_empty() {
-                        println!("Processing partial batch of {} logs", batch.len());
-                        // Here you would save to database
-                        batch.clear();
-                    }
-                    
-                    // Sleep a bit to avoid busy waiting
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                },
-                Err(e) => {
-                    eprintln!("Error getting log: {}", e);
-                    break;
-                },
-            }
-            
-            // Exit if requested (you'd implement a proper signal handler in a real application)
-            if std::path::Path::new("/tmp/stop-logger").exists() {
-                println!("Stop signal received");
+                    batch.clear();
+                }
+                
+                // Apply adaptive waiting strategy
+                let wait_time = if consecutive_empty < 5 {
+                    // Quick checks for first few empty iterations
+                    10
+                } else if consecutive_empty < 20 {
+                    // Medium wait time after several empty checks
+                    50
+                } else {
+                    // Longer wait time for prolonged empty periods
+                    200
+                };
+                
+                std::thread::sleep(std::time::Duration::from_millis(wait_time));
+            },
+            Err(e) => {
+                log::error!("Error getting log: {}", e);
+                println!("Error getting log: {}", e);
                 break;
-            }
+            },
         }
         
-        // Clean up shared memory when done
-        log_consumer.cleanup().expect("Failed to clean up shared memory");
+        // Exit if requested
+        if std::path::Path::new("/tmp/stop-logger").exists() {
+            println!("Stop signal received");
+            break;
+        }
     }
+    
+    // Clean up shared memory when done
+    log_consumer.cleanup().expect("Failed to clean up shared memory");
 }

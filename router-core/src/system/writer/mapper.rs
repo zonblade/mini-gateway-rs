@@ -1,3 +1,5 @@
+use std::os::unix::thread;
+
 /// Provides functions for setting up different logging configurations.
 // filepath: /Users/zonblade/Project/runegram/mini-gateway-rs/router-core/src/system/writer/mapper.rs
 use log::LevelFilter;
@@ -50,15 +52,21 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     // Set the created logger as the global logger for the `log` facade.
     // Also sets the maximum log level to filter messages early.
     log::set_boxed_logger(logger).map(|()| log::set_max_level(log_level))?;
-
-    // Log informational messages to confirm initialization and test tags.
-    log::info!("Tag-based logging system initialized");
-    log::info!("[PXY] This is an proxy-related log message");
-    log::info!("[GWX] This is a gateway-related log message");
-    log::info!("[NET] This is a network-related log message");
-    // This message might not be routed if no tag matches, depending on udp_sender logic.
-    log::info!("This is a regular log message with no specific tag");
-
+    // spawn thread to send log
+    std::thread::spawn(move || {
+        // infinite loop every 200ms
+        loop {
+            std::thread::sleep(std::time::Duration::from_nanos(100));
+            // Log informational messages to confirm initialization and test tags.
+            log::info!("Tag-based logging system initialized");
+            log::info!("[PXY] This is an proxy-related log message");
+            log::info!("[GWX] This is a gateway-related log message");
+            log::info!("[NET] This is a network-related log message");
+            // This message might not be routed if no tag matches, depending on udp_sender logic.
+            log::info!("This is a regular log message without a specific tag");
+        }
+    });
+    
     Ok(())
 }
 

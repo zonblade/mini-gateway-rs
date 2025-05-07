@@ -53,6 +53,7 @@ use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpServer};
 use api::sync;
 use client::Client;
+use module::memory_log;
 use std::sync::{Arc, Mutex};
 
 /// Main entry point for the Router API server.
@@ -103,20 +104,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     {
         // Initialize the multi-port UDP logger with proper port isolation
-        log::info!("Starting multi-port UDP logger...");
-        match module::udp_net::udp_logger::initialize_udp_logger(
-            "127.0.0.1",
-            module::udp_net::udp_logger::LogPorts::default(),
-        ) {
-            Ok(_) => log::info!("UDP logger started successfully on ports 24401, 24402, and 24403"),
-            Err(e) => log::error!("Failed to start UDP logger: {}", e),
-        }
+        // log::info!("Starting multi-port UDP logger...");
+        // match module::udp_net::udp_logger::initialize_udp_logger(
+        //     "127.0.0.1",
+        //     module::udp_net::udp_logger::LogPorts::default(),
+        // ) {
+        //     Ok(_) => log::info!("UDP logger started successfully on ports 24401, 24402, and 24403"),
+        //     Err(e) => log::error!("Failed to start UDP logger: {}", e),
+        // }
 
-        module::udp_net::udp_log::common::init();
-        module::udp_net::udp_log::proxy::init();
-        module::udp_net::udp_log::gateway::init();
+        // module::udp_net::udp_log::common::init();
+        // module::udp_net::udp_log::proxy::init();
+        // module::udp_net::udp_log::gateway::init();
 
-        log::info!("UDP logger initialized successfully");
+        // log::info!("UDP logger initialized successfully");
+        memory_log::spawner::spawn_all();
     }
 
     // Parse command line arguments using clap
