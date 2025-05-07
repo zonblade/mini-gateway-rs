@@ -29,33 +29,214 @@ use pingora::{
 use std::ops::DerefMut;
 use std::thread;
 
+/// Module for handling dynamic TLS certificate selection based on SNI (Server Name Indication).
+///
+/// This module provides functionality to dynamically select TLS certificates based on 
+/// the hostname requested by clients through SNI. It supports both exact matches and
+/// wildcard certificates.
 mod boringssl_openssl {
     use async_trait::async_trait;
     use pingora::tls::pkey::{PKey, Private};
+    use pingora::tls::ssl::{SslRef, NameType};
     use pingora::tls::x509::X509;
 
+    /// A dynamic certificate handler that selects TLS certificates based on SNI.
+    ///
+    /// This structure maintains a collection of certificates and their associated private keys,
+    /// along with domain patterns they should match. It supports:
+    ///
+    /// - Multiple certificates for different domains
+    /// - Wildcard certificates (e.g., `*.example.com`)
+    /// - A default fallback certificate
+    ///
+    /// During the TLS handshake, the appropriate certificate is selected based on the
+    /// server name requested by the client through SNI.
     pub(super) struct DynamicCert {
-        cert: X509,
-        key: PKey<Private>,
+        /// Vector of (domain_name, certificate, key) tuples
+        /// Index 0 is used as the default certificate when no match is found
+        /// A `None` domain name indicates the default certificate
+        certs: Vec<(Option<String>, X509, PKey<Private>)>,
     }
 
     impl DynamicCert {
-        pub(super) fn new(cert: &str, key: &str) -> Box<Self> {
-            let cert_bytes = std::fs::read(cert).unwrap();
-            let cert = X509::from_pem(&cert_bytes).unwrap();
+        /// Creates a new empty `DynamicCert` instance.
+        ///
+        /// This constructor initializes an empty certificate collection. Certificates
+        /// must be added using the `add_cert` method before the instance can be used
+        /// for TLS connections.
+        ///
+        /// # Returns
+        ///
+        /// A boxed `DynamicCert` instance with an empty certificate collection.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// let mut cert_handler = boringssl_openssl::DynamicCert::new();
+        /// ```
+        pub(super) fn new() -> Box<Self> {
+            Box::new(DynamicCert { 
+                certs: Vec::new()
+            })
+        }
+                
+        /// Adds a certificate for a specific domain pattern.
+        ///
+        /// This method adds a certificate and its associated private key for a specific
+        /// domain pattern. The pattern can be either an exact domain name (e.g., `example.com`)
+        /// or a wildcard pattern (e.g., `*.example.com`).
+        ///
+        /// # Parameters
+        ///
+        /// * `domain` - The domain pattern this certificate applies to.
+        /// * `cert` - Path to the PEM-encoded certificate file.
+        /// * `key` - Path to the PEM-encoded private key file.
+        ///
+        /// # Returns
+        ///
+        /// A `Result` indicating success or failure. On success, the certificate is added
+        /// to the collection. On failure, an error is returned.
+        ///
+        /// # Errors
+        ///
+        /// This method can fail if:
+        /// - The certificate or key file cannot be read
+        /// - The certificate or key is not in valid PEM format
+        /// - The private key does not match the certificate
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// // Add a specific domain certificate
+        /// cert_handler.add_cert("example.com".to_string(), "/path/to/cert.pem", "/path/to/key.pem")?;
+        ///
+        /// // Add a wildcard certificate
+        /// cert_handler.add_cert("*.example.com".to_string(), "/path/to/wildcard.pem", "/path/to/wildcard.key")?;
+        /// ```
+        pub(super) fn add_cert(&mut self, domain: String, cert: &str, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+            let cert_bytes = std::fs::read(cert)?;
+            let cert = X509::from_pem(&cert_bytes)?;
 
-            let key_bytes = std::fs::read(key).unwrap();
-            let key = PKey::private_key_from_pem(&key_bytes).unwrap();
-            Box::new(DynamicCert { cert, key })
+            let key_bytes = std::fs::read(key)?;
+            let key = PKey::private_key_from_pem(&key_bytes)?;
+            
+            self.certs.push((Some(domain), cert, key));
+            Ok(())
+        }
+        
+        /// Checks if a domain matches a pattern (including wildcard patterns).
+        ///
+        /// This method implements the logic for determining if a given domain name
+        /// matches a domain pattern, which can include wildcard prefixes.
+        ///
+        /// # Parameters
+        ///
+        /// * `pattern` - The domain pattern, which can be an exact domain or a wildcard pattern.
+        /// * `domain` - The actual domain name to check against the pattern.
+        ///
+        /// # Returns
+        ///
+        /// `true` if the domain matches the pattern, `false` otherwise.
+        ///
+        /// # Wildcard Rules
+        ///
+        /// Wildcard patterns must follow these rules:
+        /// - The wildcard character (`*`) must be at the start of the pattern
+        /// - The wildcard is followed by a dot (e.g., `*.example.com`)
+        /// - The wildcard matches exactly one level of subdomain
+        ///
+        /// For example:
+        /// - `*.example.com` matches `api.example.com` but not `example.com` or `sub.api.example.com`
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// // Exact match
+        /// assert!(DynamicCert::domain_matches("example.com", "example.com"));
+        /// assert!(!DynamicCert::domain_matches("example.com", "sub.example.com"));
+        ///
+        /// // Wildcard match
+        /// assert!(DynamicCert::domain_matches("*.example.com", "api.example.com"));
+        /// assert!(!DynamicCert::domain_matches("*.example.com", "example.com"));
+        /// assert!(!DynamicCert::domain_matches("*.example.com", "sub.api.example.com"));
+        /// ```
+        fn domain_matches(pattern: &str, domain: &str) -> bool {
+            if pattern.starts_with("*.") {
+                // Wildcard matching (e.g., *.example.com matches api.example.com)
+                let suffix = &pattern[1..]; // Remove the '*'
+                domain.ends_with(suffix) && // Check if domain ends with suffix
+                // Check that there's exactly one subdomain level before the suffix
+                domain[..domain.len() - suffix.len()].matches('.').count() == 0
+            } else {
+                // Exact match
+                pattern == domain
+            }
         }
     }
 
+    /// Implementation of the TLS certificate selection callback.
+    ///
+    /// This trait implementation makes the `DynamicCert` struct usable with Pingora's
+    /// TLS handling system. It provides the logic for selecting the appropriate
+    /// certificate during the TLS handshake based on the SNI information.
     #[async_trait]
     impl pingora::listeners::TlsAccept for DynamicCert {
-        async fn certificate_callback(&self, ssl: &mut pingora::tls::ssl::SslRef) {
+        /// Called during TLS handshake to select and apply the appropriate certificate.
+        ///
+        /// This method is called by the TLS library during the handshake process when
+        /// it needs to determine which certificate to present to the client. It selects
+        /// the certificate based on the server name provided by the client through SNI.
+        ///
+        /// # Selection Process
+        ///
+        /// 1. If the client provided an SNI hostname, first look for an exact match
+        /// 2. If no exact match is found, try matching against wildcard patterns
+        /// 3. If no match is found or no SNI was provided, use the default certificate
+        ///
+        /// # Parameters
+        ///
+        /// * `ssl` - A mutable reference to the SSL context for this connection
+        ///
+        /// # Panics
+        ///
+        /// This method will panic if no certificates have been added to the collection.
+        async fn certificate_callback(&self, ssl: &mut SslRef) {
             use pingora::tls::ext;
-            ext::ssl_use_certificate(ssl, &self.cert).unwrap();
-            ext::ssl_use_private_key(ssl, &self.key).unwrap();
+            
+            // Check if we have any certificates at all
+            if self.certs.is_empty() {
+                panic!("No certificates configured for TLS!");
+            }
+            
+            // Try to get the server name from SNI
+            if let Some(server_name) = ssl.servername(NameType::HOST_NAME) {
+                // First try exact matches
+                for (domain, cert, key) in &self.certs {
+                    if let Some(domain_str) = domain {
+                        if domain_str == server_name {
+                            ext::ssl_use_certificate(ssl, cert).unwrap();
+                            ext::ssl_use_private_key(ssl, key).unwrap();
+                            return;
+                        }
+                    }
+                }
+                
+                // Then try wildcard matches
+                for (domain, cert, key) in &self.certs {
+                    if let Some(domain_str) = domain {
+                        if Self::domain_matches(domain_str, server_name) {
+                            ext::ssl_use_certificate(ssl, cert).unwrap();
+                            ext::ssl_use_private_key(ssl, key).unwrap();
+                            return;
+                        }
+                    }
+                }
+            }
+            
+            // No SNI or no matching certificate found, use default (index 0)
+            let (_, default_cert, default_key) = &self.certs[0];
+            ext::ssl_use_certificate(ssl, default_cert).unwrap();
+            ext::ssl_use_private_key(ssl, default_key).unwrap();
         }
     }
 }
@@ -105,11 +286,6 @@ pub fn init() {
             let gateway = config::RoutingData::GatewayRouting
                 .xget::<Vec<GatewayNode>>()
                 .unwrap_or(vec![]);
-            let proxy = config::RoutingData::ProxyRouting
-                .xget::<Vec<ProxyNode>>()
-                .unwrap_or(vec![]);
-
-            let proxy_with_high_speed = proxy.iter().filter(|px| px.high_speed).collect::<Vec<_>>();
 
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
@@ -130,74 +306,66 @@ pub fn init() {
                 }
                 already_listened.push(listen_addr.clone());
 
-                // find the proxy setup for the listen address
-                let proxy_setup = proxy
-                    .iter()
-                    .filter(|px| px.addr_target == listen_addr)
-                    .collect::<Vec<_>>();
-                if proxy_setup.len() == 0 {
-                    continue;
-                }
-                let proxy_setup = proxy_setup[0].clone();
-
-                // check if the proxy listen is in the high speed proxy list
-                let is_high_speed = proxy_with_high_speed
-                    .iter()
-                    .any(|px| px.addr_listen == proxy_setup.addr_listen);
-                if is_high_speed {
-                    eprintln!(
-                        "Gateway service {} is already handled by high speed proxy",
-                        &proxy_setup.addr_listen
-                    );
-                    continue;
-                }
-
-                eprintln!("Setting up gateway service for {}", &gw.addr_target);
-
                 // setup the gateway service
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
                     &my_server.configuration,
                     GatewayApp::new(&gw.addr_listen),
                 );
 
-                eprintln!("Gateway Added: {:#?}", &proxy_setup.addr_listen);
+                eprintln!("Gateway Added: {:#?}", &gw.addr_listen);
 
-                // setup if there any SSL
-                let proxy_sni = proxy_setup.sni;
-                let proxy_tls = proxy_setup.tls;
-                let proxy_tls_pem = proxy_setup.tls_pem;
-                let proxy_tls_key = proxy_setup.tls_key;
+                let mut dynamic_cert = boringssl_openssl::DynamicCert::new();
+                for tls in gw.tls.clone() {
+                    let proxy_sni = tls.sni;
+                    let proxy_tls = tls.tls;
+                    if !proxy_tls {
+                        eprintln!("Gateway service {:?} [{}] is not TLS, skipping.", proxy_sni, &gw.addr_listen);
+                        continue;
+                    }
 
-                // setup tls if needed
-                if proxy_tls
-                    && proxy_sni.is_some()
-                    && proxy_tls_pem.is_some()
-                    && proxy_tls_key.is_some()
-                {
+                    let proxy_tls_pem = tls.tls_pem;
+                    let proxy_tls_key = tls.tls_key;
+
                     let cert_path = proxy_tls_pem.as_ref().unwrap();
                     let key_path = proxy_tls_key.as_ref().unwrap();
 
-                    let dynamic_cert = boringssl_openssl::DynamicCert::new(&cert_path, &key_path);
-                    let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
-                    // // by default intermediate supports both TLS 1.2 and 1.3. We force to tls 1.2 just for the demo
+                    match dynamic_cert.add_cert(
+                        proxy_sni.unwrap_or("localhost".to_string()),
+                        &cert_path,
+                        &key_path,
+                    ) {
+                        Ok(_) => {
+                            eprintln!("Gateway service {} added TLS cert", &gw.addr_listen);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Gateway service {} failed to add TLS cert: {:?}",
+                                &gw.addr_listen, e
+                            );
+                        }
+                    };
+                }
 
+                if gw.tls.is_empty() {
+                    // No TLS settings, add TCP service
+                    my_gateway_service.add_tcp(&gw.addr_listen);
+                }else{
+                    // TLS settings are present, add TLS service
+                    let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
                     tls_settings
                         .deref_mut()
                         .deref_mut()
                         .set_max_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_2))
                         .unwrap();
-
+                    
                     tls_settings.enable_h2();
-
+    
                     my_gateway_service.add_tls_with_settings(
-                        &proxy_setup.addr_listen,
+                        &gw.addr_listen,
                         None,
                         tls_settings,
                     );
-                } else {
-                    my_gateway_service.add_tcp(&proxy_setup.addr_listen);
                 }
-
                 // setup the proxy service
                 my_gateway.push(Box::new(my_gateway_service));
             }
@@ -242,10 +410,7 @@ pub fn init() {
                 }
 
                 eprintln!("Adding proxy fast service: {:?}", px.addr_listen);
-                let proxy_set = service::proxy::proxy_service_fast(
-                    &px.addr_listen,
-                    &addr_target,
-                );
+                let proxy_set = service::proxy::proxy_service_fast(&px.addr_listen, &addr_target);
                 proxies.push(Box::new(proxy_set));
             }
 

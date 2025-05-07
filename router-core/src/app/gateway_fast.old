@@ -189,7 +189,7 @@ lazy_static! {
     static ref DOLLAR_SIGN_PATTERN: Regex = Regex::new(r"\$(\d+)").unwrap();
 }
 
-use crate::config::{self, GatewayNode, DEFAULT_PORT};
+use crate::config::{self, GatewayPath, DEFAULT_PORT};
 
 /// # Redirect Rule
 ///
@@ -326,7 +326,7 @@ impl GatewayApp {
         self.route_cache.clear();
         log::debug!("Updating redirect rules for source: {}", self.source);
 
-        let node = config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
+        let node = config::RoutingData::GatewayRouting.xget::<Vec<GatewayPath>>();
         
         // Get current config ID for later saving
         let config_id = config::RoutingData::GatewayID.get();

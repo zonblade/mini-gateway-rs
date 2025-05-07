@@ -55,7 +55,7 @@ use std::time::{Duration, Instant};
 use lru::LruCache; // Use the standard LRU crate
 
 // Assuming these are correctly defined in your project structure
-use crate::config::{self, GatewayNode, DEFAULT_PORT};
+use crate::config::{self, GatewayPath, DEFAULT_PORT};
 
 // Number of cache shards to reduce lock contention
 const CACHE_SHARDS: usize = 16;
@@ -252,7 +252,7 @@ impl GatewayApp {
         self.route_cache.clear();
 
         // Load raw rule data from the configuration source.
-        let gateway_nodes = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>() {
+        let gateway_nodes = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayPath>>() {
             Some(nodes) if !nodes.is_empty() => nodes,
             _ => {
                 warn!(

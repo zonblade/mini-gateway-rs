@@ -372,7 +372,7 @@ pub fn listen_proxy() {
                 if !batch.is_empty() {
                     // log::info!("Processing partial batch of {} logs", batch.len());
                     for (datetime, level, message) in &batch {
-                        // eprintln!("Batch item: {} - {}: {}", datetime, level, message);
+                        eprintln!("Batch item: {} - {}: {}", datetime, level, message);
                     }
                     batch.clear();
                 }
