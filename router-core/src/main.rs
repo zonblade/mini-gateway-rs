@@ -86,6 +86,7 @@ async fn main() {
 
     // Main application loop - continues until termination signal
     loop {
+
         // Check for Ctrl+X termination signal via CLI interface
         if system::terminator::cli::init(Duration::from_millis(0)) {
             let _ = memory_log::log_cleanup();

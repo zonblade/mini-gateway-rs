@@ -54,17 +54,18 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     log::set_boxed_logger(logger).map(|()| log::set_max_level(log_level))?;
     // spawn thread to send log
     std::thread::spawn(move || {
-        // infinite loop every 200ms
-        loop {
-            std::thread::sleep(std::time::Duration::from_nanos(100));
+        // Run for exactly 10 iterations
+        for i in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
             // Log informational messages to confirm initialization and test tags.
-            log::info!("Tag-based logging system initialized");
+            log::info!("Tag-based logging system initialized (iteration {}/10)", i + 1);
             log::info!("[PXY] This is an proxy-related log message");
             log::info!("[GWX] This is a gateway-related log message");
             log::info!("[NET] This is a network-related log message");
-            // This message might not be routed if no tag matches, depending on udp_sender logic.
-            log::info!("This is a regular log message without a specific tag");
+            // // This message might not be routed if no tag matches, depending on udp_sender logic.
+            // log::info!("This is a regular log message without a specific tag");
         }
+        log::info!("Logging test complete after 10 iterations");
     });
     
     Ok(())

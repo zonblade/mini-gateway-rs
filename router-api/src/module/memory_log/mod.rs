@@ -9,9 +9,9 @@ use std::ptr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 // Constants for shared memory
-pub const MAX_MEMORY_SIZE: usize = 1024 * 1024 * 1024; // 1GB max memory
-const ENTRY_MAX_SIZE: usize = 64 * 1024; // 64KB per entry
-const SHM_METADATA_SIZE: usize = 4096; // Space for metadata at the beginning
+pub const MAX_MEMORY_SIZE: usize = 50 * 1024 * 1024; // 50MB max memory (for larger buffer)
+const ENTRY_MAX_SIZE: usize = 4096; // Maximum 4KB per entry
+const SHM_METADATA_SIZE: usize = 2048; // Space for metadata at the beginning (2KB)
 const PROXY_LOGGER_NAME: &str = "/gwrs-proxy";
 const GATEWAY_LOGGER_NAME: &str = "/gwrs-gateway";
 
@@ -26,7 +26,7 @@ pub struct QueueControl {
     count: AtomicUsize,
     capacity: AtomicUsize,
     // Slots for future metadata
-    _reserved: [u8; 4000], // Padding to 4096 bytes
+    _reserved: [u8; 2048], // Increased to 2KB for future expansion
 }
 
 // A simple mutex implementation using an atomic
@@ -38,7 +38,7 @@ impl QueueControl {
             read_index: AtomicUsize::new(0),
             count: AtomicUsize::new(0),
             capacity: AtomicUsize::new(capacity),
-            _reserved: [0; 4000],
+            _reserved: [0; 2048],
         }
     }
 
@@ -321,6 +321,7 @@ impl LogConsumer {
 
 // Example logger.rs
 pub fn listen_proxy() {
+    log::info!("Starting log consumer...");
     // Open shared memory
     let log_consumer = LogConsumer::new(PROXY_LOGGER_NAME, MAX_MEMORY_SIZE)
         .expect("Failed to open shared memory");
@@ -337,11 +338,15 @@ pub fn listen_proxy() {
     loop {
         // Add detailed queue monitoring
         let queue_size = log_consumer.queue_size();
-        println!("Queue status: size={}, capacity={}", 
-                queue_size, log_consumer.capacity());
+                
+        // Print milestone message every 100,000 records
+            eprint!("Processed {} messages, Error {} message, queue size: {}\r", 
+            message_counter, consecutive_empty, queue_size);
+        // println!("Queue status: size={}, capacity={}", 
+        //         queue_size, log_consumer.capacity());
         
         // Try to get a log entry with a timeout of 100ms
-        match log_consumer.get_log_with_timeout(100) {
+        match log_consumer.get_log_with_timeout(10) {
             Ok(Some((timestamp, level, message))) => {
                 consecutive_empty = 0;
                 message_counter += 1;
@@ -349,16 +354,12 @@ pub fn listen_proxy() {
                 // Process log entry with more detailed output
                 let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0)
                     .unwrap_or(chrono::DateTime::UNIX_EPOCH);
-                
-                println!("Message #{}: {} - {}: {}", 
-                         message_counter, datetime, level, message);
-                log::info!("{} - {}: {}", datetime, level, message);
 
                 batch.push((datetime, level, message));
                 
                 // If batch is full, commit to database
                 if batch.len() >= BATCH_SIZE {
-                    log::info!("Processing batch of {} logs", batch.len());
+                    // log::info!("Processing batch of {} logs", batch.len());
                     batch.clear();
                 }
                 
@@ -369,9 +370,9 @@ pub fn listen_proxy() {
                 
                 // Timeout occurred, process any remaining logs
                 if !batch.is_empty() {
-                    log::info!("Processing partial batch of {} logs", batch.len());
+                    // log::info!("Processing partial batch of {} logs", batch.len());
                     for (datetime, level, message) in &batch {
-                        println!("Batch item: {} - {}: {}", datetime, level, message);
+                        // eprintln!("Batch item: {} - {}: {}", datetime, level, message);
                     }
                     batch.clear();
                 }
@@ -391,19 +392,13 @@ pub fn listen_proxy() {
                 std::thread::sleep(std::time::Duration::from_millis(wait_time));
             },
             Err(e) => {
-                log::error!("Error getting log: {}", e);
-                println!("Error getting log: {}", e);
-                break;
+                // log::warn!("No log at the record: {}", e);
+                consecutive_empty += 1;
+                // println!("Error getting log: {}", e);
+                // break;
+                // sleep for a bit to avoid busy loop
+                std::thread::sleep(std::time::Duration::from_millis(10));
             },
         }
-        
-        // Exit if requested
-        if std::path::Path::new("/tmp/stop-logger").exists() {
-            println!("Stop signal received");
-            break;
-        }
     }
-    
-    // Clean up shared memory when done
-    log_consumer.cleanup().expect("Failed to clean up shared memory");
 }

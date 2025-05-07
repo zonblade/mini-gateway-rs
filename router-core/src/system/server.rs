@@ -118,14 +118,14 @@ pub fn init() {
 
             let mut already_listened: Vec<String> = vec![];
 
-            log::info!("Gateway Added: {:#?}", &gateway);
+            eprintln!("Gateway Added: {:#?}", &gateway);
 
             for gw in gateway {
                 let listen_addr = gw.addr_listen.clone();
 
                 // check if the listen address is already listened
                 if already_listened.contains(&listen_addr) {
-                    log::warn!("Gateway service {} is already listened", &listen_addr);
+                    eprintln!("Gateway service {} is already listened", &listen_addr);
                     continue;
                 }
                 already_listened.push(listen_addr.clone());
@@ -145,14 +145,14 @@ pub fn init() {
                     .iter()
                     .any(|px| px.addr_listen == proxy_setup.addr_listen);
                 if is_high_speed {
-                    log::warn!(
+                    eprintln!(
                         "Gateway service {} is already handled by high speed proxy",
                         &proxy_setup.addr_listen
                     );
                     continue;
                 }
 
-                log::info!("Setting up gateway service for {}", &gw.addr_target);
+                eprintln!("Setting up gateway service for {}", &gw.addr_target);
 
                 // setup the gateway service
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
@@ -160,7 +160,7 @@ pub fn init() {
                     GatewayApp::new(&gw.addr_listen),
                 );
 
-                log::warn!("Gateway Added: {:#?}", &proxy_setup.addr_listen);
+                eprintln!("Gateway Added: {:#?}", &proxy_setup.addr_listen);
 
                 // setup if there any SSL
                 let proxy_sni = proxy_setup.sni;
@@ -225,7 +225,7 @@ pub fn init() {
 
             for px in proxy {
                 let addr_target = px.high_speed_addr.unwrap_or(px.addr_target);
-                log::warn!("Proxy Added: {}", &px.addr_listen);
+                eprintln!("Proxy Added: {}", &px.addr_listen);
 
                 if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
                     let proxy_tls = service::proxy::proxy_service_tls_fast(
@@ -236,12 +236,12 @@ pub fn init() {
                         &px.tls_key.as_ref().unwrap(),
                     );
 
-                    log::info!("Adding proxy TLS service");
+                    eprintln!("Adding proxy TLS service");
                     proxies.push(Box::new(proxy_tls));
                     continue;
                 }
 
-                log::info!("Adding proxy fast service: {:?}", px.addr_listen);
+                eprintln!("Adding proxy fast service: {:?}", px.addr_listen);
                 let proxy_set = service::proxy::proxy_service_fast(
                     &px.addr_listen,
                     &addr_target,
@@ -285,9 +285,9 @@ pub fn init() {
 
     // Wait for all server threads to complete (typically on shutdown)
     for handle in server_threads {
-        log::debug!("Waiting for server thread to finish...");
+        eprintln!("Waiting for server thread to finish...");
         if let Err(e) = handle.join() {
-            log::debug!("Server thread failed: {:?}", e);
+            eprintln!("Server thread failed: {:?}", e);
         }
     }
 }

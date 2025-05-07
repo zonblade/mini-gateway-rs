@@ -118,6 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // module::udp_net::udp_log::gateway::init();
 
         // log::info!("UDP logger initialized successfully");
+        log::info!("Starting memory log spawner...");
         memory_log::spawner::spawn_all();
     }
 
