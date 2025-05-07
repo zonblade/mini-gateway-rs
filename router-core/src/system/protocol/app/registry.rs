@@ -249,20 +249,6 @@ impl DataRegistry {
         config::RoutingData::GatewayID.set(&checksum);
         config::RoutingData::GatewayRouting.xset(&gateway_data);
 
-        if has_changes {
-            log::info!("Gateway configuration changes detected:");
-            if !addresses_to_remove.is_empty() {
-                log::info!("Addresses to remove: {:?}", addresses_to_remove);
-            }
-            if !addresses_to_add.is_empty() {
-                log::info!("Addresses to add: {:?}", addresses_to_add);
-            }
-            sleep(Duration::from_millis(500));
-            terminator::service::init();
-        } else {
-            log::info!("No changes in gateway configuration");
-        }
-
         Ok(())
     }
 
@@ -273,6 +259,7 @@ impl DataRegistry {
             hasher.update(payload.as_bytes());
             format!("{:x}", hasher.finalize())
         };
+        let checksum_old = config::RoutingData::GatewayNodeID.val().clone();
         let gwnode_data = serde_json::from_str::<Vec<GatewayNode>>(&payload);
         let gwnode_data = match gwnode_data {
             Ok(data) => {
@@ -314,6 +301,13 @@ impl DataRegistry {
         config::RoutingData::GatewayNodeID.set(&checksum);
         config::RoutingData::GatewayNodeListen.xset(&gwnode_data);
 
+        if checksum != checksum_old {
+            log::info!("Gateway node id : {}", checksum);
+            log::debug!("Parsed gateway node data: {:#?}", gwnode_data);
+            terminator::service::init();
+        } else {
+            log::info!("No changes in gateway node configuration");
+        }
         Ok(())
     }
 }

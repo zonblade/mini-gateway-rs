@@ -153,6 +153,7 @@ pub struct ProxyNode {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayPath {
     pub priority: u8,
+    pub sni: Option<String>,
     pub addr_listen: String,
     pub addr_target: String,
     pub path_listen: String,

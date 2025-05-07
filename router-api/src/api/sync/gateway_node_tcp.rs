@@ -26,7 +26,7 @@ pub async fn sync_gateway_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
     log::info!("Syncing gateway nodes to registry...");
 
     // Get the gateway nodes from the database using our JOIN query
-    let gateway_nodes = match gateway_node_queries::get_all_gateway_nodes() {
+    let gateway_nodes = match gateway_node_queries::get_all_gateway_paths() {
         Ok(nodes) => nodes,
         Err(e) => {
             error!("Failed to retrieve gateway nodes from database: {}", e);
