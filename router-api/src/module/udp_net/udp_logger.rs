@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, Once};
 use crossbeam_channel::Receiver;
-use crate::module::udp_log_fetcher::{MultiPortUdpLogFetcher, LogMessage};
+use crate::module::udp_net::udp_log_fetcher::{MultiPortUdpLogFetcher, LogMessage};
 
 /// Singleton instance of the multi-port UDP log fetcher
 static mut MULTI_PORT_FETCHER: Option<Arc<Mutex<MultiPortUdpLogFetcher>>> = None;

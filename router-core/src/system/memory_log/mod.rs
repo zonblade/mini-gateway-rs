@@ -1,5 +1,5 @@
-// -- lib.rs --
 // A raw implementation of shared memory in Rust using direct system calls
+pub mod sender;
 
 use std::ffi::CString;
 use std::io::{self, Error, ErrorKind};
@@ -12,6 +12,11 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 pub const MAX_MEMORY_SIZE: usize = 1024 * 1024 * 1024; // 1GB max memory
 const ENTRY_MAX_SIZE: usize = 64 * 1024; // 64KB per entry
 const SHM_METADATA_SIZE: usize = 4096; // Space for metadata at the beginning
+pub const LEVEL_TRACE: u8 = 0;  // Most verbose, finest-grained information
+pub const LEVEL_DEBUG: u8 = 1;  // Detailed debugging information
+pub const LEVEL_INFO: u8 = 2;   // General informational messages
+pub const LEVEL_WARN: u8 = 3;   // Warning messages, potential issues
+pub const LEVEL_ERROR: u8 = 4;  // Error conditions, but application can continue
 
 // Control structure at the beginning of shared memory
 #[repr(C, align(64))]
@@ -54,16 +59,6 @@ impl QueueControl {
 
 // Producer side
 pub struct SharedMemoryProducer {
-    ptr: *mut u8,
-    size: usize,
-    control: *mut QueueControl,
-    data_start: *mut u8,
-    shm_fd: i32,
-    shm_name: CString,
-}
-
-// Consumer side
-pub struct SharedMemoryConsumer {
     ptr: *mut u8,
     size: usize,
     control: *mut QueueControl,
@@ -212,6 +207,14 @@ impl SharedMemoryProducer {
     pub fn capacity(&self) -> usize {
         unsafe { (*self.control).capacity.load(Ordering::Relaxed) }
     }
+    // Clean up shared memory (call this when done with it)
+    pub fn cleanup(&self) -> io::Result<()> {
+        let result = unsafe { libc::shm_unlink(self.shm_name.as_ptr()) };
+        if result < 0 {
+            return Err(Error::last_os_error());
+        }
+        Ok(())
+    }
 }
 
 // Drop implementation to clean up resources
@@ -227,157 +230,7 @@ impl Drop for SharedMemoryProducer {
     }
 }
 
-// Implementing consumer
-impl SharedMemoryConsumer {
-    // Open existing shared memory
-    pub fn open(name: &str, expected_size: usize) -> io::Result<Self> {
-        // Create a C-style string for the name
-        let c_name = CString::new(name)
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "Invalid name"))?;
-
-        // Open shared memory object
-        let fd = unsafe {
-            libc::shm_open(
-                c_name.as_ptr(),
-                libc::O_RDWR,  // We need write access for the control structure
-                0o600,
-            )
-        };
-
-        if fd < 0 {
-            return Err(Error::last_os_error());
-        }
-
-        // Map memory into our address space
-        let ptr = unsafe {
-            libc::mmap(
-                ptr::null_mut(),
-                expected_size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                fd,
-                0,
-            )
-        };
-
-        if ptr == libc::MAP_FAILED {
-            let err = Error::last_os_error();
-            unsafe { libc::close(fd) };
-            return Err(err);
-        }
-
-        let control_ptr = ptr as *mut QueueControl;
-        let data_start = unsafe { (ptr as *mut u8).add(SHM_METADATA_SIZE) };
-
-        Ok(SharedMemoryConsumer {
-            ptr: ptr as *mut u8,
-            size: expected_size,
-            control: control_ptr,
-            data_start,
-            shm_fd: fd,
-            shm_name: c_name,
-        })
-    }
-
-    // Dequeue data from shared memory
-    pub fn dequeue(&self) -> io::Result<Option<Vec<u8>>> {
-        unsafe {
-            // Lock the queue
-            (*self.control).lock();
-
-            // Check if queue is empty
-            let count = (*self.control).count.load(Ordering::Relaxed);
-            if count == 0 {
-                (*self.control).unlock();
-                return Ok(None);
-            }
-
-            // Get current read position
-            let read_idx = (*self.control).read_index.load(Ordering::Relaxed);
-            let capacity = (*self.control).capacity.load(Ordering::Relaxed);
-            
-            // Calculate offset in buffer
-            let offset = read_idx * ENTRY_MAX_SIZE;
-            
-            // Get pointer to position
-            let entry_ptr = self.data_start.add(offset);
-            
-            // Read entry size first
-            let entry_size = *(entry_ptr as *const usize);
-            
-            // Read the actual data
-            let mut data = vec![0u8; entry_size];
-            ptr::copy_nonoverlapping(
-                entry_ptr.add(mem::size_of::<usize>()),
-                data.as_mut_ptr(),
-                entry_size,
-            );
-            
-            // Update read index
-            (*self.control).read_index.store(
-                (read_idx + 1) % capacity,
-                Ordering::Relaxed,
-            );
-            
-            // Update count
-            (*self.control).count.fetch_sub(1, Ordering::Relaxed);
-            
-            // Unlock
-            (*self.control).unlock();
-            
-            Ok(Some(data))
-        }
-    }
-
-    // Dequeue with timeout - for controlled consumption
-    pub fn dequeue_with_timeout(&self, timeout_ms: u64) -> io::Result<Option<Vec<u8>>> {
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_millis(timeout_ms);
-        
-        while start.elapsed() < timeout {
-            match self.dequeue()? {
-                Some(data) => return Ok(Some(data)),
-                None => std::thread::sleep(std::time::Duration::from_millis(10)),
-            }
-        }
-        
-        Ok(None)
-    }
-
-    // Get number of items in queue
-    pub fn queue_size(&self) -> usize {
-        unsafe { (*self.control).count.load(Ordering::Relaxed) }
-    }
-    
-    // Get maximum capacity of queue
-    pub fn capacity(&self) -> usize {
-        unsafe { (*self.control).capacity.load(Ordering::Relaxed) }
-    }
-    
-    // Clean up shared memory (call this when done with it)
-    pub fn cleanup(&self) -> io::Result<()> {
-        let result = unsafe { libc::shm_unlink(self.shm_name.as_ptr()) };
-        if result < 0 {
-            return Err(Error::last_os_error());
-        }
-        Ok(())
-    }
-}
-
-impl Drop for SharedMemoryConsumer {
-    fn drop(&mut self) {
-        unsafe {
-            // Unmap memory
-            libc::munmap(self.ptr as *mut libc::c_void, self.size);
-            // Close file descriptor
-            libc::close(self.shm_fd);
-            // Note: We don't unlink here unless explicitly requested
-        }
-    }
-}
-
 // -- For Logger Implementation --
-
 #[repr(C)]
 pub struct LogEntry {
     timestamp: u64,
@@ -434,97 +287,100 @@ impl LogProducer {
     pub fn capacity(&self) -> usize {
         self.shm.capacity()
     }
-}
 
-// Log consumer implementation
-pub struct LogConsumer {
-    shm: SharedMemoryConsumer,
-}
-
-impl LogConsumer {
-    pub fn new(name: &str, size: usize) -> io::Result<Self> {
-        let shm = SharedMemoryConsumer::open(name, size)?;
-        Ok(LogConsumer { shm })
-    }
-    
-    pub fn get_next_log(&self) -> io::Result<Option<(u64, u8, String)>> {
-        match self.shm.dequeue()? {
-            Some(buffer) => {
-                // Parse the header
-                if buffer.len() < mem::size_of::<LogEntry>() {
-                    return Err(Error::new(ErrorKind::InvalidData, "Invalid log entry"));
-                }
-                
-                unsafe {
-                    let entry = ptr::read(buffer.as_ptr() as *const LogEntry);
-                    
-                    // Make sure message length is valid
-                    let expected_len = mem::size_of::<LogEntry>() + entry.message_len as usize;
-                    if buffer.len() != expected_len {
-                        return Err(Error::new(ErrorKind::InvalidData, "Invalid message length"));
-                    }
-                    
-                    // Extract message
-                    let message_start = mem::size_of::<LogEntry>();
-                    let message_bytes = &buffer[message_start..];
-                    
-                    // Convert to string
-                    let message = String::from_utf8_lossy(message_bytes).to_string();
-                    
-                    Ok(Some((entry.timestamp, entry.level, message)))
-                }
-            },
-            None => Ok(None),
-        }
-    }
-    
-    pub fn get_log_with_timeout(&self, timeout_ms: u64) -> io::Result<Option<(u64, u8, String)>> {
-        match self.shm.dequeue_with_timeout(timeout_ms)? {
-            Some(buffer) => {
-                // Parse the header
-                if buffer.len() < mem::size_of::<LogEntry>() {
-                    return Err(Error::new(ErrorKind::InvalidData, "Invalid log entry"));
-                }
-                
-                unsafe {
-                    let entry = ptr::read(buffer.as_ptr() as *const LogEntry);
-                    
-                    // Make sure message length is valid
-                    let expected_len = mem::size_of::<LogEntry>() + entry.message_len as usize;
-                    if buffer.len() != expected_len {
-                        return Err(Error::new(ErrorKind::InvalidData, "Invalid message length"));
-                    }
-                    
-                    // Extract message
-                    let message_start = mem::size_of::<LogEntry>();
-                    let message_bytes = &buffer[message_start..];
-                    
-                    // Convert to string
-                    let message = String::from_utf8_lossy(message_bytes).to_string();
-                    
-                    Ok(Some((entry.timestamp, entry.level, message)))
-                }
-            },
-            None => Ok(None),
-        }
-    }
-    
-    pub fn queue_size(&self) -> usize {
-        self.shm.queue_size()
-    }
-    
-    pub fn capacity(&self) -> usize {
-        self.shm.capacity()
-    }
-    
     pub fn cleanup(&self) -> io::Result<()> {
         self.shm.cleanup()
     }
 }
 
 
+// Default configuration for global logger
+const DEFAULT_LOGGER_SIZE: usize = MAX_MEMORY_SIZE; // 1GB
+const PROXY_LOGGER_NAME: &str = "/gwrs/proxy";
+const GATEWAY_LOGGER_NAME: &str = "/gwrs/gateway";
 
-// -- Examples --
+// Global logger instances
+static mut GLOBAL_LOG_PROXY: Option<LogProducer> = None;
+static mut GLOBAL_LOG_GATEWAY: Option<LogProducer> = None;
+
+/// Gets or initializes the proxy logger instance
+/// 
+/// # Safety
+/// Not thread-safe. Should only be called from a single thread.
+#[allow(static_mut_refs)]
+pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
+    if GLOBAL_LOG_PROXY.is_none() {
+        match LogProducer::new(PROXY_LOGGER_NAME, DEFAULT_LOGGER_SIZE) {
+            Ok(logger) => {
+                GLOBAL_LOG_PROXY = Some(logger);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    
+    match &GLOBAL_LOG_PROXY {
+        Some(logger) => Ok(logger),
+        None => Err(Error::new(ErrorKind::Other, "Failed to initialize proxy logger")),
+    }
+}
+
+/// Gets or initializes the gateway logger instance
+/// 
+/// # Safety
+/// Not thread-safe. Should only be called from a single thread.
+#[allow(static_mut_refs)]
+pub unsafe fn gateway_logger() -> io::Result<&'static LogProducer> {
+    if GLOBAL_LOG_GATEWAY.is_none() {
+        match LogProducer::new(GATEWAY_LOGGER_NAME, DEFAULT_LOGGER_SIZE) {
+            Ok(logger) => {
+                GLOBAL_LOG_GATEWAY = Some(logger);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    
+    match &GLOBAL_LOG_GATEWAY {
+        Some(logger) => Ok(logger),
+        None => Err(Error::new(ErrorKind::Other, "Failed to initialize gateway logger")),
+    }
+}
+
+
+/// Log a message using the proxy logger
+/// 
+/// # Safety
+/// Not thread-safe. Should only be called from a single thread.
+pub unsafe fn log_proxy(level: u8, message: &str) -> io::Result<()> {
+    match proxy_logger() {
+        Ok(logger) => logger.log(level, message),
+        Err(e) => Err(e),
+    }
+}
+
+/// Log a message using the gateway logger
+/// 
+/// # Safety
+/// Not thread-safe. Should only be called from a single thread.
+pub unsafe fn log_gateway(level: u8, message: &str) -> io::Result<()> {
+    match gateway_logger() {
+        Ok(logger) => logger.log(level, message),
+        Err(e) => Err(e),
+    }
+}
+
+#[allow(static_mut_refs)]
+pub fn log_cleanup() -> io::Result<()> {
+    unsafe {
+        if let Some(logger) = GLOBAL_LOG_PROXY.take() {
+            logger.cleanup()?;
+        }
+        if let Some(logger) = GLOBAL_LOG_GATEWAY.take() {
+            logger.cleanup()?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,60 +400,60 @@ mod tests {
         println!("Logged 10 messages, queue size: {}", log_producer.queue_size());
     }
 
-    // Example logger.rs
-    pub fn logger_example() {
-        // Open shared memory
-        let log_consumer = LogConsumer::new("/my-app-logs", 100 * 1024 * 1024)
-            .expect("Failed to open shared memory");
+    // // Example logger.rs
+    // pub fn logger_example() {
+    //     // Open shared memory
+    //     let log_consumer = LogConsumer::new("/my-app-logs", 100 * 1024 * 1024)
+    //         .expect("Failed to open shared memory");
         
-        // Process logs in batches with a controlled rate
-        let mut batch = Vec::new();
-        const BATCH_SIZE: usize = 100;
+    //     // Process logs in batches with a controlled rate
+    //     let mut batch = Vec::new();
+    //     const BATCH_SIZE: usize = 100;
         
-        println!("Starting log processing, queue size: {}", log_consumer.queue_size());
+    //     println!("Starting log processing, queue size: {}", log_consumer.queue_size());
         
-        loop {
-            // Try to get a log entry with a timeout of 100ms
-            match log_consumer.get_log_with_timeout(100) {
-                Ok(Some((timestamp, level, message))) => {
-                    // Process log entry
-                    let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0)
-                        .unwrap_or(chrono::DateTime::UNIX_EPOCH);
+    //     loop {
+    //         // Try to get a log entry with a timeout of 100ms
+    //         match log_consumer.get_log_with_timeout(100) {
+    //             Ok(Some((timestamp, level, message))) => {
+    //                 // Process log entry
+    //                 let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0)
+    //                     .unwrap_or(chrono::DateTime::UNIX_EPOCH);
                     
-                    batch.push((datetime, level, message));
+    //                 batch.push((datetime, level, message));
                     
-                    // If batch is full, commit to database
-                    if batch.len() >= BATCH_SIZE {
-                        println!("Processing batch of {} logs", batch.len());
-                        // Here you would save to database
-                        batch.clear();
-                    }
-                },
-                Ok(None) => {
-                    // Timeout occurred, process any remaining logs
-                    if !batch.is_empty() {
-                        println!("Processing partial batch of {} logs", batch.len());
-                        // Here you would save to database
-                        batch.clear();
-                    }
+    //                 // If batch is full, commit to database
+    //                 if batch.len() >= BATCH_SIZE {
+    //                     println!("Processing batch of {} logs", batch.len());
+    //                     // Here you would save to database
+    //                     batch.clear();
+    //                 }
+    //             },
+    //             Ok(None) => {
+    //                 // Timeout occurred, process any remaining logs
+    //                 if !batch.is_empty() {
+    //                     println!("Processing partial batch of {} logs", batch.len());
+    //                     // Here you would save to database
+    //                     batch.clear();
+    //                 }
                     
-                    // Sleep a bit to avoid busy waiting
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                },
-                Err(e) => {
-                    eprintln!("Error getting log: {}", e);
-                    break;
-                },
-            }
+    //                 // Sleep a bit to avoid busy waiting
+    //                 std::thread::sleep(std::time::Duration::from_millis(50));
+    //             },
+    //             Err(e) => {
+    //                 eprintln!("Error getting log: {}", e);
+    //                 break;
+    //             },
+    //         }
             
-            // Exit if requested (you'd implement a proper signal handler in a real application)
-            if std::path::Path::new("/tmp/stop-logger").exists() {
-                println!("Stop signal received");
-                break;
-            }
-        }
+    //         // Exit if requested (you'd implement a proper signal handler in a real application)
+    //         if std::path::Path::new("/tmp/stop-logger").exists() {
+    //             println!("Stop signal received");
+    //             break;
+    //         }
+    //     }
         
-        // Clean up shared memory when done
-        log_consumer.cleanup().expect("Failed to clean up shared memory");
-    }
+    //     // Clean up shared memory when done
+    //     log_consumer.cleanup().expect("Failed to clean up shared memory");
+    // }
 }

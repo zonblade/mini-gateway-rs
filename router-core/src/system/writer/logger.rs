@@ -2,7 +2,7 @@
 // filepath: /Users/zonblade/Project/runegram/mini-gateway-rs/router-core/src/system/writer/logger.rs
 use log::{LevelFilter, Metadata, Record};
 
-use crate::system::udp_sender;
+use crate::system::{memory_log, udp_sender};
 
 /// A custom logger implementation that filters messages based on tags and forwards them
 /// to specific UDP endpoints determined by those tags.
@@ -50,14 +50,15 @@ impl log::Log for TagBasedLogger {
             return;
         }
 
-        let message = record.args().to_string();
+        let level = record.metadata().level();
+        let message = format!("[{}] {}", level, record.args());
         let mut found = false;
 
         // Iterate through each tag pattern and send the log message accordingly.
         for pattern in &self.tag_writers {
             if message.contains(pattern) {
                 // Send the log message to the corresponding UDP endpoint.
-                udp_sender::switch_log(pattern, &message);
+                memory_log::sender::switcher(&pattern, level, &message);
                 found = true;
             }
         }

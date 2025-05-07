@@ -1,5 +1,5 @@
 use crate::module::database::{get_connection_log, DatabaseError, DatabaseResult};
-use crate::module::udp_log_fetcher::{LogMessage, LogMessageFormatted};
+use crate::module::udp_net::udp_log_fetcher::{LogMessage, LogMessageFormatted};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;

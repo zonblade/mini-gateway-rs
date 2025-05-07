@@ -1,8 +1,8 @@
 use crossbeam_channel::Receiver;
 use std::thread;
 use std::time::Duration;
-use crate::module::udp_log_fetcher::LogMessage;
-use crate::module::udp_log_db::UdpLogDb;
+use crate::module::udp_net::udp_log_fetcher::LogMessage;
+use crate::module::udp_net::udp_log_db::UdpLogDb;
 use log;
 
 /// A processor that receives UDP log messages and saves them to the database
@@ -76,7 +76,7 @@ impl UdpLogProcessor {
 #[allow(dead_code)]
 pub fn start_log_processing(receiver: Receiver<LogMessage>) -> thread::JoinHandle<()> {
     // Initialize the database pooling system
-    let db_pool = crate::module::udp_log_db::init();
+    let db_pool = crate::module::udp_net::udp_log_db::init();
     
     // Create a processor
     let processor = UdpLogProcessor::new(receiver, db_pool);

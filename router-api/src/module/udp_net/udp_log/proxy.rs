@@ -1,4 +1,4 @@
-use crate::module::{udp_log_db::init_with_table, udp_log_processor::UdpLogProcessor, udp_logger};
+use crate::module::udp_net::{udp_log_db::init_with_table, udp_log_processor::UdpLogProcessor, udp_logger};
 
 pub fn init() {
     let proxy_consumer = udp_logger::get_proxy_log_consumer();

@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
+use system::memory_log;
 use tokio::{self};
 
 mod app;
@@ -51,7 +52,6 @@ async fn main() {
     config::init();
     // std::env::set_var("RUST_LOG", "info");
     // env_logger::init();
-
     log::info!("Starting proxy server...");
 
     // Create atomic flag to track server active state
@@ -87,6 +87,7 @@ async fn main() {
     loop {
         // Check for Ctrl+X termination signal via CLI interface
         if system::terminator::cli::init(Duration::from_millis(0)) {
+            let _ = memory_log::log_cleanup();
             log::debug!("Ctrl+X received, exiting...");
             break;
         }
