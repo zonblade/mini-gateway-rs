@@ -23,6 +23,7 @@ pub mod server;
 pub mod terminator;
 pub mod writer;
 pub mod udp_sender;
+pub mod memory_log;
 
 // unused
 // pub mod netlisten;
