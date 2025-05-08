@@ -36,10 +36,11 @@
 //!    b. Request is forwarded to the configured backend service.
 //! 5. Response from the backend is returned to the client.
 
+// use bytes::Bytes;
+// use http::StatusCode;
+// use pingora::http::ResponseHeader;
 use async_trait::async_trait;
-use bytes::Bytes;
-use http::StatusCode;
-use log::{debug, error, info, warn}; use pingora::http::ResponseHeader;
+use log::{debug, error, info, warn};
 // Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
 use pingora::proxy::{ProxyHttp, Session};
@@ -270,9 +271,9 @@ impl GatewayApp {
         for node in gateway_nodes {
             log::debug!(
                 "Processing node: addr_listen={}, addr_target={}, path_listen={}, path_target={}, targetd={}",
-                node.addr_listen, node.addr_target, node.path_listen, node.path_target, self.source
+                node.addr_bind, node.addr_target, node.path_listen, node.path_target, self.source
             );
-            if node.addr_listen != self.source {
+            if node.addr_bind != self.source {
                 continue;
             }
             // Filter rules for the current listener source.
@@ -330,7 +331,7 @@ impl GatewayApp {
             applicable_rules.push(RedirectRule {
                 pattern,
                 target_template: node.path_target, // Store the template string
-                _alt_listen: node.addr_listen,     // Already checked, but store for completeness
+                _alt_listen: node.addr_bind,     // Already checked, but store for completeness
                 alt_target: target_peer,
                 priority: node.priority as usize,
             });

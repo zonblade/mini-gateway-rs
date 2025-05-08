@@ -294,7 +294,7 @@ pub fn init() {
 
             let mut already_listened: Vec<String> = vec![];
 
-            eprintln!("Gateway Added: {:#?}", &gateway);
+            eprintln!("Gateway Loaded: {:#?}", &gateway);
 
             for gw in gateway {
                 let listen_addr = gw.addr_listen.clone();
@@ -360,6 +360,7 @@ pub fn init() {
                     
                     tls_settings.enable_h2();
     
+                    my_gateway_service.add_tcp(&gw.addr_listen);
                     my_gateway_service.add_tls_with_settings(
                         &gw.addr_listen,
                         None,
@@ -388,6 +389,8 @@ pub fn init() {
                 .into_iter()
                 .filter(|px| px.high_speed)
                 .collect::<Vec<_>>();
+
+            eprintln!("Proxy Loaded: {:#?}", &proxy);
 
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 

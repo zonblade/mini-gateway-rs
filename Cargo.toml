@@ -6,7 +6,7 @@ members = [
     "router-core",
     "router-gui",
     "router-client/src-tauri"
-]
+, "router-rds"]
 
 [workspace.dependencies]
 actix-web   = "4.10.2"

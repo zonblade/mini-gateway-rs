@@ -146,7 +146,7 @@ pub struct ProxyNode {
 /// # Fields
 ///
 /// * `priority` - Processing priority (higher values = higher priority)
-/// * `addr_listen` - Address and port the gateway listens on (e.g., "0.0.0.0:80")
+/// * `addr_bind` - Address and port bind gateway to proxy
 /// * `addr_target` - Target address to proxy requests to (e.g., "127.0.0.1:8080")
 /// * `path_listen` - URI path pattern to match incoming requests against (e.g., "/api/*")
 /// * `path_target` - Target path to rewrite matched paths to (e.g., "/")
@@ -154,7 +154,7 @@ pub struct ProxyNode {
 pub struct GatewayPath {
     pub priority: u8,
     pub sni: Option<String>,
-    pub addr_listen: String,
+    pub addr_bind: String,
     pub addr_target: String,
     pub path_listen: String,
     pub path_target: String,
@@ -164,6 +164,7 @@ pub struct GatewayPath {
 pub struct GatewayNode {
     pub priority: u8,
     pub addr_listen: String,
+    pub addr_bind: String,
     pub tls: Vec<GatewayNodeSNI>
 }
 

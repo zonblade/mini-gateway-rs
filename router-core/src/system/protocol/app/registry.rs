@@ -3,8 +3,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
-use std::thread::sleep;
-use std::time::Duration;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -141,6 +139,7 @@ impl DataRegistry {
         (pem_path, key_path)
     }
 
+    /// now proxy data always accept high speed.
     fn proxy_data(payload: String) -> Result<(), serde_json::Error> {
         let checksum = {
             use sha2::{Digest, Sha256};
@@ -148,6 +147,11 @@ impl DataRegistry {
             hasher.update(payload.as_bytes());
             format!("{:x}", hasher.finalize())
         };
+        let checksum_old = config::RoutingData::ProxyID.val().clone();
+        if checksum == checksum_old {
+            log::info!("Gateway node id : {}", checksum);
+            return Ok(());
+        }
         let proxy_data = serde_json::from_str::<Vec<ProxyNode>>(&payload);
         let proxy_data = match proxy_data {
             Ok(data) => {
@@ -185,6 +189,7 @@ impl DataRegistry {
         Ok(())
     }
 
+    // path stay as it is
     fn gateway_data(payload: String) -> Result<(), serde_json::Error> {
         let checksum = {
             use sha2::{Digest, Sha256};
@@ -216,12 +221,12 @@ impl DataRegistry {
         // Get existing gateway addresses
         let gateway_existing: Vec<String> = gateway_existing
             .iter()
-            .map(|x| x.addr_listen.clone())
+            .map(|x| x.addr_bind.clone())
             .collect();
 
         // Get incoming gateway addresses
         let gateway_incoming: Vec<String> =
-            gateway_data.iter().map(|x| x.addr_listen.clone()).collect();
+            gateway_data.iter().map(|x| x.addr_bind.clone()).collect();
 
         // Find addresses that are in existing but not in incoming (to be removed)
         let addresses_to_remove: Vec<String> = gateway_existing
@@ -240,9 +245,6 @@ impl DataRegistry {
         log::info!("Parsed gateway data: {:#?}", addresses_to_add);
         log::info!("Parsed gateway data: {:#?}", addresses_to_remove);
 
-        // Check if there are any changes
-        let has_changes = !addresses_to_remove.is_empty() || !addresses_to_add.is_empty();
-
         log::info!("Gateway id : {}", checksum);
         log::debug!("Parsed gateway data: {:#?}", gateway_data);
 
@@ -252,6 +254,7 @@ impl DataRegistry {
         Ok(())
     }
 
+    /// for non high speed proxy the data will come to gateway node
     fn gwnode_data(payload: String) -> Result<(), serde_json::Error> {
         let checksum = {
             use sha2::{Digest, Sha256};
@@ -260,6 +263,11 @@ impl DataRegistry {
             format!("{:x}", hasher.finalize())
         };
         let checksum_old = config::RoutingData::GatewayNodeID.val().clone();
+
+        if checksum == checksum_old {
+            log::info!("Gateway node id : {}", checksum);
+            return Ok(());
+        }
         let gwnode_data = serde_json::from_str::<Vec<GatewayNode>>(&payload);
         let gwnode_data = match gwnode_data {
             Ok(data) => {
@@ -301,13 +309,7 @@ impl DataRegistry {
         config::RoutingData::GatewayNodeID.set(&checksum);
         config::RoutingData::GatewayNodeListen.xset(&gwnode_data);
 
-        if checksum != checksum_old {
-            log::info!("Gateway node id : {}", checksum);
-            log::debug!("Parsed gateway node data: {:#?}", gwnode_data);
-            terminator::service::init();
-        } else {
-            log::info!("No changes in gateway node configuration");
-        }
+        terminator::service::init();
         Ok(())
     }
 }

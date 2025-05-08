@@ -25,8 +25,7 @@ use log::{error, info};
 pub async fn sync_gateway_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
     log::info!("Syncing gateway nodes to registry...");
 
-    // Get the gateway nodes from the database using our JOIN query
-    let gateway_nodes = match gateway_node_queries::get_all_gateway_paths() {
+    let gateway_nodes = match gateway_node_queries::get_all_gateway_nodes() {
         Ok(nodes) => nodes,
         Err(e) => {
             error!("Failed to retrieve gateway nodes from database: {}", e);
@@ -38,6 +37,22 @@ pub async fn sync_gateway_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
         "Retrieved {} gateway nodes from database",
         gateway_nodes.len()
     );
+    info!("Gateway nodes: {:#?}", gateway_nodes);
+
+    // Get the gateway nodes from the database using our JOIN query
+    let gateway_path = match gateway_node_queries::get_all_gateway_paths() {
+        Ok(nodes) => nodes,
+        Err(e) => {
+            error!("Failed to retrieve gateway paths from database: {}", e);
+            return Err(ClientError::ProtocolError(format!("Database error: {}", e)));
+        }
+    };
+
+    info!(
+        "Retrieved {} gateway paths from database",
+        gateway_path.len()
+    );
+    info!("Gateway paths: {:#?}", gateway_path);
 
     // Create the payload with the nodes
     let payload = gateway_nodes.clone();
@@ -63,13 +78,49 @@ pub async fn sync_gateway_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
         .action::<_, TCPDefaultResponse>("gateway", &payload)
         .await
     {
-        Ok(data) => {
+        Ok(_data) => {
             info!(
                 "Successfully sent {} gateway nodes to registry",
                 gateway_nodes.len()
             );
-            client.close().await?;
-            Ok(data)
+            // Create the payload with the nodes
+            let payload = gateway_path.clone();
+
+            // Create a new client instance
+            let mut client = Client::new();
+
+            let server_address = config::Api::TCPAddress.get_str();
+            // Connect to the server
+            match client.connect("127.0.0.1:30099").await {
+                Ok(_) => info!("Connected to registry server at {}", server_address),
+                Err(e) => {
+                    error!("Failed to connect to registry server: {}", e);
+                    return Err(e);
+                }
+            }
+
+            // Create a new client with the service set using builder pattern
+            let mut client = client.service("registry");
+
+            // Send the payload to the "gateway" endpoint
+            match client
+                .action::<_, TCPDefaultResponse>("gateway", &payload)
+                .await
+            {
+                Ok(data) => {
+                    info!(
+                        "Successfully sent {} gateway nodes to registry",
+                        gateway_nodes.len()
+                    );
+                    client.close().await?;
+                    Ok(data)
+                }
+                Err(e) => {
+                    error!("Failed to send gateway nodes to registry: {}", e);
+                    client.close().await?;
+                    Err(e)
+                }
+            }
         }
         Err(e) => {
             error!("Failed to send gateway nodes to registry: {}", e);

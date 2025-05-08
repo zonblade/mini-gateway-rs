@@ -18,7 +18,7 @@ pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::Prox
 pub fn proxy_service_tls_fast(
     addr: &str,
     addr_to: &str,
-    addr_sni: &str,
+    _addr_sni: &str,
     cert_path: &str,
     key_path: &str,
 ) -> Service<proxy_fast::ProxyApp> {

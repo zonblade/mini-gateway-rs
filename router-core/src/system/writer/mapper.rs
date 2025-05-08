@@ -1,7 +1,4 @@
-use std::os::unix::thread;
-
 /// Provides functions for setting up different logging configurations.
-// filepath: /Users/zonblade/Project/runegram/mini-gateway-rs/router-core/src/system/writer/mapper.rs
 use log::LevelFilter;
 
 use crate::system::writer::logger::TagBasedLogger;
