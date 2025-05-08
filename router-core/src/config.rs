@@ -163,6 +163,7 @@ pub struct GatewayPath {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNode {
     pub priority: u8,
+    pub addr_target: String,
     pub addr_listen: String,
     pub addr_bind: String,
     pub tls: Vec<GatewayNodeSNI>

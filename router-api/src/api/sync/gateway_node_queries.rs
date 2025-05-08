@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct QGatewayNode {
     pub priority: u8,               // from gateway_node table set to 0 since we dont use it
     pub addr_listen: String,        // from proxy table
+    pub addr_target: String,       // from proxy table
     pub addr_bind: String,          // from proxy table (proxy.addr_target)
     pub tls: Vec<QGatewayNodeSNI>,
 }
@@ -79,7 +80,8 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
     let addr_query = "
         SELECT DISTINCT 
             p.addr_listen,
-            p.addr_target
+            p.addr_target AS addr_bind,
+            gn.alt_target AS alt_target
         FROM 
             gateway_nodes gn
         JOIN 
@@ -89,14 +91,15 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
     let listening_addresses = db.query(addr_query, [], |row| {
         Ok((
             row.get::<_, String>(0)?, // addr_listen
-            row.get::<_, String>(1)?  // addr_target (addr_bind)
+            row.get::<_, String>(1)?, // addr_target (addr_bind)
+            row.get::<_, String>(2)?, // addr_target
         ))
     })?;
 
     let mut gateway_nodes = Vec::new();
     
     // For each unique listening address
-    for (addr_listen, addr_bind) in listening_addresses {
+    for (addr_listen, addr_bind, addr_target) in listening_addresses {
         // Find all gateway nodes using this listening address
         let nodes_query = "
             SELECT 
@@ -168,6 +171,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
         gateway_nodes.push(QGatewayNode {
             priority: 0,  // set to 0 as specified
             addr_listen,
+            addr_target,
             addr_bind,    // Added addr_bind from proxy.addr_target
             tls: tls_configs,
         });

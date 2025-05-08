@@ -75,7 +75,7 @@ pub async fn sync_gateway_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
 
     // Send the payload to the "gateway" endpoint
     match client
-        .action::<_, TCPDefaultResponse>("gateway", &payload)
+        .action::<_, TCPDefaultResponse>("gwnode", &payload)
         .await
     {
         Ok(_data) => {
