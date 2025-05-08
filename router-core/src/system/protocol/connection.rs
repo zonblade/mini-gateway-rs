@@ -63,7 +63,7 @@ async fn process_gate_connection(
     
     // Log connection parameters
     if !params.service.is_empty() {
-        log::info!("Connected to service: {}, action: {}", params.service, params.action);
+        eprintln!("[-TC-]   Connected to service: {}, action: {}", params.service, params.action);
     }
     
     // Process messages in a loop
@@ -77,19 +77,19 @@ async fn process_gate_connection(
         
         // Log incoming data before it reaches service
         let message_str = String::from_utf8_lossy(message_buffer);
-        log::warn!("Incoming data for service '{}': {:#?}", params.service, message_str);
-        
+        eprintln!("[-TC-]   Incoming data for service '{}': {:#?}", params.service, message_str);
+
         // Try to find and use the appropriate service if service handler exists
         if let Some(handler) = &service_handler {
             // Check if the service exists
             let service_exists = {
                 let handler_guard = handler.read().await;
-                log::warn!("Checking for service '{}'", params.service);
+                eprintln!("[-TC-]   Checking for service '{}'", params.service);
                 handler_guard.get_service(&params.service).is_some()
             };
 
-            log::warn!("Service '{}' exists: {}", params.service, service_exists);
-            
+            eprintln!("[-TC-]   Service '{}' exists: {}", params.service, service_exists);
+
             if service_exists {
                 // Get the service again for processing
                 let result = {
@@ -128,6 +128,7 @@ async fn process_gate_connection(
                     return Err(e);
                 }
                 
+                eprintln!("[-TC-]   Successfully processed message for service '{}'", params.service);
                 continue;
             }
         }
@@ -213,19 +214,21 @@ pub async fn handle_connection(
     let handshake = String::from_utf8_lossy(&buffer[..n]);
     
     if handshake.starts_with(&protocol_prefix) {
-        log::info!("Received valid protocol handshake: {}", handshake);
+        eprintln!("[-TC-]   Received valid protocol handshake: {}", handshake);
         
         // Extract connection parameters from handshake
         let params = parse_connection_params(&handshake, &protocol_prefix);
         
+        eprintln!("[-TC-]   Parsed connection parameters: {:?}", params);
         // Send confirmation
         socket.write_all(b"Gate protocol handshake successful!\n").await?;
         
+        eprintln!("[-TC-]   Sending confirmation to client");
         // Process subsequent messages based on connection type
         process_gate_connection(socket, buffer_size, params, service_handler).await?;
     } else {
         // Invalid protocol
-        log::warn!("Invalid protocol handshake received");
+        eprintln!("[-TC-]   Invalid protocol handshake received");
         socket.write_all(format!("Invalid protocol. Expected message to start with '{}'\n", protocol_prefix).as_bytes()).await?;
     }
     

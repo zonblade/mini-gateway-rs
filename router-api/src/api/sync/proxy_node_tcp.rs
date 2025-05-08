@@ -32,7 +32,7 @@ pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
 
     let server_address = config::Api::TCPAddress.get_str();
     // Connect to the server with a timeout
-    match timeout(Duration::from_secs(5), client.connect("127.0.0.1:30099")).await {
+    match timeout(Duration::from_secs(15), client.connect("127.0.0.1:30099")).await {
         Ok(connect_result) => {
             match connect_result {
                 Ok(_) => info!("Connected to registry server at {}", server_address),
@@ -53,7 +53,7 @@ pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
 
     // Send the payload to the "gateway" endpoint with a timeout
     match timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(15),
         client.action::<_, TCPDefaultResponse>("proxy", &payload)
     ).await {
         Ok(action_result) => {

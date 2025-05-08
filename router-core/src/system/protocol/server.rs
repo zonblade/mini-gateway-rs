@@ -185,6 +185,8 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
                 // Get service handler reference for this connection
                 let service_handler = get_service_handler();
 
+                eprintln!("[----]   $ Spawning task to handle connection from {}", addr);
+
                 tokio::spawn(async move {
                     if let Err(e) =
                         handle_connection(socket, conn_buffer_size, service_handler).await

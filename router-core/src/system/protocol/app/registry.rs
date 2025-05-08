@@ -197,6 +197,9 @@ impl DataRegistry {
             hasher.update(payload.as_bytes());
             format!("{:x}", hasher.finalize())
         };
+
+        eprintln!("[-TC-]   Gateway id : {}", checksum);
+
         let gateway_data = serde_json::from_str::<Vec<GatewayPath>>(&payload);
         let gateway_data = match gateway_data {
             Ok(data) => {
@@ -217,6 +220,11 @@ impl DataRegistry {
                 vec![]
             }
         };
+
+        eprintln!(
+            "[-TC-]   Count of existing gateway addresses: {}",
+            gateway_existing.len()
+        );
 
         // Get existing gateway addresses
         let gateway_existing: Vec<String> = gateway_existing
@@ -242,11 +250,11 @@ impl DataRegistry {
             .cloned()
             .collect();
 
-        log::info!("Parsed gateway data: {:#?}", addresses_to_add);
-        log::info!("Parsed gateway data: {:#?}", addresses_to_remove);
-
-        log::info!("Gateway id : {}", checksum);
-        log::debug!("Parsed gateway data: {:#?}", gateway_data);
+        eprintln!(
+            "[-TC-]   Addresses to remove: {:?}",
+            addresses_to_remove.len()
+        );
+        eprintln!("[-TC-]   Addresses to add: {:?}", addresses_to_add.len());
 
         config::RoutingData::GatewayID.set(&checksum);
         config::RoutingData::GatewayRouting.xset(&gateway_data);
@@ -372,6 +380,12 @@ impl ServiceProtocol for DataRegistry {
             }
         };
         let response_str = response.to_string();
+
+        eprintln!(
+            "[----]   $ Sending response: {}",
+            response_str
+        );
+
         socket.write_all(response_str.as_bytes()).await?;
         socket.flush().await?;
 
