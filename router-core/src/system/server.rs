@@ -39,78 +39,33 @@ mod boringssl_openssl {
     use pingora::tls::pkey::{PKey, Private};
     use pingora::tls::ssl::{NameType, SslRef};
     use pingora::tls::x509::X509;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
-    /// A dynamic certificate handler that selects TLS certificates based on SNI.
-    ///
-    /// This structure maintains a collection of certificates and their associated private keys,
-    /// along with domain patterns they should match. It supports:
-    ///
-    /// - Multiple certificates for different domains
-    /// - Wildcard certificates (e.g., `*.example.com`)
-    /// - A default fallback certificate
-    ///
-    /// During the TLS handshake, the appropriate certificate is selected based on the
-    /// server name requested by the client through SNI.
     pub(super) struct DynamicCert {
-        /// Vector of (domain_name, certificate, key) tuples
-        /// Index 0 is used as the default certificate when no match is found
-        /// A `None` domain name indicates the default certificate
         certs: Vec<(Option<String>, X509, PKey<Private>)>,
+        // Thread-safe cache for hostname lookups
+        cache: Mutex<HashMap<String, (Arc<X509>, Arc<PKey<Private>>)>>,
+        // Maximum number of entries to prevent unbounded growth
+        max_cache_size: usize,
     }
 
     impl DynamicCert {
-        /// Creates a new empty `DynamicCert` instance.
-        ///
-        /// This constructor initializes an empty certificate collection. Certificates
-        /// must be added using the `add_cert` method before the instance can be used
-        /// for TLS connections.
-        ///
-        /// # Returns
-        ///
-        /// A boxed `DynamicCert` instance with an empty certificate collection.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let mut cert_handler = boringssl_openssl::DynamicCert::new();
-        /// ```
         pub(super) fn new() -> Box<Self> {
-            Box::new(DynamicCert { certs: Vec::new() })
+            Box::new(DynamicCert { 
+                certs: Vec::new(),
+                cache: Mutex::new(HashMap::new()),
+                max_cache_size: 1000, // Default size, can be adjusted based on expected traffic patterns
+            })
         }
 
-        /// Adds a certificate for a specific domain pattern.
-        ///
-        /// This method adds a certificate and its associated private key for a specific
-        /// domain pattern. The pattern can be either an exact domain name (e.g., `example.com`)
-        /// or a wildcard pattern (e.g., `*.example.com`).
-        ///
-        /// # Parameters
-        ///
-        /// * `domain` - The domain pattern this certificate applies to.
-        /// * `cert` - Path to the PEM-encoded certificate file.
-        /// * `key` - Path to the PEM-encoded private key file.
-        ///
-        /// # Returns
-        ///
-        /// A `Result` indicating success or failure. On success, the certificate is added
-        /// to the collection. On failure, an error is returned.
-        ///
-        /// # Errors
-        ///
-        /// This method can fail if:
-        /// - The certificate or key file cannot be read
-        /// - The certificate or key is not in valid PEM format
-        /// - The private key does not match the certificate
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// // Add a specific domain certificate
-        /// cert_handler.add_cert("example.com".to_string(), "/path/to/cert.pem", "/path/to/key.pem")?;
-        ///
-        /// // Add a wildcard certificate
-        /// cert_handler.add_cert("*.example.com".to_string(), "/path/to/wildcard.pem", "/path/to/wildcard.key")?;
-        /// ```
+        // Optional: Allow configuring the cache size
+        #[allow(dead_code)]
+        pub(super) fn with_cache_size(mut self, max_size: usize) -> Self {
+            self.max_cache_size = max_size;
+            self
+        }
+
         pub(super) fn add_cert(
             &mut self,
             domain: String,
@@ -127,112 +82,102 @@ mod boringssl_openssl {
             Ok(())
         }
 
-        /// Checks if a domain matches a pattern (including wildcard patterns).
-        ///
-        /// This method implements the logic for determining if a given domain name
-        /// matches a domain pattern, which can include wildcard prefixes.
-        ///
-        /// # Parameters
-        ///
-        /// * `pattern` - The domain pattern, which can be an exact domain or a wildcard pattern.
-        /// * `domain` - The actual domain name to check against the pattern.
-        ///
-        /// # Returns
-        ///
-        /// `true` if the domain matches the pattern, `false` otherwise.
-        ///
-        /// # Wildcard Rules
-        ///
-        /// Wildcard patterns must follow these rules:
-        /// - The wildcard character (`*`) must be at the start of the pattern
-        /// - The wildcard is followed by a dot (e.g., `*.example.com`)
-        /// - The wildcard matches exactly one level of subdomain
-        ///
-        /// For example:
-        /// - `*.example.com` matches `api.example.com` but not `example.com` or `sub.api.example.com`
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// // Exact match
-        /// assert!(DynamicCert::domain_matches("example.com", "example.com"));
-        /// assert!(!DynamicCert::domain_matches("example.com", "sub.example.com"));
-        ///
-        /// // Wildcard match
-        /// assert!(DynamicCert::domain_matches("*.example.com", "api.example.com"));
-        /// assert!(!DynamicCert::domain_matches("*.example.com", "example.com"));
-        /// assert!(!DynamicCert::domain_matches("*.example.com", "sub.api.example.com"));
-        /// ```
         fn domain_matches(pattern: &str, domain: &str) -> bool {
+            // Existing implementation
             if pattern.starts_with("*.") {
-                // Wildcard matching (e.g., *.example.com matches api.example.com)
-                let suffix = &pattern[1..]; // Remove the '*'
-                domain.ends_with(suffix) && // Check if domain ends with suffix
-                // Check that there's exactly one subdomain level before the suffix
+                let suffix = &pattern[1..];
+                domain.ends_with(suffix) && 
                 domain[..domain.len() - suffix.len()].matches('.').count() == 0
             } else {
-                // Exact match
                 pattern == domain
             }
         }
+
+        // Find certificate for a hostname and cache the result
+        fn find_cert_for_hostname(&self, hostname: &str) -> Option<(Arc<X509>, Arc<PKey<Private>>)> {
+            // First check the cache
+            {
+                let cache = self.cache.lock().unwrap();
+                if let Some(cached) = cache.get(hostname) {
+                    return Some(cached.clone());
+                }
+            }
+
+            // Not in cache, search for it
+            let result = self.find_matching_cert(hostname);
+            
+            // If found, add to cache
+            if let Some((cert, key)) = &result {
+                let mut cache = self.cache.lock().unwrap();
+                
+                // Simple cache size management
+                if cache.len() >= self.max_cache_size {
+                    // Remove some entries if we're at capacity
+                    // A more sophisticated approach would use LRU policy
+                    if cache.len() > 10 {
+                        // Remove approximately 10% of entries
+                        let to_remove = (cache.len() / 10).max(1);
+                        for _ in 0..to_remove {
+                            if let Some(key) = cache.keys().next().cloned() {
+                                cache.remove(&key);
+                            }
+                        }
+                    } else {
+                        cache.clear(); // Small cache, just clear it
+                    }
+                }
+                
+                cache.insert(hostname.to_string(), (cert.clone(), key.clone()));
+            }
+            
+            result
+        }
+        
+        // Search for matching certificate (exact or wildcard)
+        fn find_matching_cert(&self, hostname: &str) -> Option<(Arc<X509>, Arc<PKey<Private>>)> {
+            // First try exact matches
+            for (domain, cert, key) in &self.certs {
+                if let Some(domain_str) = domain {
+                    if domain_str == hostname {
+                        return Some((Arc::new(cert.clone()), Arc::new(key.clone())));
+                    }
+                }
+            }
+
+            // Then try wildcard matches
+            for (domain, cert, key) in &self.certs {
+                if let Some(domain_str) = domain {
+                    if Self::domain_matches(domain_str, hostname) {
+                        return Some((Arc::new(cert.clone()), Arc::new(key.clone())));
+                    }
+                }
+            }
+            
+            // No match found, return the default if available
+            if !self.certs.is_empty() {
+                let (_, default_cert, default_key) = &self.certs[0];
+                return Some((Arc::new(default_cert.clone()), Arc::new(default_key.clone())));
+            }
+            
+            None
+        }
     }
 
-    /// Implementation of the TLS certificate selection callback.
-    ///
-    /// This trait implementation makes the `DynamicCert` struct usable with Pingora's
-    /// TLS handling system. It provides the logic for selecting the appropriate
-    /// certificate during the TLS handshake based on the SNI information.
     #[async_trait]
     impl pingora::listeners::TlsAccept for DynamicCert {
-        /// Called during TLS handshake to select and apply the appropriate certificate.
-        ///
-        /// This method is called by the TLS library during the handshake process when
-        /// it needs to determine which certificate to present to the client. It selects
-        /// the certificate based on the server name provided by the client through SNI.
-        ///
-        /// # Selection Process
-        ///
-        /// 1. If the client provided an SNI hostname, first look for an exact match
-        /// 2. If no exact match is found, try matching against wildcard patterns
-        /// 3. If no match is found or no SNI was provided, use the default certificate
-        ///
-        /// # Parameters
-        ///
-        /// * `ssl` - A mutable reference to the SSL context for this connection
-        ///
-        /// # Panics
-        ///
-        /// This method will panic if no certificates have been added to the collection.
         async fn certificate_callback(&self, ssl: &mut SslRef) {
             use pingora::tls::ext;
 
-            // Check if we have any certificates at all
             if self.certs.is_empty() {
                 panic!("No certificates configured for TLS!");
             }
 
-            // Try to get the server name from SNI
             if let Some(server_name) = ssl.servername(NameType::HOST_NAME) {
-                // First try exact matches
-                for (domain, cert, key) in &self.certs {
-                    if let Some(domain_str) = domain {
-                        if domain_str == server_name {
-                            ext::ssl_use_certificate(ssl, cert).unwrap();
-                            ext::ssl_use_private_key(ssl, key).unwrap();
-                            return;
-                        }
-                    }
-                }
-
-                // Then try wildcard matches
-                for (domain, cert, key) in &self.certs {
-                    if let Some(domain_str) = domain {
-                        if Self::domain_matches(domain_str, server_name) {
-                            ext::ssl_use_certificate(ssl, cert).unwrap();
-                            ext::ssl_use_private_key(ssl, key).unwrap();
-                            return;
-                        }
-                    }
+                // Use the cache to efficiently look up certificates
+                if let Some((cert, key)) = self.find_cert_for_hostname(server_name) {
+                    ext::ssl_use_certificate(ssl, &cert).unwrap();
+                    ext::ssl_use_private_key(ssl, &key).unwrap();
+                    return;
                 }
             }
 
