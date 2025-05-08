@@ -8,11 +8,27 @@
     
     export let highSpeed = false;
     export let highSpeedAddr = "";
+    export let selectedGwNodeId = "";
     export let gwNodes: GwNode[] = [];
     export let loadingGwNodes = false;
     export let errorLoadingGwNodes: string | null = null;
     
     $: showHighSpeedWarning = highSpeed && gwNodes.length === 0 && !loadingGwNodes;
+
+    // When selecting a gateway node, store both the ID and the address
+    function selectGwNode(event: Event) {
+        const selectElement = event.target as HTMLSelectElement;
+        const selectedValue = selectElement.value;
+        
+        if (selectedValue) {
+            const selectedOption = selectElement.options[selectElement.selectedIndex];
+            selectedGwNodeId = selectedOption.getAttribute('data-id') || "";
+            highSpeedAddr = selectedValue;
+        } else {
+            selectedGwNodeId = "";
+            highSpeedAddr = "";
+        }
+    }
 </script>
 
 <div class="space-y-3 mt-4 border-t pt-4 dark:border-gray-700">
@@ -53,13 +69,14 @@
             {:else}
                 <select
                     id="highSpeedAddr"
-                    bind:value={highSpeedAddr}
+                    value={highSpeedAddr}
+                    on:change={selectGwNode}
                     class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 {!highSpeedAddr && highSpeed ? 'border-red-500 dark:border-red-500' : ''}"
                     required={highSpeed}
                 >
                     <option value="">Select a gateway node</option>
                     {#each gwNodes as node (node.id)}
-                        <option value={node.alt_target}>{node.title} ({node.alt_target})</option>
+                        <option value={node.alt_target} data-id={node.id}>{node.title} ({node.alt_target})</option>
                     {/each}
                 </select>
                 

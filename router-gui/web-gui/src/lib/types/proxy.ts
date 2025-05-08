@@ -5,6 +5,7 @@ export interface Proxy {
     addr_target: string;
     high_speed: boolean;
     high_speed_addr: string | null;
+    high_speed_gwid: string | null;
     tls_domains?: TlsDomain[];
 }
 
@@ -32,6 +33,7 @@ export interface ProxyForm {
     addr_target: string;
     high_speed: boolean;
     high_speed_addr: string;
+    high_speed_gwid: string;
 }
 
 // Local UI model for domain configuration
@@ -54,7 +56,8 @@ export function toFormData(proxy: Proxy): ProxyForm {
         addr_listen: proxy.addr_listen || '',
         addr_target: proxy.addr_target || '',
         high_speed: proxy.high_speed || false,
-        high_speed_addr: proxy.high_speed_addr || ''
+        high_speed_addr: proxy.high_speed_addr || '',
+        high_speed_gwid: proxy.high_speed_gwid || ''
     };
 }
 
@@ -66,7 +69,8 @@ export function toApiData(form: ProxyForm): Proxy {
         addr_listen: form.addr_listen,
         addr_target: form.addr_target,
         high_speed: form.high_speed,
-        high_speed_addr: form.high_speed_addr || null
+        high_speed_addr: form.high_speed_addr || null,
+        high_speed_gwid: form.high_speed_gwid || null
     };
 }
 

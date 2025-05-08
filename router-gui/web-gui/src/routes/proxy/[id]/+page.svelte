@@ -89,6 +89,9 @@
     // Domain configurations
     let domainConfigs: DomainConfig[] = [];
 
+    // Selected gateway node for high-speed mode
+    let selectedGwNodeId: string = "";
+
     // Helper state
     let isSaving = false;
     let errorMessage = "";
@@ -111,6 +114,11 @@
             highSpeed: apiProxy.high_speed || false,
             highSpeedAddr: apiProxy.high_speed_addr || "",
         };
+
+        // Set the selectedGwNodeId if it exists in the API data
+        if (apiProxy.high_speed_gwid) {
+            selectedGwNodeId = apiProxy.high_speed_gwid;
+        }
 
         // Handle domains
         const domains: DomainConfig[] = [];
@@ -154,6 +162,7 @@
             addr_target: "", // Always send empty string as addr_target
             high_speed: uiProxy.highSpeed || false,
             high_speed_addr: uiProxy.highSpeedAddr || null,
+            high_speed_gwid: selectedGwNodeId || null,
             tls_domains:
                 domainConfigs.length > 0
                     ? domainConfigs.map((config) => {
@@ -285,6 +294,7 @@
                 addr_target: "", // Empty string - server will handle this
                 high_speed: proxy.highSpeed,
                 high_speed_addr: proxy.highSpeedAddr || null,
+                high_speed_gwid: selectedGwNodeId || null
             };
 
             // Split domains into existing and new
@@ -396,6 +406,7 @@
                     bind:gwNodes
                     bind:loadingGwNodes
                     bind:errorLoadingGwNodes
+                    bind:selectedGwNodeId
                 />
 
                 <div class="flex justify-end pt-4">

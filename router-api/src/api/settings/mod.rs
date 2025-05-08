@@ -46,6 +46,7 @@ use super::users::JwtAuth;
 /// * `addr_target` - Destination address where traffic is forwarded (format: "ip:port")
 /// * `high_speed` - Whether speed mode is enabled for faster proxying (optional)
 /// * `high_speed_addr` - Specific address to use for speed mode (optional)
+/// * `high_speed_gwid` - Gateway node ID to use for speed mode (optional)
 ///
 /// # Examples
 ///
@@ -58,6 +59,7 @@ use super::users::JwtAuth;
 ///     addr_target: "127.0.0.1:8080",
 ///     high_speed: false,
 ///     high_speed_addr: None,
+///     high_speed_gwid: None,
 /// }
 /// ```
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -74,6 +76,8 @@ pub struct Proxy {
     pub high_speed: bool,
     /// Specific address to use for speed mode
     pub high_speed_addr: Option<String>,
+    /// Gateway node ID to use for speed mode
+    pub high_speed_gwid: Option<String>,
 }
 
 /// Represents a proxy domain configuration in the system

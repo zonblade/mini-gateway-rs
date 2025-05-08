@@ -166,6 +166,7 @@ mod test {
             addr_target: "127.0.0.1:8081".to_string(),
             high_speed: false,
             high_speed_addr: None,
+            high_speed_gwid: None,
         };
 
         if let Err(e) = proxy_queries::save_proxy(&proxy) {

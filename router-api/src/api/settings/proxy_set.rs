@@ -141,7 +141,29 @@ pub async fn set_proxy(
                                 "error": "Cannot enable high-speed mode for this proxy because there are multiple proxies with the same listen address."
                             }));
                         }
-                        // If high_speed is enabled but high_speed_addr is empty, set it to the same as addr_target
+                        
+                        // If high_speed_gwid is provided, look up its alt_target to set as high_speed_addr
+                        if let Some(gwid) = &proxy.high_speed_gwid {
+                            if !gwid.is_empty() {
+                                match gwnode_queries::get_gateway_node_by_id(gwid) {
+                                    Ok(Some(gwnode)) => {
+                                        proxy.high_speed_addr = Some(gwnode.alt_target.clone());
+                                    },
+                                    Ok(None) => {
+                                        log::warn!("Gateway node {} not found for high_speed_gwid", gwid);
+                                        return HttpResponse::BadRequest().json(serde_json::json!({
+                                            "error": "The specified gateway node for high-speed mode was not found"
+                                        }));
+                                    },
+                                    Err(e) => {
+                                        log::error!("Error retrieving gateway node {}: {}", gwid, e);
+                                        return HttpResponse::InternalServerError().body("Failed to retrieve gateway node for high-speed mode");
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // If high_speed is enabled but high_speed_addr is still empty, set it to the same as addr_target
                         if proxy.high_speed_addr.is_none() || proxy.high_speed_addr.as_ref().unwrap().is_empty() {
                             proxy.high_speed_addr = Some(proxy.addr_target.clone());
                         }
@@ -152,8 +174,9 @@ pub async fn set_proxy(
                     }
                 }
             } else {
-                // If high_speed is disabled, set high_speed_addr to None
+                // If high_speed is disabled, set high_speed_addr and high_speed_gwid to None
                 proxy.high_speed_addr = None;
+                proxy.high_speed_gwid = None;
             }
             
             // Step 1: Save the proxy without verification

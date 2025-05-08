@@ -40,7 +40,7 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
     // Define the expected columns for proxies table
-    let expected_columns = ["id", "title", "addr_listen", "addr_target", "high_speed", "high_speed_addr"];
+    let expected_columns = ["id", "title", "addr_listen", "addr_target", "high_speed", "high_speed_addr", "high_speed_gwid"];
     
     // Check if the table exists with the expected columns and is not corrupted
     let proxies_table_valid = db.table_exists_with_columns("proxies", &expected_columns)?;
@@ -78,7 +78,8 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                     addr_listen TEXT NOT NULL,
                     addr_target TEXT NOT NULL,
                     high_speed BOOLEAN NOT NULL DEFAULT 0,
-                    high_speed_addr TEXT
+                    high_speed_addr TEXT,
+                    high_speed_gwid TEXT
                 )",
                 [],
             )?;
@@ -135,7 +136,8 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                     addr_listen TEXT NOT NULL,
                     addr_target TEXT NOT NULL,
                     high_speed BOOLEAN NOT NULL DEFAULT 0,
-                    high_speed_addr TEXT
+                    high_speed_addr TEXT,
+                    high_speed_gwid TEXT
                 )",
                 [],
             )?;
@@ -208,7 +210,7 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
 
     // Query all proxies
     let proxies = db.query(
-        "SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies",
+        "SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr, high_speed_gwid FROM proxies",
         [],
         |row| {
             Ok(Proxy {
@@ -218,6 +220,11 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
                 addr_target: row.get(3)?,
                 high_speed: row.get(4)?,
                 high_speed_addr: match row.get::<_, String>(5) {
+                    Ok(s) if s == "\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
+                high_speed_gwid: match row.get::<_, String>(6) {
                     Ok(s) if s == "\u{0000}" => None,
                     Ok(s) => Some(s),
                     Err(_) => None,
@@ -273,7 +280,7 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
 
     // Query the proxy by ID
     let proxy = db.query_one(
-        "SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies WHERE id = ?1",
+        "SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr, high_speed_gwid FROM proxies WHERE id = ?1",
         [id],
         |row| {
             Ok(Proxy {
@@ -283,6 +290,11 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
                 addr_target: row.get(3)?,
                 high_speed: row.get(4)?,
                 high_speed_addr: match row.get::<_, String>(5) {
+                    Ok(s) if s == "\u{0000}" => None,
+                    Ok(s) => Some(s),
+                    Err(_) => None,
+                },
+                high_speed_gwid: match row.get::<_, String>(6) {
                     Ok(s) if s == "\u{0000}" => None,
                     Ok(s) => Some(s),
                     Err(_) => None,
@@ -331,8 +343,8 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
     
     // Insert or replace the proxy with a simple execute operation
     db.execute(
-        "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, high_speed, high_speed_addr) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, high_speed, high_speed_addr, high_speed_gwid) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         rusqlite::params![
             &proxy.id,
             &proxy.title,
@@ -340,6 +352,7 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
             &proxy.addr_target,
             &(if proxy.high_speed { 1 } else { 0 }),
             &proxy.high_speed_addr.clone().unwrap_or("\u{0000}".to_string()),
+            &proxy.high_speed_gwid.clone().unwrap_or("\u{0000}".to_string()),
         ],
     )?;
     

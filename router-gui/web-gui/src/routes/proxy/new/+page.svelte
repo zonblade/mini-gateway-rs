@@ -81,6 +81,9 @@
     // Domain configurations
     let domainConfigs: DomainConfig[] = [];
     
+    // Selected gateway node for high-speed mode
+    let selectedGwNodeId: string = "";
+    
     // Helper state
     let isSaving = false;
     let errorMessage = "";
@@ -131,6 +134,7 @@
             addr_target: "", // Always send empty string as addr_target
             high_speed: uiProxy.highSpeed || false,
             high_speed_addr: uiProxy.highSpeedAddr || null,
+            high_speed_gwid: selectedGwNodeId || null,
             tls_domains: domainConfigs.length > 0 ? domainConfigs.map(config => ({
                 sni: config.domain,
                 tls: config.useTls,
@@ -172,7 +176,8 @@
                 addr_listen: proxy.listen,
                 addr_target: "", // Server will generate this
                 high_speed: proxy.highSpeed,
-                high_speed_addr: proxy.highSpeedAddr || null
+                high_speed_addr: proxy.highSpeedAddr || null,
+                high_speed_gwid: selectedGwNodeId || null
             };
             
             // For new proxies, don't set proxy_id on domains - the backend will handle this
@@ -237,6 +242,7 @@
                 <HighSpeedConfig 
                     bind:highSpeed={proxy.highSpeed}
                     bind:highSpeedAddr={proxy.highSpeedAddr}
+                    bind:selectedGwNodeId
                     bind:gwNodes
                     bind:loadingGwNodes
                     bind:errorLoadingGwNodes

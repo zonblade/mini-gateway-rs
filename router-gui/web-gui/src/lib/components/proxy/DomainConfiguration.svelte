@@ -146,10 +146,11 @@
                     {#if expandedDomains.has(config.id)}
                         <div class="p-4 border-t border-gray-200 dark:border-gray-700">
                             <div class="mb-3">
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <label for={`domain-${config.id}`} class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                     Domain (SNI)
                                 </label>
                                 <input 
+                                    id={`domain-${config.id}`}
                                     type="text" 
                                     bind:value={config.domain}
                                     class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
@@ -188,10 +189,11 @@
                                     {#if !config.autoTls}
                                         <div class="space-y-3">
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                <label for={`certPem-${config.id}`} class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                                     Certificate PEM
                                                 </label>
                                                 <textarea 
+                                                    id={`certPem-${config.id}`}
                                                     bind:value={config.certPem}
                                                     class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
                                                     placeholder="-----BEGIN CERTIFICATE-----"
@@ -199,12 +201,12 @@
                                                     required={config.useTls && !config.autoTls}
                                                 ></textarea>
                                             </div>
-                                            
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                <label for={`certKey-${config.id}`} class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                                     Certificate Key
                                                 </label>
                                                 <textarea 
+                                                    id={`certKey-${config.id}`}
                                                     bind:value={config.certKey}
                                                     class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
                                                     placeholder="-----BEGIN PRIVATE KEY-----"

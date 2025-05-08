@@ -321,7 +321,8 @@ Retrieves a list of all configured proxies with their associated domains (simpli
       "addr_listen": "0.0.0.0:443",
       "addr_target": "127.0.0.1:8080",
       "high_speed": true,
-      "high_speed_addr": "10.0.0.1:8081"
+      "high_speed_addr": "10.0.0.1:8081",
+      "high_speed_gwid": "gwnode-2"
     },
     "domains": [
       {
@@ -338,7 +339,8 @@ Retrieves a list of all configured proxies with their associated domains (simpli
       "addr_listen": "0.0.0.0:80",
       "addr_target": "127.0.0.1:3000",
       "high_speed": false,
-      "high_speed_addr": null
+      "high_speed_addr": null,
+      "high_speed_gwid": null
     },
     "domains": []
   }
@@ -374,7 +376,8 @@ Retrieves a specific proxy by its ID, along with all its associated domains.
     "addr_listen": "0.0.0.0:443",
     "addr_target": "127.0.0.1:8080",
     "high_speed": true,
-    "high_speed_addr": "10.0.0.1:8081"
+    "high_speed_addr": "10.0.0.1:8081",
+    "high_speed_gwid": "gwnode-5"
   },
   "domains": [
     {
@@ -422,6 +425,9 @@ Creates a new proxy or updates an existing one. This endpoint supports submittin
 | addr_target    | string  | Target address (automatically generated)   | No       |
 | high_speed     | boolean | Whether high speed mode is enabled         | No       |
 | high_speed_addr| string  | Specific address to use for high speed mode| No       |
+| high_speed_gwid| string  | Gateway node ID to use for high speed mode | No       |
+
+**Note:** When `high_speed_gwid` is provided, the system automatically uses the gateway node's alternative target as the `high_speed_addr`. Clients can set either `high_speed_addr` directly or specify a `high_speed_gwid` to have the address derived from a gateway node. When both are provided, the gateway node ID takes precedence.
 
 **Response:** Returns the saved proxy object along with its associated domains.
 
@@ -431,7 +437,8 @@ Creates a new proxy or updates an existing one. This endpoint supports submittin
   "proxy": {
     "title": "New API Proxy with Domains",
     "addr_listen": "0.0.0.0:8443",
-    "high_speed": false
+    "high_speed": true,
+    "high_speed_gwid": "gwnode-3"
   },
   "domains": [
     {
@@ -459,8 +466,9 @@ Creates a new proxy or updates an existing one. This endpoint supports submittin
     "title": "New API Proxy with Domains",
     "addr_listen": "0.0.0.0:8443",
     "addr_target": "127.0.0.1:45023",
-    "high_speed": false,
-    "high_speed_addr": null
+    "high_speed": true,
+    "high_speed_addr": "http://backup-server.internal:8080",
+    "high_speed_gwid": "gwnode-3"
   },
   "domains": [
     {
