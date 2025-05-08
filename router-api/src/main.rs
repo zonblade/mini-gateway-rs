@@ -103,23 +103,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
-        // Initialize the multi-port UDP logger with proper port isolation
+        // // Initialize the multi-port UDP logger with proper port isolation
         // log::info!("Starting multi-port UDP logger...");
         // match module::udp_net::udp_logger::initialize_udp_logger(
         //     "127.0.0.1",
         //     module::udp_net::udp_logger::LogPorts::default(),
         // ) {
-        //     Ok(_) => log::info!("UDP logger started successfully on ports 24401, 24402, and 24403"),
+        //     Ok(_) => log::info!("UDP logger started successfully on ports 24401"),
         //     Err(e) => log::error!("Failed to start UDP logger: {}", e),
         // }
 
         // module::udp_net::udp_log::common::init();
-        // module::udp_net::udp_log::proxy::init();
-        // module::udp_net::udp_log::gateway::init();
+        // // module::udp_net::udp_log::proxy::init();
+        // // module::udp_net::udp_log::gateway::init();
 
-        // log::info!("UDP logger initialized successfully");
-        log::info!("Starting memory log spawner...");
-        memory_log::spawner::spawn_all();
+        // // log::info!("UDP logger initialized successfully");
+        // log::info!("Starting memory log spawner...");
+        // memory_log::spawner::spawn_all();
     }
 
     // Parse command line arguments using clap
@@ -157,8 +157,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Initializing sync...");
     {
-        sync::proxy_node_tcp::sync_proxy_nodes_to_registry().await?;
-        sync::gateway_node_tcp::sync_gateway_nodes_to_registry().await?;
+        // Try to sync with registry but don't fail startup if it doesn't work
+        match sync::proxy_node_tcp::sync_proxy_nodes_to_registry().await {
+            Ok(_) => log::info!("Successfully synced proxy nodes to registry"),
+            Err(e) => log::warn!("Failed to sync proxy nodes to registry: {}. Continuing startup anyway.", e),
+        }
+        
+        match sync::gateway_node_tcp::sync_gateway_nodes_to_registry().await {
+            Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
+            Err(e) => log::warn!("Failed to sync gateway nodes to registry: {}. Continuing startup anyway.", e),
+        }
     }
 
     // Configure and start actix-web server

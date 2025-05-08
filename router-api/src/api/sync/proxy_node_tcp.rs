@@ -1,7 +1,8 @@
 use crate::config;
 use crate::client::{Client, ClientError};
 use super::{proxy_node_queries, TCPDefaultResponse};
-use log::{error, info};
+use log::{error, info, warn};
+use tokio::time::{timeout, Duration};
 
 pub type TCPResult<T> = Result<T, ClientError>;
 
@@ -30,35 +31,58 @@ pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
     let mut client = Client::new();
 
     let server_address = config::Api::TCPAddress.get_str();
-    // Connect to the server
-    match client.connect("127.0.0.1:30099").await {
-        Ok(_) => info!("Connected to registry server at {}", server_address),
-        Err(e) => {
-            error!("Failed to connect to registry server: {}", e);
-            return Err(e);
+    // Connect to the server with a timeout
+    match timeout(Duration::from_secs(5), client.connect("127.0.0.1:30099")).await {
+        Ok(connect_result) => {
+            match connect_result {
+                Ok(_) => info!("Connected to registry server at {}", server_address),
+                Err(e) => {
+                    error!("Failed to connect to registry server: {}", e);
+                    return Err(e);
+                }
+            }
+        },
+        Err(_) => {
+            warn!("Connection attempt to registry server timed out after 5 seconds");
+            return Err(ClientError::ProtocolError("Connection timeout".to_string()));
         }
     }
 
     // Create a new client with the service set using builder pattern
     let mut client = client.service("registry");
 
-    // Send the payload to the "gateway" endpoint
-    match client
-        .action::<_, TCPDefaultResponse>("proxy", &payload)
-        .await
-    {
-        Ok(data) => {
-            info!(
-                "Successfully sent {} gateway nodes to registry",
-                proxy_nodes.len()
-            );
-            client.close().await?;
-            Ok(data)
-        }
-        Err(e) => {
-            error!("Failed to send gateway nodes to registry: {}", e);
-            client.close().await?;
-            Err(e)
+    // Send the payload to the "gateway" endpoint with a timeout
+    match timeout(
+        Duration::from_secs(5),
+        client.action::<_, TCPDefaultResponse>("proxy", &payload)
+    ).await {
+        Ok(action_result) => {
+            match action_result {
+                Ok(data) => {
+                    info!(
+                        "Successfully sent {} gateway nodes to registry",
+                        proxy_nodes.len()
+                    );
+                    if let Err(e) = client.close().await {
+                        warn!("Error while closing client connection: {}", e);
+                    }
+                    Ok(data)
+                }
+                Err(e) => {
+                    error!("Failed to send gateway nodes to registry: {}", e);
+                    if let Err(close_err) = client.close().await {
+                        warn!("Error while closing client connection: {}", close_err);
+                    }
+                    Err(e)
+                }
+            }
+        },
+        Err(_) => {
+            warn!("Registry server communication timed out after 5 seconds");
+            if let Err(e) = client.close().await {
+                warn!("Error while closing client connection: {}", e);
+            }
+            Err(ClientError::ProtocolError("Communication timeout".to_string()))
         }
     }
 }

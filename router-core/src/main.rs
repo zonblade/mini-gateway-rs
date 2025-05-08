@@ -57,32 +57,36 @@ async fn main() {
     // Create atomic flag to track server active state
     let active_state = Arc::new(AtomicBool::new(false));
 
+    eprintln!("[----] Starting protocol server...");
     // Initialize custom protocol server for control and management interface
     {
         system::protocol::start_interface();
     }
 
+    eprintln!("[----] Starting service registry...");
     // initialize global sender
     {
-        let result = system::udp_sender::init_global_sender();
-        if let Err(e) = result {
-            eprintln!("[----] Failed to initialize global UDP sender: {}", e);
-            return;
-        }
-
         system::writer::writer_start();
     }
 
+    eprintln!("[----] Starting CTRL+C Listener...");
     // Set up interrupt handler for graceful shutdown on SIGINT (Ctrl+C)
     {
         let running_clone = Arc::clone(&active_state);
         ctrlc::set_handler(move || {
             log::debug!("SIGINT received, shutting down servers...");
-            eprintln!("[----] SIGINT received, shutting down servers...");
+            eprintln!("\n[----] SIGINT received, shutting down servers...");
+            eprintln!("[----] Cleaning up memory log...");
+            let _ = memory_log::log_cleanup();
+            eprintln!("[----] Cleaning up memory log done.");
+            eprintln!("[----] Finish...\n\n");
             running_clone.store(false, Ordering::SeqCst);
+            eprintln!("[----] Restarting the Proxy and Gateway...");
         })
         .expect("Error setting Ctrl-C handler");
     }
+
+    eprintln!("[----] Starting Main Loop...");
 
     // Main application loop - continues until termination signal
     loop {

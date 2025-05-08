@@ -37,11 +37,12 @@
 //! - Configurable heartbeat intervals with failure detection
 //! - Stateful recovery after node restarts
 //! - Versioned configuration to prevent inconsistencies
-pub mod gateway_node;
-pub mod gateway_node_queries;
+mod gateway_node;
+mod gateway_node_queries;
+mod proxy_node;
+mod proxy_node_queries;
+
 pub mod gateway_node_tcp;
-pub mod proxy_node;
-pub mod proxy_node_queries;
 pub mod proxy_node_tcp;
 
 use actix_web::web;

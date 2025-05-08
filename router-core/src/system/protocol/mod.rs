@@ -145,12 +145,12 @@ pub fn start_interface() {
 
             // Log registered services details
             let service_count = handler.get_services().len();
-            log::debug!(
-                "Services registered successfully: {} service(s)",
+            eprintln!(
+                "[----]     $ Services registered successfully: {} service(s)",
                 service_count
             );
             for name in handler.get_services().keys() {
-                log::debug!("Registered service: {}", name);
+                eprintln!("[----]           $ Registered service: {}", name);
             }
             handler.join();
 
@@ -160,8 +160,8 @@ pub fn start_interface() {
             // Verify services are registered by getting a read lock
             let verification = service_handler.read().await;
             let verified_count = verification.get_services().len();
-            log::debug!(
-                "Verification before server start: {} service(s) available",
+            eprintln!(
+                "[----]     $ Verification before server start: {} service(s) available",
                 verified_count
             );
             drop(verification);
@@ -170,9 +170,9 @@ pub fn start_interface() {
             let server_handler = Arc::clone(&service_handler);
 
             // Start the protocol server with our pre-initialized service handler
-            log::debug!("Starting protocol server after service registration");
+            eprintln!("[----]     $ Starting protocol server after service registration");
             if let Err(e) = init(Some(server_handler)).await {
-                log::error!("Protocol server failed to start: {}", e);
+                eprintln!("[----]     $ Protocol server failed to start: {}", e);
             }
         });
     });

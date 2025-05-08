@@ -20,10 +20,10 @@
 //! Authentication is applied globally through JWT middleware, with specific permissions
 //! enforced at the individual endpoint level.
 
-pub mod settings;
-pub mod statistics;
+mod settings;
+mod statistics;
 pub mod sync;
-pub mod users;
+mod users;
 
 use actix_web::web;
 use users::init_database;
@@ -59,8 +59,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .configure(settings::configure)
             .configure(users::configure)
             .configure(sync::configure)
-            .configure(statistics::configure)
-            // Statistics module is empty now, but will be protected when implemented
-            // .configure(statistics::configure)
+            .configure(statistics::configure), // Statistics module is empty now, but will be protected when implemented
+                                               // .configure(statistics::configure)
     );
 }

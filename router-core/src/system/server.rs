@@ -400,6 +400,20 @@ pub fn init() {
     // Wait for all server threads to complete (typically on shutdown)
     for handle in server_threads {
         eprintln!("[----] Waiting for server thread to finish...");
+        eprintln!(r#"
+[----] ------------------ start docs ---------------------------[----]
+[----]                                                          [----]
+[----] This is the server thread that handles all the requests. [----]
+[----] It will run until the application is terminated.         [----]
+[----]                                                          [----]
+[----] To restart or reload the server                          [----]
+[----]   CTRL+C                                                 [----]
+[----]                                                          [----]
+[----] To stop the server                                       [----]
+[----]   CTRL+X                                                 [----]
+[----]                                                          [----]
+[----] -------------------- end docs ---------------------------[----]
+"#);
         if let Err(e) = handle.join() {
             eprintln!("[----] Server thread failed: {:?}", e);
         }

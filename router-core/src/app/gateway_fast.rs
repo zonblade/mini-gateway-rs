@@ -40,6 +40,7 @@
 // use http::StatusCode;
 // use pingora::http::ResponseHeader;
 use async_trait::async_trait;
+use bytes::Bytes;
 use log::{debug, error, info, warn};
 // Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
@@ -510,6 +511,7 @@ impl ProxyHttp for GatewayApp {
         session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
+        eprintln!("Upstream peer called");
         // Use pingora::Result
 
         // 1. Check and potentially reload configuration first.
@@ -638,6 +640,19 @@ impl ProxyHttp for GatewayApp {
         Ok(DEFAULT_FALLBACK_PEER.clone())
     }
     
+    async fn request_body_filter(
+        &self,
+        _session: &mut Session,
+        _body: &mut Option<Bytes>,
+        _end_of_stream: bool,
+        _ctx: &mut Self::CTX,
+    ) -> Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        eprintln!("Request body filter called");
+        Ok(())
+    }
 
     /// Logs request details after completion.
     async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {

@@ -20,6 +20,7 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     // Set global log level - enable more verbose logging for debugging
     // Consider making this configurable or removing if not needed for production.
     std::env::set_var("RUST_LOG", "info");
+    eprintln!("[----] Initializing tag-based logging...");
 
     // Determine log level from environment or use default
     let log_level = std::env::var("RUST_LOG")
@@ -33,6 +34,7 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
         })
         .unwrap_or(LevelFilter::Info); // Default to Info if RUST_LOG is not set
     
+    eprintln!("[----] Log level set to: {:?}", log_level);
     // Define the tags that the logger will recognize and route.
     let tag_writers = vec![
         "[PXY]", // Tag for proxy-related messages
@@ -40,6 +42,7 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
         "[NET]", // Tag for network-related messages
     ];
 
+    eprintln!("[----] Tag-based logging initialized with tags: {:?}", tag_writers);
     // Create the TagBasedLogger instance.
     let logger = Box::new(TagBasedLogger {
         tag_writers,
@@ -48,27 +51,13 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set the created logger as the global logger for the `log` facade.
     // Also sets the maximum log level to filter messages early.
+    eprintln!("[----] Setting up the global logger...");
     log::set_boxed_logger(logger).map(|()| log::set_max_level(log_level))?;
     // spawn thread to send log
-    std::thread::spawn(move || {
-        // Reduce to 30 iterations since that's what the buffer seems to handle
-        for i in 0..30 {
-            // Add a small delay to prevent buffer overflow
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            
-            // Log informational messages to confirm initialization and test tags.
-            log::info!("[PXY] Tag-based logging system initialized (iteration {}/30)", i + 1);
-            // Add delay between different log types
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            log::info!("[GWX] This is a gateway-related log message");
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            log::info!("[NET] This is a network-related log message");
-            
-            // // This message might not be routed if no tag matches, depending on udp_sender logic.
-            // log::info!("This is a regular log message without a specific tag");
-        }
-        log::info!("Logging test complete after 30 iterations");
-    });
+    eprintln!("[----] Initiating tester...");
+    log::info!("[PXY] Tag-based logging system initialized successfully");
+    log::info!("[GWX] This is a gateway-related log message");
+    log::info!("[NET] This is a network-related log message");
     
     Ok(())
 }

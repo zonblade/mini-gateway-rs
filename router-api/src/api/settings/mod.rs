@@ -9,18 +9,19 @@
 //! The module is structured with a clear separation between data models, database queries, and HTTP endpoints.
 //! Each component has dedicated submodules for listing, retrieving, creating, updating, and deleting resources.
 
-pub mod gateway_get;
-pub mod gateway_list;
+mod gateway_get;
+mod gateway_list;
+mod gateway_set;
+mod gwnode_get;
+mod gwnode_list;
+mod gwnode_set;
+mod proxy_get;
+mod proxy_list;
+mod proxy_set;
+
 pub mod gateway_queries;
-pub mod gateway_set;
-pub mod gwnode_get;
-pub mod gwnode_list;
 pub mod gwnode_queries;
-pub mod gwnode_set;
-pub mod proxy_get;
-pub mod proxy_list;
 pub mod proxy_queries;
-pub mod proxy_set;
 pub mod proxydomain_queries;
 
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,6 @@ use actix_web::web;
 use crate::api::users::RoleAuth;
 
 use super::users::JwtAuth;
-
 
 /// Represents a proxy configuration in the system
 ///
@@ -285,7 +285,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(gateway_list::list_gateways_by_gwnode)
             .service(gateway_get::get_gateway)
             .service(gateway_set::set_gateway)
-            .service(gateway_set::delete_gateway)
-            // ProxyDomain endpoints - REMOVED, functionality now in proxy endpoints
+            .service(gateway_set::delete_gateway), // ProxyDomain endpoints - REMOVED, functionality now in proxy endpoints
     );
 }

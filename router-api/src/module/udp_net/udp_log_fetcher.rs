@@ -1,36 +1,12 @@
 use crossbeam_channel::{bounded, Receiver, Sender};
-use serde::{Deserialize, Serialize};
 use std::net::UdpSocket;
 use std::str;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct LogMessage {
-    pub source_ip: String,
-    pub source_port: u16,
-    pub message: String,
-    pub timestamp: std::time::SystemTime,
-    // pub message_formatted: LogMessageFormatted,
-}
+use crate::module::database_log::LogMessage;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogMessageFormatted {
-    pub id: String,
-    pub connection_type: String,
-    pub packet_size: usize,
-    pub status: String,
-    pub comment: String,
-}
-
-impl LogMessage {
-    pub fn formatted(&self) -> String {
-        // format!("[{}:{}] {}", self.source_ip, self.source_port, self.message)
-        format!("{}", self.message)
-    }
-}
 
 pub struct UdpLogFetcher {
     logs: Arc<RwLock<Vec<String>>>,

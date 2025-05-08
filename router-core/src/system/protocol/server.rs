@@ -153,7 +153,7 @@ fn get_service_handler() -> Option<SharedServiceHandler> {
 /// * `io::Result<()>` - Ok if the server ran and shut down gracefully,
 ///   or Err if there was an error binding to the address
 async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
-    log::debug!("Starting protocol server on {}", listen_addr);
+    eprintln!("[----]   $ Starting protocol server on {}", listen_addr);
     // Set up shutdown signal
     let shutdown = Arc::new(AtomicBool::new(false));
     let _shutdown_clone = Arc::clone(&shutdown);
@@ -161,12 +161,12 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
     // Bind to a TCP socket
     let listener = match TcpListener::bind(&listen_addr).await {
         Ok(listener) => {
-            log::debug!("Protocol server listening on {}", listen_addr);
+            eprintln!("[----]   $ Protocol server listening on {}", listen_addr);
             // println!("Success to bind {}", listen_addr);
             listener
         }
         Err(e) => {
-            log::error!("Failed to bind protocol server to {}: {}", listen_addr, e);
+            eprintln!("[ERR-]   $ Failed to bind protocol server to {}: {}", listen_addr, e);
             // println!("Failed to bind protocol server to {}: {}", listen_addr, e);
             return Err(e);
         }
@@ -177,7 +177,9 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
         // Accept new connections
         match listener.accept().await {
             Ok((socket, addr)) => {
-                log::debug!("Accepted protocol connection from {}", addr);
+                let timestamp = chrono::Local::now();
+                let rfc_3339 = timestamp.to_rfc3339();
+                eprintln!("[----]   $ Accepted protocol connection from {}  <[{}]>", addr, rfc_3339);
                 let conn_buffer_size = buffer_size;
 
                 // Get service handler reference for this connection
@@ -187,7 +189,7 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
                     if let Err(e) =
                         handle_connection(socket, conn_buffer_size, service_handler).await
                     {
-                        log::error!("Protocol connection error: {}", e);
+                        eprintln!("[ERR-]   $ Protocol connection error: {}", e);
                     }
                 });
             }
@@ -196,13 +198,13 @@ async fn run_server(listen_addr: String, buffer_size: usize) -> io::Result<()> {
                 continue;
             }
             Err(e) => {
-                log::error!("Failed to accept protocol connection: {}", e);
+                eprintln!("[ERR-]   $ Failed to accept protocol connection: {}", e);
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         }
     }
 
-    log::debug!("Protocol server shutting down");
+    eprintln!("[----]   $ Protocol server shutting down");
     Ok(())
 }
 

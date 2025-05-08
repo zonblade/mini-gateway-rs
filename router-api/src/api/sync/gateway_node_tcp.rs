@@ -4,7 +4,8 @@ use crate::{
     client::{Client, ClientError, Result as TCPResult},
     config,
 };
-use log::{error, info};
+use log::{error, info, warn};
+use tokio::time::{timeout, Duration};
 
 /// Syncs all gateway nodes to the registry server
 ///
@@ -61,71 +62,118 @@ pub async fn sync_gateway_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
     let mut client = Client::new();
 
     let server_address = config::Api::TCPAddress.get_str();
-    // Connect to the server
-    match client.connect("127.0.0.1:30099").await {
-        Ok(_) => info!("Connected to registry server at {}", server_address),
-        Err(e) => {
-            error!("Failed to connect to registry server: {}", e);
-            return Err(e);
-        }
-    }
-
-    // Create a new client with the service set using builder pattern
-    let mut client = client.service("registry");
-
-    // Send the payload to the "gateway" endpoint
-    match client
-        .action::<_, TCPDefaultResponse>("gwnode", &payload)
-        .await
-    {
-        Ok(_data) => {
-            info!(
-                "Successfully sent {} gateway nodes to registry",
-                gateway_nodes.len()
-            );
-            // Create the payload with the nodes
-            let payload = gateway_path.clone();
-
-            // Create a new client instance
-            let mut client = Client::new();
-
-            let server_address = config::Api::TCPAddress.get_str();
-            // Connect to the server
-            match client.connect("127.0.0.1:30099").await {
+    // Connect to the server with a timeout
+    match timeout(Duration::from_secs(5), client.connect("127.0.0.1:30099")).await {
+        Ok(connect_result) => {
+            match connect_result {
                 Ok(_) => info!("Connected to registry server at {}", server_address),
                 Err(e) => {
                     error!("Failed to connect to registry server: {}", e);
                     return Err(e);
                 }
             }
+        },
+        Err(_) => {
+            warn!("Connection attempt to registry server timed out after 5 seconds");
+            return Err(ClientError::ProtocolError("Connection timeout".to_string()));
+        }
+    }
 
-            // Create a new client with the service set using builder pattern
-            let mut client = client.service("registry");
+    // Create a new client with the service set using builder pattern
+    let mut client = client.service("registry");
 
-            // Send the payload to the "gateway" endpoint
-            match client
-                .action::<_, TCPDefaultResponse>("gateway", &payload)
-                .await
-            {
-                Ok(data) => {
+    // Send the payload to the "gateway" endpoint with a timeout
+    match timeout(
+        Duration::from_secs(5),
+        client.action::<_, TCPDefaultResponse>("gwnode", &payload)
+    ).await {
+        Ok(action_result) => {
+            match action_result {
+                Ok(_data) => {
                     info!(
                         "Successfully sent {} gateway nodes to registry",
                         gateway_nodes.len()
                     );
-                    client.close().await?;
-                    Ok(data)
+                    
+                    // Create the payload with the nodes for the second action
+                    let payload = gateway_path.clone();
+                    
+                    // Close the current client
+                    if let Err(e) = client.close().await {
+                        warn!("Error closing client connection: {}", e);
+                    }
+
+                    // Create a new client for the second action with timeout
+                    let mut new_client = Client::new();
+                    match timeout(Duration::from_secs(5), new_client.connect("127.0.0.1:30099")).await {
+                        Ok(connect_result) => {
+                            match connect_result {
+                                Ok(_) => info!("Connected to registry server at {}", server_address),
+                                Err(e) => {
+                                    error!("Failed to connect to registry server for second action: {}", e);
+                                    return Err(e);
+                                }
+                            }
+                        },
+                        Err(_) => {
+                            warn!("Connection attempt to registry server timed out after 5 seconds");
+                            return Err(ClientError::ProtocolError("Connection timeout for second action".to_string()));
+                        }
+                    }
+
+                    // Set service for new client
+                    let mut new_client = new_client.service("registry");
+
+                    // Send the second payload with timeout
+                    match timeout(
+                        Duration::from_secs(5),
+                        new_client.action::<_, TCPDefaultResponse>("gateway", &payload)
+                    ).await {
+                        Ok(second_action_result) => {
+                            match second_action_result {
+                                Ok(data) => {
+                                    info!(
+                                        "Successfully sent {} gateway paths to registry",
+                                        gateway_path.len()
+                                    );
+                                    if let Err(e) = new_client.close().await {
+                                        warn!("Error closing client connection: {}", e);
+                                    }
+                                    Ok(data)
+                                }
+                                Err(e) => {
+                                    error!("Failed to send gateway paths to registry: {}", e);
+                                    if let Err(close_err) = new_client.close().await {
+                                        warn!("Error closing client connection: {}", close_err);
+                                    }
+                                    Err(e)
+                                }
+                            }
+                        },
+                        Err(_) => {
+                            warn!("Registry server communication timed out after 5 seconds for gateway paths");
+                            if let Err(e) = new_client.close().await {
+                                warn!("Error closing client connection: {}", e);
+                            }
+                            Err(ClientError::ProtocolError("Communication timeout for gateway paths".to_string()))
+                        }
+                    }
                 }
                 Err(e) => {
                     error!("Failed to send gateway nodes to registry: {}", e);
-                    client.close().await?;
+                    if let Err(close_err) = client.close().await {
+                        warn!("Error closing client connection: {}", close_err);
+                    }
                     Err(e)
                 }
             }
-        }
-        Err(e) => {
-            error!("Failed to send gateway nodes to registry: {}", e);
-            client.close().await?;
-            Err(e)
+        },
+        Err(_) => {
+            warn!("Registry server communication timed out after 5 seconds for gateway nodes");
+            if let Err(e) = client.close().await {
+                warn!("Error closing client connection: {}", e);
+            }
+            Err(ClientError::ProtocolError("Communication timeout for gateway nodes".to_string()))
         }
     }
 }

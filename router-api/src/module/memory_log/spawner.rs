@@ -1,9 +1,19 @@
-use super::listen_proxy;
+use super::logging::{gateway, proxy};
 
-pub fn spawn_all(){
-    // spawn on thread
+pub fn spawn_all() {
+    log::info!("Starting memory log spawners...");
+    
+    // Spawn proxy listener thread
     std::thread::spawn(move || {
-        log::info!("Starting memory log spawner...");
-        listen_proxy();
+        log::info!("Proxy listener thread started");
+        proxy::listen();
     });
+    
+    // Spawn gateway listener thread
+    std::thread::spawn(move || {
+        log::info!("Gateway listener thread started");
+        gateway::listen();
+    });
+    
+    log::info!("All memory log spawners started and detached");
 }

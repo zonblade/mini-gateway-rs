@@ -22,7 +22,6 @@
 //! foundational capabilities that other parts of the system can build upon.
 
 pub mod udp_log;
-pub mod udp_log_db;
 pub mod udp_log_fetcher;
 pub mod udp_log_processor;
 pub mod udp_logger;
