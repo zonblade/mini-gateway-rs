@@ -366,7 +366,6 @@ pub fn init() {
 
                     tls_settings.enable_h2();
 
-                    my_gateway_service.add_tcp(&gw.addr_listen);
                     my_gateway_service.add_tls_with_settings(&gw.addr_listen, None, tls_settings);
                 }
                 // setup the proxy service
