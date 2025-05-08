@@ -128,6 +128,7 @@ pub enum ClientError {
     /// This error occurs when attempting to make a request without specifying
     /// which action to perform on the service.
     #[error("Action not set")]
+    #[allow(dead_code)]
     ActionNotSet,
     
     /// Retry error occurred after exhausting all retries.

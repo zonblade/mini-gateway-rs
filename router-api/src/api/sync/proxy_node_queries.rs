@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{api::settings::proxydomain_queries, module::database::{get_connection, DatabaseError}};
-use super::proxy_node::ProxyNode;
+use crate::{api::settings::{gwnode_queries, proxydomain_queries}, module::database::{get_connection, DatabaseError}};
 use crate::api::settings::proxy_queries;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,37 +49,48 @@ pub fn get_all_proxy_nodes() -> Result<Vec<QProxyNode>, DatabaseError> {
     // Ensure the proxies table exists before querying it
     proxy_queries::ensure_proxies_table()?;
     proxydomain_queries::ensure_proxy_domains_table()?;
+    gwnode_queries::ensure_gateway_nodes_table()?;
     
-    // let proxy_nodes = db.query(
-    //     "SELECT 
-    //         id,
-    //         title,
-    //         addr_listen,
-    //         addr_target,
-    //         high_speed,
-    //         high_speed_addr
-    //     FROM 
-    //         proxies",
-    //     [],
-    //     |row| {
-            
-    //         let data = ProxyNode {
-    //             id: row.get(0)?,
-    //             domains: vec![],
-    //             addr_listen: row.get(2)?,
-    //             addr_target: row.get(3)?,
-    //             high_speed: row.get(4)?,
-    //             high_speed_addr: match row.get::<_, String>(5) {
-    //                 Ok(s) if s == "\u{0000}" => None,
-    //                 Ok(s) => Some(s),
-    //                 Err(_) => None,
-    //             },
-    //         };
-    //         log::debug!("Proxy Node: {:#?}", data.clone());
-    //         Ok(data)
-    //     },
-    // )?;
+    // Query to retrieve proxy nodes with TLS information via gateway_nodes
+    // Filtering for proxies where high_speed is enabled (true/1)
+    let query = "
+        SELECT 
+            COALESCE(pd.tls, 0) AS tls,
+            pd.sni,
+            pd.tls_pem,
+            pd.tls_key,
+            p.addr_listen,
+            p.addr_target,
+            1 AS high_speed,
+            p.high_speed_addr,
+            NULL AS buffer_size,
+            NULL AS timeout_secs,
+            0 AS adaptive_buffer
+        FROM 
+            proxies p
+        LEFT JOIN 
+            gateway_nodes gn ON p.high_speed_gwid = gn.id
+        LEFT JOIN 
+            proxy_domains pd ON gn.domain_id = pd.id
+        WHERE
+            p.high_speed = 1
+    ";
     
-    // Ok(proxy_nodes)
-    Ok(vec![])
+    let proxy_nodes = db.query(query, [], |row| {
+        Ok(QProxyNode {
+            tls: row.get(0)?,
+            sni: row.get(1)?,
+            tls_pem: row.get(2)?,
+            tls_key: row.get(3)?,
+            addr_listen: row.get(4)?,
+            addr_target: row.get(5)?,
+            high_speed: row.get(6)?,
+            high_speed_addr: row.get(7)?,
+            buffer_size: row.get(8)?,
+            timeout_secs: row.get(9)?,
+            adaptive_buffer: row.get(10)?,
+        })
+    })?;
+    
+    Ok(proxy_nodes)
 }

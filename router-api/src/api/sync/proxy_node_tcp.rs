@@ -23,49 +23,44 @@ pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
     );
     info!("Gateway nodes: {:#?}", proxy_nodes);
 
-    // // Create the payload with the nodes
-    // let payload = proxy_nodes.clone();
+    // Create the payload with the nodes
+    let payload = proxy_nodes.clone();
 
-    // // Create a new client instance
-    // let mut client = Client::new();
+    // Create a new client instance
+    let mut client = Client::new();
 
-    // let server_address = config::Api::TCPAddress.get_str();
-    // // Connect to the server
-    // match client.connect("127.0.0.1:30099").await {
-    //     Ok(_) => info!("Connected to registry server at {}", server_address),
-    //     Err(e) => {
-    //         error!("Failed to connect to registry server: {}", e);
-    //         return Err(e);
-    //     }
-    // }
+    let server_address = config::Api::TCPAddress.get_str();
+    // Connect to the server
+    match client.connect("127.0.0.1:30099").await {
+        Ok(_) => info!("Connected to registry server at {}", server_address),
+        Err(e) => {
+            error!("Failed to connect to registry server: {}", e);
+            return Err(e);
+        }
+    }
 
-    // // Create a new client with the service set using builder pattern
-    // let mut client = client.service("registry");
+    // Create a new client with the service set using builder pattern
+    let mut client = client.service("registry");
 
-    // // Send the payload to the "gateway" endpoint
-    // match client
-    //     .action::<_, TCPDefaultResponse>("proxy", &payload)
-    //     .await
-    // {
-    //     Ok(data) => {
-    //         info!(
-    //             "Successfully sent {} gateway nodes to registry",
-    //             proxy_nodes.len()
-    //         );
-    //         client.close().await?;
-    //         Ok(data)
-    //     }
-    //     Err(e) => {
-    //         error!("Failed to send gateway nodes to registry: {}", e);
-    //         client.close().await?;
-    //         Err(e)
-    //     }
-    // }
-
-    Ok(TCPDefaultResponse {
-        status: "success".to_string(),
-        message: format!("Successfully synced {} proxy nodes", proxy_nodes.len()),
-    })
+    // Send the payload to the "gateway" endpoint
+    match client
+        .action::<_, TCPDefaultResponse>("proxy", &payload)
+        .await
+    {
+        Ok(data) => {
+            info!(
+                "Successfully sent {} gateway nodes to registry",
+                proxy_nodes.len()
+            );
+            client.close().await?;
+            Ok(data)
+        }
+        Err(e) => {
+            error!("Failed to send gateway nodes to registry: {}", e);
+            client.close().await?;
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]

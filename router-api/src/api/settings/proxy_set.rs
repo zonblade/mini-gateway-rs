@@ -468,6 +468,7 @@ pub async fn delete_proxy(
 /// * `Ok(true)` - If high-speed mode is allowed for this proxy
 /// * `Ok(false)` - If high-speed mode is not allowed due to duplicates
 /// * `Err(DatabaseError)` - If there was a database error
+#[allow(dead_code)]
 async fn can_use_high_speed(proxy: &Proxy) -> Result<bool, DatabaseError> {
     // If high_speed is not enabled, we don't need to check
     if !proxy.high_speed {

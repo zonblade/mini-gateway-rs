@@ -76,6 +76,7 @@ pub enum DatabaseError {
     ///
     /// This typically occurs when there is a mutex poisoning or other threading issues.
     #[error("Database connection not initialized")]
+    #[allow(dead_code)]
     NotInitialized,
     
     /// Custom error with a specific message.

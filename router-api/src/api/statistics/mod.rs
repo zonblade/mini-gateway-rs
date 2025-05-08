@@ -41,8 +41,6 @@ mod logs_broadcast;
 use actix_web::web;
 use logs_broadcast::LogsBroadcaster;
 
-use super::users::{JwtAuth, RoleAuth};
-
 /// Configure statistics API routes
 /// 
 /// This function will set up the routes for statistics endpoints when implemented.

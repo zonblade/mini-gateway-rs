@@ -78,6 +78,7 @@ impl LogsBroadcaster {
     }
 
     /// Broadcasts `msg` to all clients.
+    #[allow(dead_code)]
     pub async fn broadcast(&self, msg: &str) {
         let clients = self.inner.lock().clients.clone();
 

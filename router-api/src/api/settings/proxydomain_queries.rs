@@ -98,6 +98,7 @@ pub fn generate_proxy_domain_id() -> String {
 /// - The table does not exist and could not be created
 /// - The SQL query could not be executed
 /// - There was an error mapping the database rows to `ProxyDomain` structures
+#[allow(dead_code)]
 pub fn get_all_proxy_domains() -> Result<Vec<ProxyDomain>, DatabaseError> {
     let db = get_connection()?;
 
@@ -146,6 +147,7 @@ pub fn get_all_proxy_domains() -> Result<Vec<ProxyDomain>, DatabaseError> {
 /// - The table does not exist and could not be created
 /// - The SQL query could not be executed
 /// - There was an error mapping the database row to a `ProxyDomain` structure
+#[allow(dead_code)]
 pub fn get_proxy_domain_by_id(id: &str) -> Result<Option<ProxyDomain>, DatabaseError> {
     let db = get_connection()?;
 

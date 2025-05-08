@@ -513,6 +513,7 @@ pub fn has_duplicate_listen_address(listen_addr: &str, exclude_id: Option<&str>)
 /// # Returns
 ///
 /// A string containing a random UUID v4 value
+#[allow(dead_code)]
 pub fn generate_proxy_domain_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }

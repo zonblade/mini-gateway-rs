@@ -9,6 +9,7 @@ pub enum Api {
 
 // Define a struct for configuration entries
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct LogGatewayEntry {
     pub path: String,
     pub status: String,
@@ -22,7 +23,7 @@ pub static GLOBAL_LOG_PROXY: RwLock<Option<Arc<Vec<LogGatewayEntry>>>> = RwLock:
 static INIT: Once = Once::new();
 
 // Helper function to append a value to the global config
-pub fn append_config(key: &str, value: &str) {
+pub fn append_config(_key: &str, _value: &str) {
     // if let Ok(mut config) = GLOBAL_LOG_GATEWAY.write() {
     //     let new_entry = LogGatewayEntry {
     //         key: key.to_string(),

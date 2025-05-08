@@ -13,7 +13,7 @@ pub const MAX_MEMORY_SIZE: usize = 50 * 1024 * 1024; // 50MB max memory (for lar
 const ENTRY_MAX_SIZE: usize = 4096; // Maximum 4KB per entry
 const SHM_METADATA_SIZE: usize = 2048; // Space for metadata at the beginning (2KB)
 const PROXY_LOGGER_NAME: &str = "/gwrs-proxy";
-const GATEWAY_LOGGER_NAME: &str = "/gwrs-gateway";
+const _GATEWAY_LOGGER_NAME: &str = "/gwrs-gateway";
 
 // Control structure at the beginning of shared memory
 #[repr(C, align(64))]
@@ -31,6 +31,7 @@ pub struct QueueControl {
 
 // A simple mutex implementation using an atomic
 impl QueueControl {
+    #[allow(dead_code)]
     pub fn new(capacity: usize) -> Self {
         Self {
             lock: AtomicU32::new(0),
@@ -243,6 +244,7 @@ impl LogConsumer {
         Ok(LogConsumer { shm })
     }
     
+    #[allow(dead_code)]
     pub fn get_next_log(&self) -> io::Result<Option<(u64, u8, String)>> {
         match self.shm.dequeue()? {
             Some(buffer) => {
@@ -309,10 +311,12 @@ impl LogConsumer {
         self.shm.queue_size()
     }
     
+    #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.shm.capacity()
     }
     
+    #[allow(dead_code)]
     pub fn cleanup(&self) -> io::Result<()> {
         self.shm.cleanup()
     }
@@ -391,7 +395,7 @@ pub fn listen_proxy() {
                 
                 std::thread::sleep(std::time::Duration::from_millis(wait_time));
             },
-            Err(e) => {
+            Err(_e) => {
                 // log::warn!("No log at the record: {}", e);
                 consecutive_empty += 1;
                 // println!("Error getting log: {}", e);

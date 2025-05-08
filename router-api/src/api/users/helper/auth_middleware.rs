@@ -24,6 +24,7 @@ impl JwtAuth {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_config(config: AuthConfig) -> Self {
         Self {
             auth_config: Rc::new(config),
@@ -130,6 +131,7 @@ impl RoleAuth {
         }
     }
 
+    #[allow(dead_code)]
     pub fn user() -> Self {
         Self {
             auth_config: Rc::new(AuthConfig::default()),
@@ -137,6 +139,7 @@ impl RoleAuth {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_role(role: &str, config: AuthConfig) -> Self {
         Self {
             auth_config: Rc::new(config),
@@ -246,6 +249,7 @@ pub struct UserSelfCheck {
 }
 
 impl UserSelfCheck {
+    #[allow(dead_code)]
     pub fn strict_self() -> Self {
         Self {
             auth_config: Rc::new(AuthConfig::default()),
@@ -254,6 +258,7 @@ impl UserSelfCheck {
         }
     }
 
+    #[allow(dead_code)]
     pub fn self_and_staff() -> Self {
         Self {
             auth_config: Rc::new(AuthConfig::default()),
@@ -270,6 +275,7 @@ impl UserSelfCheck {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_config(config: AuthConfig, allow_admin: bool, allow_staff: bool) -> Self {
         Self {
             auth_config: Rc::new(config),
@@ -383,7 +389,9 @@ where
 // Helper trait for accessing Claims in request handlers
 pub trait ClaimsFromRequest {
     fn get_claims(&self) -> Option<Claims>;
+    #[allow(dead_code)]
     fn user_id(&self) -> Option<String>;
+    #[allow(dead_code)]
     fn user_role(&self) -> Option<String>;
 }
 
