@@ -312,7 +312,7 @@ pub fn init() {
                 // setup the gateway service
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
                     &my_server.configuration,
-                    GatewayApp::new(&gw.addr_listen),
+                    GatewayApp::new(&gw.addr_bind),
                 );
 
                 eprintln!("Gateway Added: {:#?}", &gw.addr_listen);
