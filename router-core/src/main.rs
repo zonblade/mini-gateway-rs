@@ -52,7 +52,7 @@ async fn main() {
     config::init();
     // std::env::set_var("RUST_LOG", "info");
     // env_logger::init();
-    log::info!("Starting proxy server...");
+    eprintln!("[----] Starting proxy server...");
 
     // Create atomic flag to track server active state
     let active_state = Arc::new(AtomicBool::new(false));
@@ -66,7 +66,7 @@ async fn main() {
     {
         let result = system::udp_sender::init_global_sender();
         if let Err(e) = result {
-            log::error!("Failed to initialize global UDP sender: {}", e);
+            eprintln!("[----] Failed to initialize global UDP sender: {}", e);
             return;
         }
 
@@ -78,7 +78,7 @@ async fn main() {
         let running_clone = Arc::clone(&active_state);
         ctrlc::set_handler(move || {
             log::debug!("SIGINT received, shutting down servers...");
-            eprintln!("SIGINT received, shutting down servers...");
+            eprintln!("[----] SIGINT received, shutting down servers...");
             running_clone.store(false, Ordering::SeqCst);
         })
         .expect("Error setting Ctrl-C handler");
@@ -90,7 +90,7 @@ async fn main() {
         // Check for Ctrl+X termination signal via CLI interface
         if system::terminator::cli::init(Duration::from_millis(0)) {
             let _ = memory_log::log_cleanup();
-            log::debug!("Ctrl+X received, exiting...");
+            eprintln!("[----] Ctrl+X received, exiting...");
             break;
         }
 

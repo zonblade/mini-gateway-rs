@@ -297,14 +297,14 @@ pub fn init() {
 
             let mut already_listened: Vec<String> = vec![];
 
-            eprintln!("Gateway Loaded: {:#?}", &gateway);
+            eprintln!("[----] Gateway Loaded: {:#?}", &gateway);
 
             for gw in gateway {
                 let listen_addr = gw.addr_listen.clone();
 
                 // check if the listen address is already listened
                 if already_listened.contains(&listen_addr) {
-                    eprintln!("Gateway service {} is already listened", &listen_addr);
+                    eprintln!("[----] Gateway service {} is already listened", &listen_addr);
                     continue;
                 }
                 already_listened.push(listen_addr.clone());
@@ -315,7 +315,7 @@ pub fn init() {
                     GatewayApp::new(&gw.addr_bind),
                 );
 
-                eprintln!("Gateway Added: {:#?}", &gw.addr_listen);
+                eprintln!("[----] Gateway Added: {:#?}", &gw.addr_listen);
 
                 let mut dynamic_cert = boringssl_openssl::DynamicCert::new();
                 for tls in gw.tls.clone() {
@@ -323,7 +323,7 @@ pub fn init() {
                     let proxy_tls = tls.tls;
                     if !proxy_tls {
                         eprintln!(
-                            "Gateway service {:?} [{}] is not TLS, skipping.",
+                            "[----] Gateway service {:?} [{}] is not TLS, skipping.",
                             proxy_sni, &gw.addr_listen
                         );
                         continue;
@@ -341,11 +341,11 @@ pub fn init() {
                         &key_path,
                     ) {
                         Ok(_) => {
-                            eprintln!("Gateway service {} added TLS cert", &gw.addr_listen);
+                            eprintln!("[----] Gateway service {} added TLS cert", &gw.addr_listen);
                         }
                         Err(e) => {
                             eprintln!(
-                                "Gateway service {} failed to add TLS cert: {:?}",
+                                "[----] Gateway service {} failed to add TLS cert: {:?}",
                                 &gw.addr_listen, e
                             );
                         }
@@ -392,13 +392,13 @@ pub fn init() {
                 .filter(|px| px.high_speed)
                 .collect::<Vec<_>>();
 
-            eprintln!("Proxy Loaded: {:#?}", &proxy);
+            eprintln!("[----] Proxy Loaded: {:#?}", &proxy);
 
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 
             for px in proxy {
                 let addr_target = px.high_speed_addr.unwrap_or(px.addr_target);
-                eprintln!("Proxy Added: {}", &px.addr_listen);
+                eprintln!("[----] Proxy Added: {}", &px.addr_listen);
 
                 if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
                     let proxy_tls = service::proxy::proxy_service_tls_fast(
@@ -409,12 +409,12 @@ pub fn init() {
                         &px.tls_key.as_ref().unwrap(),
                     );
 
-                    eprintln!("Adding proxy TLS service");
+                    eprintln!("[----] Adding proxy TLS service");
                     proxies.push(Box::new(proxy_tls));
                     continue;
                 }
 
-                eprintln!("Adding proxy fast service: {:?}", px.addr_listen);
+                eprintln!("[----] Adding proxy fast service: {:?}", px.addr_listen);
                 let proxy_set = service::proxy::proxy_service_fast(&px.addr_listen, &addr_target);
                 proxies.push(Box::new(proxy_set));
             }
@@ -455,9 +455,9 @@ pub fn init() {
 
     // Wait for all server threads to complete (typically on shutdown)
     for handle in server_threads {
-        eprintln!("Waiting for server thread to finish...");
+        eprintln!("[----] Waiting for server thread to finish...");
         if let Err(e) = handle.join() {
-            eprintln!("Server thread failed: {:?}", e);
+            eprintln!("[----] Server thread failed: {:?}", e);
         }
     }
 }
