@@ -272,6 +272,7 @@ pub fn init() {
                 eprintln!("[----] Gateway Added: {:#?}", &gw.addr_listen);
 
                 let mut dynamic_cert = boringssl_openssl::DynamicCert::new();
+                let mut is_tls = false;
                 for tls in gw.tls.clone() {
                     let proxy_sni = tls.sni;
                     let proxy_tls = tls.tls;
@@ -283,6 +284,7 @@ pub fn init() {
                         continue;
                     }
 
+                    is_tls = true;
                     let proxy_tls_pem = tls.tls_pem;
                     let proxy_tls_key = tls.tls_key;
 
@@ -306,7 +308,7 @@ pub fn init() {
                     };
                 }
 
-                if gw.tls.is_empty() {
+                if !is_tls {
                     // No TLS settings, add TCP service
                     my_gateway_service.add_tcp(&gw.addr_listen);
                 } else {

@@ -51,6 +51,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
+use std::ops::Deref;
 use std::sync::{Arc, LazyLock, RwLock};
 use std::time::{Duration, Instant};
 // lazy_static is not used anymore
@@ -511,7 +512,7 @@ impl ProxyHttp for GatewayApp {
         session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        eprintln!("Upstream peer called");
+        eprintln!("[XX] upstream filter called");
         // Use pingora::Result
 
         // 1. Check and potentially reload configuration first.
@@ -639,6 +640,41 @@ impl ProxyHttp for GatewayApp {
         // Clone the precomputed Box<HttpPeer>
         Ok(DEFAULT_FALLBACK_PEER.clone())
     }
+
+
+    async fn proxy_upstream_filter(
+        &self,
+        _session: &mut Session,
+        _ctx: &mut Self::CTX,
+    ) -> Result<bool>
+    where
+        Self::CTX: Send + Sync,
+    {
+        
+        // Extract and log the Host header
+        let host = _session.get_header(http::header::HOST)
+            .map(|h| String::from_utf8_lossy(h.as_bytes()).into_owned())
+            .unwrap_or_else(|| "unknown-host".to_string());
+        
+        // Log the host and URI information
+        let uri = _session.req_header().uri.to_string();
+        eprintln!("[XX] Request to Host: {}, URI: {}", host, uri);
+        
+        // For completeness, also check if there's authority information in the URI itself
+        if let Some(authority) = _session.req_header().uri.authority() {
+            let authority_str = authority.as_str();
+            if authority_str != host {
+                eprintln!("[XX] URI authority different from Host header: {}", authority_str);
+            }
+        }
+        
+        // Raw HTTP header dump for debugging
+        let raw_headers = _session.downstream_session.to_h1_raw();
+        let headers_str = String::from_utf8_lossy(&raw_headers);
+        eprintln!("[XX] Raw HTTP headers: {}", headers_str);
+        
+        Ok(true)
+    }
     
     async fn request_body_filter(
         &self,
@@ -650,6 +686,7 @@ impl ProxyHttp for GatewayApp {
     where
         Self::CTX: Send + Sync,
     {
+        eprintln!("[XX] Request body filter called");
         Ok(())
     }
 
