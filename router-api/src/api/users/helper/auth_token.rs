@@ -35,7 +35,7 @@
 use crate::api::users::models::{Role, User};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm, errors::Error as JwtError};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use rand::{distributions::Alphanumeric, Rng};
 use std::sync::LazyLock;
 
@@ -131,6 +131,7 @@ impl AuthConfig {
     ///     120, // 2 hours
     /// );
     /// ```
+    #[allow(dead_code)]
     pub fn new(secret_key: String, token_validity_minutes: u64) -> Self {
         Self {
             secret_key,

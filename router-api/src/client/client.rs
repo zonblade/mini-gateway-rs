@@ -181,6 +181,7 @@ impl Client {
     /// // Create a client with a 4KB buffer for larger payloads
     /// let client = Client::with_buffer_size(4096);
     /// ```
+    #[allow(dead_code)]
     pub fn with_buffer_size(buffer_size: usize) -> Self {
         Self {
             socket: None,
@@ -303,6 +304,7 @@ impl Client {
     /// 
     /// let client = Client::new().service("auth").params(params);
     /// ```
+    #[allow(dead_code)]
     pub fn params(mut self, params: HashMap<String, String>) -> Self {
         self.params.extend(params);
         self
@@ -470,6 +472,7 @@ impl Client {
     ///     .action_with_retry("login", &login_payload)
     ///     .await?;
     /// ```
+    #[allow(dead_code)]
     pub async fn action_with_retry<P: Payload + std::marker::Sync, R: DeserializeOwned>(
         &mut self, 
         action_name: impl Into<String> + Clone, 
@@ -547,6 +550,7 @@ impl Client {
     /// 
     /// // Process the raw bytes as needed
     /// ```
+    #[allow(dead_code)]
     pub async fn action_raw<P: Payload + std::marker::Sync>(
         &mut self, 
         action_name: impl Into<String>, 
@@ -628,6 +632,7 @@ impl Client {
     ///     .action_raw_with_retry("get_binary", &request)
     ///     .await?;
     /// ```
+    #[allow(dead_code)]
     pub async fn action_raw_with_retry<P: Payload + std::marker::Sync>(
         &mut self, 
         action_name: impl Into<String> + Clone, 
@@ -694,6 +699,7 @@ impl Client {
     ///     Err(_) => println!("Connection lost"),
     /// }
     /// ```
+    #[allow(dead_code)]
     pub async fn ping(&mut self) -> Result<String> {
         let socket = self.socket.as_mut()
             .ok_or_else(|| ClientError::ConnectionError("Not connected".into()))?;
@@ -791,6 +797,7 @@ impl Client {
     /// let mut client = Client::new().with_max_retries(5);
     /// client.connect_with_retry("127.0.0.1:8080").await?;
     /// ```
+    #[allow(dead_code)]
     pub async fn connect_with_retry<A: ToSocketAddrs + Debug + tokio::net::ToSocketAddrs + Clone>(
         &mut self, 
         addr: A
@@ -844,6 +851,7 @@ impl Client {
     /// ```rust
     /// let client = Client::new().with_max_retries(5);
     /// ```
+    #[allow(dead_code)]
     pub fn with_max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
         self
@@ -867,6 +875,7 @@ impl Client {
     /// ```rust
     /// let client = Client::new().with_retry_delay(200);
     /// ```
+    #[allow(dead_code)]
     pub fn with_retry_delay(mut self, delay_ms: u64) -> Self {
         self.retry_delay_ms = delay_ms;
         self
@@ -890,6 +899,7 @@ impl Client {
     /// ```rust
     /// let client = Client::new().with_retry_enabled(false); // Disable retries
     /// ```
+    #[allow(dead_code)]
     pub fn with_retry_enabled(mut self, enabled: bool) -> Self {
         self.retry_enabled = enabled;
         self

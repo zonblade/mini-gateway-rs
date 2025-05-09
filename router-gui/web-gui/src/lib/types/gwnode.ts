@@ -7,6 +7,8 @@ export interface GwNode {
     alt_target: string;
     source?: string; // Kept for backward compatibility with API
     proxyTitle?: string; // Additional field for UI display purposes
+    domain_id?: string; // ID of the selected domain
+    domain_name?: string; // Name of the selected domain for UI display
 }
 
 // Request types for API calls
@@ -16,6 +18,7 @@ export interface CreateGwNodeRequest {
     title: string;
     alt_target: string;
     source?: string; // Deprecated but still needed for API compatibility
+    domain_id?: string; // Add domain ID support to the API request
 }
 
 export interface UpdateGwNodeRequest {
@@ -24,6 +27,7 @@ export interface UpdateGwNodeRequest {
     title: string;
     alt_target: string;
     source?: string; // Deprecated but still needed for API compatibility
+    domain_id?: string; // Add domain ID support to the API request
 }
 
 export interface DeleteGwNodeRequest {

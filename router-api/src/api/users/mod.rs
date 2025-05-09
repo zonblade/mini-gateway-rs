@@ -41,7 +41,7 @@ mod models;
 
 use actix_web::web;
 // Re-export auth helpers for use in other modules
-pub use helper::{Claims, ClaimsFromRequest, JwtAuth, RoleAuth, UserSelfCheck};
+pub use helper::{JwtAuth, RoleAuth, UserSelfCheck};
 
 /// Configures user management routes and middleware
 ///

@@ -1,9 +1,17 @@
 <script lang="ts">
-    import type { Proxy } from "$lib/types/proxy";
+    import type { Proxy, TlsDomain } from "$lib/types/proxy";
 
     export let proxy: Proxy;
+    export let domains: TlsDomain[] = [];
     export let onEdit: () => void;
     export let onDelete: () => void;
+
+    // Get the main domain or the first domain in the list
+    $: mainDomain = domains.length > 0 ? domains[0].sni : null;
+
+    // Calculate TLS stats
+    $: tlsEnabledCount = domains.filter((d) => d.tls).length;
+    $: tlsDisabledCount = domains.length - tlsEnabledCount;
 </script>
 
 <div
@@ -22,9 +30,23 @@
                     class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 p-1"
                     aria-label="Edit proxy"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path
+                            d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                        ></path>
+                        <path
+                            d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                        ></path>
                     </svg>
                 </button>
                 <button
@@ -53,173 +75,107 @@
                 </button>
             </div>
         </div>
-
-        <div class="mt-3 overflow-x-auto">
-            <table class="min-w-full text-sm">
-                <thead class="sr-only">
+        <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <table class="w-full">
+                <tbody>
                     <tr>
-                        <th
-                            class="text-left font-medium text-gray-600 dark:text-gray-300 pr-2"
-                            >Attribute</th
-                        >
-                        <th class="text-left">Value</th>
+                        <td class="py-1 font-medium w-1/3">Listen</td>
+                        <td class="py-1 truncate">:&ensp;{proxy.addr_listen}</td>
                     </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                     <tr>
-                        <td
-                            class="py-1 pr-2 font-medium text-gray-600 dark:text-gray-300"
-                            >Listen</td
+                        <td class="py-1 font-medium w-1/3"
+                            >Domain{domains.length > 1 ? "s" : ""}</td
                         >
-                        <td class="py-1">:
-                            <code
-                                class="text-xs bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded font-mono"
-                            >
-                                {proxy.addr_listen}
-                            </code>
-                        </td>
-                    </tr>
-
-                    {#if proxy.tls}
-                        <tr>
-                            <td
-                                class="py-1 pr-2 font-medium text-gray-600 dark:text-gray-300"
-                                >TLS</td
-                            >
-                            <td class="py-1 flex">:&nbsp;
-                                <div class="flex items-center">
-                                    <span
-                                        class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-                                    >
-                                        <svg
-                                            class="h-3 w-3 mr-1"
-                                            fill="currentColor"
-                                            viewBox="0 0 20 20"
-                                        >
-                                            <path
-                                                fill-rule="evenodd"
-                                                d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                                                clip-rule="evenodd"
-                                            />
-                                        </svg>
-                                        {#if proxy.tls_autron}
-                                            Auto Renew
-                                        {:else}
-                                            Secured
-                                        {/if}
-                                    </span>
-                                </div>
-                            </td>
-                        </tr>
-                    {:else}
-                        <tr>
-                            <td
-                                class="py-1 pr-2 font-medium text-gray-600 dark:text-gray-300"
-                                >TLS</td
-                            >
-                            <td class="py-1">:
-                                <span class="text-gray-500 dark:text-gray-400"
-                                    >Disabled</span
+                        <td class="py-1">
+                            {#if domains.length > 0}
+                                <span class="truncate text-gray-500"
+                                    >:&ensp;{domains.length} Domain enabled</span
                                 >
-                            </td>
-                        </tr>
-                    {/if}
-
-                    <tr>
-                        <td
-                            class="py-1 pr-2 font-medium text-gray-600 dark:text-gray-300"
-                            >Domain</td
-                        >
-                        <td class="py-1">:
-                            {#if proxy.sni}
-                                <code
-                                    class="text-xs bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded font-mono"
-                                >
-                                    {proxy.sni}
-                                </code>
                             {:else}
-                                <span class="text-gray-500 dark:text-gray-400"
-                                    >-</span
-                                >
+                                <span class="text-gray-500">:&ensp;No domains</span>
                             {/if}
                         </td>
                     </tr>
-
                     <tr>
-                        <td
-                            class="py-1 pr-2 font-medium text-gray-600 dark:text-gray-300"
-                            >Mode</td
-                        >
-                        <td class="py-1 flex">:&nbsp;
+                        <td class="py-1 font-medium w-1/3">High-Speed</td>
+                        <td class="py-1">
+                            :&ensp;
                             {#if proxy.high_speed}
-                                <div class="flex items-center">
-                                    <span
-                                        class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-3 w-3 mr-1"
-                                            viewBox="0 0 20 20"
-                                            fill="currentColor"
-                                        >
-                                            <path
-                                                fill-rule="evenodd"
-                                                d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
-                                                clip-rule="evenodd"
-                                            />
-                                        </svg>
-                                        High-Speed Mode
-                                    </span>
-                                </div>
+                                <span class="text-emerald-500 dark:text-emerald-400 font-medium">Enabled</span>
                             {:else}
-                                <div class="flex items-center">
-                                    <span
-                                        class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-3 w-3 mr-1"
-                                            viewBox="0 0 20 20"
-                                            fill="currentColor"
-                                        >
-                                            <path
-                                                fill-rule="evenodd"
-                                                d="M3 4a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 1v10h8V5H5zm4 4a1 1 0 100 2 1 1 0 000-2z"
-                                                clip-rule="evenodd"
-                                            />
-                                            <path
-                                                d="M10.707 8.707a1 1 0 00-1.414 0L8 10.086V12h1.914l1.293-1.293a1 1 0 000-1.414l-.5-.5z"
-                                            />
-                                        </svg>
-                                        Gateway Node Mode
-                                    </span>
-                                </div>
+                                <span class="text-gray-400 dark:text-gray-500">Disabled</span>
                             {/if}
                         </td>
                     </tr>
+                </tbody>
+            </table>
+            <div class="border-b border-gray-200/20 mt-2 mb-2"></div>
+            <div>
+                {#if proxy.high_speed}
+                    <!-- Warning with more vibrant pastel style -->
+                    <div
+                        class="bg-pink-100 dark:bg-pink-900/40 text-pink-800 dark:text-pink-200 text-xs mb-2 p-2 rounded-md flex items-center border border-pink-200 dark:border-pink-800"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-6 min-w-[32px] mr-1"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                            />
+                        </svg>
+                        <span
+                            >If High speed enabled, only selected Gateway domain will be enabled.</span
+                        >
+                    </div>
+                {/if}
+                {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}
+                    <!-- Warning with more vibrant pastel style -->
+                    <div
+                        class="bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-200 text-xs mb-2 p-2 rounded-md flex items-center border border-orange-200 dark:border-orange-800"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-6 min-w-[32px] mr-1"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                            />
+                        </svg>
+                        <span
+                            >If one of the domain is enabling TLS, the non-TLS
+                            domain will be ignored.</span
+                        >
+                    </div>
+                {/if}
+            </div>
+            <div class="font-medium mb-1">TLS Status</div>
+            <table class="w-full border-collapse text-xs">
+                <tbody>
                     <tr>
-                        <td
-                            class="py-1 pr-2 font-medium text-gray-600 dark:text-gray-300"
-                        >Binding</td>
-                        <td class="py-1">:
-                            {#if proxy.high_speed}
-                                {#if proxy.high_speed_addr}
-                                    <code
-                                        class="text-xs bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded font-mono"
-                                    >
-                                        {proxy.high_speed_addr}
-                                    </code>
-                                {:else}
-                                    <span
-                                        class="text-gray-500 dark:text-gray-400"
-                                        >High Speed Enabled</span
-                                    >
-                                {/if}
-                            {:else}
-                                <span class="text-gray-500 dark:text-gray-400"
-                                >Multiple Listener</span>
-                            {/if}
-                        </td>
+                        <td class="py-1">TLS</td>
+                        <td class="py-1">:&ensp;{tlsEnabledCount} Domain</td>
+                    </tr>
+                    <tr>
+                        <td class="py-1">TCP</td>
+                        <td class="py-1"
+                            >:&ensp;{tlsDisabledCount} Domain {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}<span
+                                    class="text-red-600 dark:text-red-400 font-semibold"
+                                    >(ignored)</span
+                                >{/if}</td
+                        >
                     </tr>
                 </tbody>
             </table>

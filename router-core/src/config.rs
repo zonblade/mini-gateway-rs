@@ -74,6 +74,12 @@ pub enum RoutingData {
     
     /// Key for gateway routing configuration data
     GatewayRouting,
+
+    /// Key for the current gateway node identifier
+    GatewayNodeID,
+
+    /// Key for the current proxy node identifier
+    GatewayNodeListen
 }
 
 /// Proxy node configuration.
@@ -140,26 +146,36 @@ pub struct ProxyNode {
 /// # Fields
 ///
 /// * `priority` - Processing priority (higher values = higher priority)
-/// * `addr_listen` - Address and port the gateway listens on (e.g., "0.0.0.0:80")
+/// * `addr_bind` - Address and port bind gateway to proxy
 /// * `addr_target` - Target address to proxy requests to (e.g., "127.0.0.1:8080")
 /// * `path_listen` - URI path pattern to match incoming requests against (e.g., "/api/*")
 /// * `path_target` - Target path to rewrite matched paths to (e.g., "/")
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct GatewayNode {
-    /// Processing priority (higher values = higher priority)
+pub struct GatewayPath {
     pub priority: u8,
-    
-    /// Network address this gateway listens on (e.g., "0.0.0.0:80")
-    pub addr_listen: String,
-    
-    /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
+    pub sni: Option<String>,
+    pub tls: bool,
+    pub addr_bind: String,
     pub addr_target: String,
-    
-    /// URI path pattern to match incoming requests against (e.g., "/api/*")
     pub path_listen: String,
-    
-    /// Target path to rewrite matched paths to (e.g., "/")
     pub path_target: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GatewayNode {
+    pub priority: u8,
+    pub addr_target: String,
+    pub addr_listen: String,
+    pub addr_bind: String,
+    pub tls: Vec<GatewayNodeSNI>
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GatewayNodeSNI {
+    pub tls : bool,
+    pub sni : Option<String>,
+    pub tls_pem : Option<String>,
+    pub tls_key : Option<String>,
 }
 
 /// Initialize the configuration system with default values.
@@ -174,7 +190,9 @@ pub fn init(){
     // initiate the routing id
     RoutingData::ProxyID.set("-");
     RoutingData::GatewayID.set("-");
+    RoutingData::GatewayNodeID.set("-");
     // initiate the routing data
     RoutingData::GatewayRouting.xset::<Vec<GatewayNode>>(vec![]);
     RoutingData::ProxyRouting.xset::<Vec<ProxyNode>>(vec![]);
+    RoutingData::GatewayNodeListen.xset::<Vec<GatewayPath>>(vec![]);
 }

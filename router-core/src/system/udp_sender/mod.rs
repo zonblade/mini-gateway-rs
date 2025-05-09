@@ -243,8 +243,6 @@ pub fn log_to_normal(message: &str){
 
 pub fn switch_log(marker:&str, message: &str) {
     match marker {
-        "[PXY]" => log_to_proxy(message),
-        "[GWX]" => log_to_gateway(message),
         _ => log_to_normal(message),
     }
 }

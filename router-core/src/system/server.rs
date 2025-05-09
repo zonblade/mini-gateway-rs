@@ -29,33 +29,168 @@ use pingora::{
 use std::ops::DerefMut;
 use std::thread;
 
+/// Module for handling dynamic TLS certificate selection based on SNI (Server Name Indication).
+///
+/// This module provides functionality to dynamically select TLS certificates based on
+/// the hostname requested by clients through SNI. It supports both exact matches and
+/// wildcard certificates.
 mod boringssl_openssl {
     use async_trait::async_trait;
     use pingora::tls::pkey::{PKey, Private};
+    use pingora::tls::ssl::{NameType, SslRef};
     use pingora::tls::x509::X509;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     pub(super) struct DynamicCert {
-        cert: X509,
-        key: PKey<Private>,
+        certs: Vec<(Option<String>, X509, PKey<Private>)>,
+        // Thread-safe cache for hostname lookups
+        cache: Mutex<HashMap<String, (Arc<X509>, Arc<PKey<Private>>)>>,
+        // Maximum number of entries to prevent unbounded growth
+        max_cache_size: usize,
     }
 
     impl DynamicCert {
-        pub(super) fn new(cert: &str, key: &str) -> Box<Self> {
-            let cert_bytes = std::fs::read(cert).unwrap();
-            let cert = X509::from_pem(&cert_bytes).unwrap();
+        pub(super) fn new() -> Box<Self> {
+            Box::new(DynamicCert {
+                certs: Vec::new(),
+                cache: Mutex::new(HashMap::new()),
+                max_cache_size: 1000, // Default size, can be adjusted based on expected traffic patterns
+            })
+        }
 
-            let key_bytes = std::fs::read(key).unwrap();
-            let key = PKey::private_key_from_pem(&key_bytes).unwrap();
-            Box::new(DynamicCert { cert, key })
+        // Optional: Allow configuring the cache size
+        #[allow(dead_code)]
+        pub(super) fn with_cache_size(mut self, max_size: usize) -> Self {
+            self.max_cache_size = max_size;
+            self
+        }
+
+        pub(super) fn add_cert(
+            &mut self,
+            domain: String,
+            cert: &str,
+            key: &str,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            let cert_bytes = std::fs::read(cert)?;
+            let cert = X509::from_pem(&cert_bytes)?;
+
+            let key_bytes = std::fs::read(key)?;
+            let key = PKey::private_key_from_pem(&key_bytes)?;
+
+            self.certs.push((Some(domain), cert, key));
+            Ok(())
+        }
+
+        fn domain_matches(pattern: &str, domain: &str) -> bool {
+            // Existing implementation
+            if pattern.starts_with("*.") {
+                let suffix = &pattern[1..];
+                domain.ends_with(suffix)
+                    && domain[..domain.len() - suffix.len()].matches('.').count() == 0
+            } else {
+                pattern == domain
+            }
+        }
+
+        // Find certificate for a hostname and cache the result
+        fn find_cert_for_hostname(
+            &self,
+            hostname: &str,
+        ) -> Option<(Arc<X509>, Arc<PKey<Private>>)> {
+            // First check the cache
+            {
+                let cache = self.cache.lock().unwrap();
+                if let Some(cached) = cache.get(hostname) {
+                    return Some(cached.clone());
+                }
+            }
+
+            // Not in cache, search for it
+            let result = self.find_matching_cert(hostname);
+
+            // If found, add to cache
+            if let Some((cert, key)) = &result {
+                let mut cache = self.cache.lock().unwrap();
+
+                // Simple cache size management
+                if cache.len() >= self.max_cache_size {
+                    // Remove some entries if we're at capacity
+                    // A more sophisticated approach would use LRU policy
+                    if cache.len() > 10 {
+                        // Remove approximately 10% of entries
+                        let to_remove = (cache.len() / 10).max(1);
+                        for _ in 0..to_remove {
+                            if let Some(key) = cache.keys().next().cloned() {
+                                cache.remove(&key);
+                            }
+                        }
+                    } else {
+                        cache.clear(); // Small cache, just clear it
+                    }
+                }
+
+                cache.insert(hostname.to_string(), (cert.clone(), key.clone()));
+            }
+
+            result
+        }
+
+        // Search for matching certificate (exact or wildcard)
+        fn find_matching_cert(&self, hostname: &str) -> Option<(Arc<X509>, Arc<PKey<Private>>)> {
+            // First try exact matches
+            for (domain, cert, key) in &self.certs {
+                if let Some(domain_str) = domain {
+                    if domain_str == hostname {
+                        return Some((Arc::new(cert.clone()), Arc::new(key.clone())));
+                    }
+                }
+            }
+
+            // Then try wildcard matches
+            for (domain, cert, key) in &self.certs {
+                if let Some(domain_str) = domain {
+                    if Self::domain_matches(domain_str, hostname) {
+                        return Some((Arc::new(cert.clone()), Arc::new(key.clone())));
+                    }
+                }
+            }
+
+            // No match found, return the default if available
+            if !self.certs.is_empty() {
+                let (_, default_cert, default_key) = &self.certs[0];
+                return Some((
+                    Arc::new(default_cert.clone()),
+                    Arc::new(default_key.clone()),
+                ));
+            }
+
+            None
         }
     }
 
     #[async_trait]
     impl pingora::listeners::TlsAccept for DynamicCert {
-        async fn certificate_callback(&self, ssl: &mut pingora::tls::ssl::SslRef) {
+        async fn certificate_callback(&self, ssl: &mut SslRef) {
             use pingora::tls::ext;
-            ext::ssl_use_certificate(ssl, &self.cert).unwrap();
-            ext::ssl_use_private_key(ssl, &self.key).unwrap();
+
+            if self.certs.is_empty() {
+                panic!("No certificates configured for TLS!");
+            }
+
+            if let Some(server_name) = ssl.servername(NameType::HOST_NAME) {
+                // Use the cache to efficiently look up certificates
+                if let Some((cert, key)) = self.find_cert_for_hostname(server_name) {
+                    ext::ssl_use_certificate(ssl, &cert).unwrap();
+                    ext::ssl_use_private_key(ssl, &key).unwrap();
+                    return;
+                }
+            }
+
+            // No SNI or no matching certificate found, use default (index 0)
+            let (_, default_cert, default_key) = &self.certs[0];
+            ext::ssl_use_certificate(ssl, default_cert).unwrap();
+            ext::ssl_use_private_key(ssl, default_key).unwrap();
         }
     }
 }
@@ -102,14 +237,9 @@ pub fn init() {
             // if there is any high speed setup, remove all of the associated
             // because it will be handled by the high speed proxy
 
-            let gateway = config::RoutingData::GatewayRouting
+            let gateway = config::RoutingData::GatewayNodeListen
                 .xget::<Vec<GatewayNode>>()
                 .unwrap_or(vec![]);
-            let proxy = config::RoutingData::ProxyRouting
-                .xget::<Vec<ProxyNode>>()
-                .unwrap_or(vec![]);
-
-            let proxy_with_high_speed = proxy.iter().filter(|px| px.high_speed).collect::<Vec<_>>();
 
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
@@ -118,69 +248,72 @@ pub fn init() {
 
             let mut already_listened: Vec<String> = vec![];
 
-            log::info!("Gateway Added: {:#?}", &gateway);
+            eprintln!("[----] Gateway Loaded: {:#?}", &gateway);
 
             for gw in gateway {
                 let listen_addr = gw.addr_listen.clone();
 
                 // check if the listen address is already listened
                 if already_listened.contains(&listen_addr) {
-                    log::warn!("Gateway service {} is already listened", &listen_addr);
+                    eprintln!(
+                        "[----] Gateway service {} is already listened",
+                        &listen_addr
+                    );
                     continue;
                 }
                 already_listened.push(listen_addr.clone());
 
-                // find the proxy setup for the listen address
-                let proxy_setup = proxy
-                    .iter()
-                    .filter(|px| px.addr_target == listen_addr)
-                    .collect::<Vec<_>>();
-                if proxy_setup.len() == 0 {
-                    continue;
-                }
-                let proxy_setup = proxy_setup[0].clone();
-
-                // check if the proxy listen is in the high speed proxy list
-                let is_high_speed = proxy_with_high_speed
-                    .iter()
-                    .any(|px| px.addr_listen == proxy_setup.addr_listen);
-                if is_high_speed {
-                    log::warn!(
-                        "Gateway service {} is already handled by high speed proxy",
-                        &proxy_setup.addr_listen
-                    );
-                    continue;
-                }
-
-                log::info!("Setting up gateway service for {}", &gw.addr_target);
-
                 // setup the gateway service
                 let mut my_gateway_service = pingora::proxy::http_proxy_service(
                     &my_server.configuration,
-                    GatewayApp::new(&gw.addr_listen),
+                    GatewayApp::new(&gw.addr_bind),
                 );
 
-                log::warn!("Gateway Added: {:#?}", &proxy_setup.addr_listen);
+                eprintln!("[----] Gateway Added: {:#?}", &gw.addr_listen);
 
-                // setup if there any SSL
-                let proxy_sni = proxy_setup.sni;
-                let proxy_tls = proxy_setup.tls;
-                let proxy_tls_pem = proxy_setup.tls_pem;
-                let proxy_tls_key = proxy_setup.tls_key;
+                let mut dynamic_cert = boringssl_openssl::DynamicCert::new();
+                let mut is_tls = false;
+                for tls in gw.tls.clone() {
+                    let proxy_sni = tls.sni;
+                    let proxy_tls = tls.tls;
+                    if !proxy_tls {
+                        eprintln!(
+                            "[----] Gateway service {:?} [{}] is not TLS, skipping.",
+                            proxy_sni, &gw.addr_listen
+                        );
+                        continue;
+                    }
 
-                // setup tls if needed
-                if proxy_tls
-                    && proxy_sni.is_some()
-                    && proxy_tls_pem.is_some()
-                    && proxy_tls_key.is_some()
-                {
+                    is_tls = true;
+                    let proxy_tls_pem = tls.tls_pem;
+                    let proxy_tls_key = tls.tls_key;
+
                     let cert_path = proxy_tls_pem.as_ref().unwrap();
                     let key_path = proxy_tls_key.as_ref().unwrap();
 
-                    let dynamic_cert = boringssl_openssl::DynamicCert::new(&cert_path, &key_path);
-                    let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
-                    // // by default intermediate supports both TLS 1.2 and 1.3. We force to tls 1.2 just for the demo
+                    match dynamic_cert.add_cert(
+                        proxy_sni.unwrap_or("localhost".to_string()),
+                        &cert_path,
+                        &key_path,
+                    ) {
+                        Ok(_) => {
+                            eprintln!("[----] Gateway service {} added TLS cert", &gw.addr_listen);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[----] Gateway service {} failed to add TLS cert: {:?}",
+                                &gw.addr_listen, e
+                            );
+                        }
+                    };
+                }
 
+                if !is_tls {
+                    // No TLS settings, add TCP service
+                    my_gateway_service.add_tcp(&gw.addr_listen);
+                } else {
+                    // TLS settings are present, add TLS service
+                    let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
                     tls_settings
                         .deref_mut()
                         .deref_mut()
@@ -189,15 +322,8 @@ pub fn init() {
 
                     tls_settings.enable_h2();
 
-                    my_gateway_service.add_tls_with_settings(
-                        &proxy_setup.addr_listen,
-                        None,
-                        tls_settings,
-                    );
-                } else {
-                    my_gateway_service.add_tcp(&proxy_setup.addr_listen);
+                    my_gateway_service.add_tls_with_settings(&gw.addr_listen, None, tls_settings);
                 }
-
                 // setup the proxy service
                 my_gateway.push(Box::new(my_gateway_service));
             }
@@ -221,11 +347,13 @@ pub fn init() {
                 .filter(|px| px.high_speed)
                 .collect::<Vec<_>>();
 
+            eprintln!("[----] Proxy Loaded: {:#?}", &proxy);
+
             let mut proxies: Vec<Box<dyn Service>> = vec![];
 
             for px in proxy {
                 let addr_target = px.high_speed_addr.unwrap_or(px.addr_target);
-                log::warn!("Proxy Added: {}", &px.addr_listen);
+                eprintln!("[----] Proxy Added: {}", &px.addr_listen);
 
                 if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
                     let proxy_tls = service::proxy::proxy_service_tls_fast(
@@ -236,16 +364,13 @@ pub fn init() {
                         &px.tls_key.as_ref().unwrap(),
                     );
 
-                    log::info!("Adding proxy TLS service");
+                    eprintln!("[----] Adding proxy TLS service");
                     proxies.push(Box::new(proxy_tls));
                     continue;
                 }
 
-                log::info!("Adding proxy fast service: {:?}", px.addr_listen);
-                let proxy_set = service::proxy::proxy_service_fast(
-                    &px.addr_listen,
-                    &addr_target,
-                );
+                eprintln!("[----] Adding proxy fast service: {:?}", px.addr_listen);
+                let proxy_set = service::proxy::proxy_service_fast(&px.addr_listen, &addr_target);
                 proxies.push(Box::new(proxy_set));
             }
 
@@ -285,9 +410,25 @@ pub fn init() {
 
     // Wait for all server threads to complete (typically on shutdown)
     for handle in server_threads {
-        log::debug!("Waiting for server thread to finish...");
+        eprintln!("[----] Waiting for server thread to finish...");
+        eprintln!(
+            r#"
+[----] ------------------ start docs ---------------------------[----]
+[----]                                                          [----]
+[----] This is the server thread that handles all the requests. [----]
+[----] It will run until the application is terminated.         [----]
+[----]                                                          [----]
+[----] To restart or reload the server                          [----]
+[----]   CTRL+C                                                 [----]
+[----]                                                          [----]
+[----] To stop the server                                       [----]
+[----]   CTRL+X                                                 [----]
+[----]                                                          [----]
+[----] -------------------- end docs ---------------------------[----]
+"#
+        );
         if let Err(e) = handle.join() {
-            log::debug!("Server thread failed: {:?}", e);
+            eprintln!("[----] Server thread failed: {:?}", e);
         }
     }
 }

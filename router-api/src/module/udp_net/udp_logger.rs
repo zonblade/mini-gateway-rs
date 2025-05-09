@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex, Once};
+use crate::module::{database_log::LogMessage, udp_net::udp_log_fetcher::MultiPortUdpLogFetcher};
 use crossbeam_channel::Receiver;
-use crate::module::udp_log_fetcher::{MultiPortUdpLogFetcher, LogMessage};
+use std::sync::{Arc, Mutex, Once};
 
 /// Singleton instance of the multi-port UDP log fetcher
 static mut MULTI_PORT_FETCHER: Option<Arc<Mutex<MultiPortUdpLogFetcher>>> = None;
@@ -28,18 +28,16 @@ impl Default for LogPorts {
 pub fn initialize_udp_logger(ip: &str, ports: LogPorts) -> Result<(), String> {
     INIT.call_once(|| {
         let mut fetcher = MultiPortUdpLogFetcher::new();
-        
+
         // Add the three main ports with ample queue size
-        let _ = fetcher.add_port(ports.proxy_port, 1_000_000);
-        let _ = fetcher.add_port(ports.gateway_port, 1_000_000);
         let _ = fetcher.add_port(ports.normal_port, 1_000_000);
-        
+
         // Store the fetcher in the global static
         unsafe {
             MULTI_PORT_FETCHER = Some(Arc::new(Mutex::new(fetcher)));
         }
     });
-    
+
     // Start the fetcher if it hasn't been started yet
     unsafe {
         if let Some(fetcher_arc) = &MULTI_PORT_FETCHER {
@@ -47,34 +45,8 @@ pub fn initialize_udp_logger(ip: &str, ports: LogPorts) -> Result<(), String> {
             return fetcher.start_all(ip);
         }
     }
-    
+
     Err("Failed to initialize UDP logger".to_string())
-}
-
-/// Get a consumer for the proxy log channel
-#[allow(static_mut_refs)]
-pub fn get_proxy_log_consumer() -> Option<Receiver<LogMessage>> {
-    unsafe {
-        if let Some(fetcher_arc) = &MULTI_PORT_FETCHER {
-            let fetcher = fetcher_arc.lock().unwrap();
-            let ports = LogPorts::default();
-            return fetcher.get_consumer_for_port(ports.proxy_port);
-        }
-    }
-    None
-}
-
-/// Get a consumer for the gateway log channel
-#[allow(static_mut_refs)]
-pub fn get_gateway_log_consumer() -> Option<Receiver<LogMessage>> {
-    unsafe {
-        if let Some(fetcher_arc) = &MULTI_PORT_FETCHER {
-            let fetcher = fetcher_arc.lock().unwrap();
-            let ports = LogPorts::default();
-            return fetcher.get_consumer_for_port(ports.gateway_port);
-        }
-    }
-    None
 }
 
 /// Get a consumer for the normal log channel

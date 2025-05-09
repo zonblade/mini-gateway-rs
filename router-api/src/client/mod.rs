@@ -89,12 +89,12 @@ mod examples;
 
 // Re-export important types for easier usage
 pub use error::{ClientError, Result};
-pub use payload::Payload;
+// pub use payload::Payload;
 pub use client::Client;
 
 // Re-export examples module for documenting usage
-pub use examples::{
-    LoginPayload,
-    LoginResponse,
-    example_usage,
-};
+// pub use examples::{
+//     LoginPayload,
+//     LoginResponse,
+//     example_usage,
+// };

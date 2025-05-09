@@ -1,10 +1,36 @@
 use crate::module::database::{get_connection_log, DatabaseError, DatabaseResult};
-use crate::module::udp_log_fetcher::{LogMessage, LogMessageFormatted};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use log;
+use serde::{Deserialize, Serialize};
+
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct LogMessage {
+    pub source_ip: String,
+    pub source_port: u16,
+    pub message: String,
+    pub timestamp: std::time::SystemTime,
+    // pub message_formatted: LogMessageFormatted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogMessageFormatted {
+    pub id: String,
+    pub connection_type: String,
+    pub packet_size: usize,
+    pub status: String,
+    pub comment: String,
+}
+
+impl LogMessage {
+    pub fn formatted(&self) -> String {
+        // format!("[{}:{}] {}", self.source_ip, self.source_port, self.message)
+        format!("{}", self.message)
+    }
+}
 
 /// Structure to hold log data before saving to database
 struct LogEntry {
@@ -17,7 +43,7 @@ struct LogEntry {
 }
 
 /// A database pooling system for log messages
-pub struct UdpLogDb {
+pub struct DatabaseLog {
     log_pool: Arc<Mutex<Vec<LogEntry>>>,
     running: Arc<RwLock<bool>>,
     db_flush_interval: Duration,
@@ -25,7 +51,7 @@ pub struct UdpLogDb {
 }
 
 #[allow(dead_code)]
-impl UdpLogDb {
+impl DatabaseLog {
     /// Create a new UDP log database pooler with default 5-second flush interval and default table name "logs"
     pub fn new() -> Self {
         Self::with_params(Duration::from_secs(5), "logs")
@@ -43,7 +69,7 @@ impl UdpLogDb {
 
     /// Create a new UDP log database pooler with custom flush interval and table name
     pub fn with_params(interval: Duration, table_name: &str) -> Self {
-        UdpLogDb {
+        DatabaseLog {
             log_pool: Arc::new(Mutex::new(Vec::new())),
             running: Arc::new(RwLock::new(false)),
             db_flush_interval: interval,
@@ -241,7 +267,7 @@ impl UdpLogDb {
                 }
                 
                 // Create a reference to self for flush_to_db
-                let db_pool = UdpLogDb {
+                let db_pool = DatabaseLog {
                     log_pool: Arc::clone(&log_pool),
                     running: Arc::clone(&running),
                     db_flush_interval: interval,
@@ -292,8 +318,8 @@ impl UdpLogDb {
 
 /// Initialize a new UDP log database pooler with default settings and start it
 #[allow(dead_code)]
-pub fn init() -> UdpLogDb {
-    let db_pool = UdpLogDb::new();
+pub fn init() -> DatabaseLog {
+    let db_pool = DatabaseLog::new();
     
     match db_pool.start() {
         Ok(_) => log::info!("UDP log database pooling started successfully"),
@@ -305,8 +331,8 @@ pub fn init() -> UdpLogDb {
 
 /// Initialize a new UDP log database pooler with a custom table name and start it
 #[allow(dead_code)]
-pub fn init_with_table(table_name: &str) -> UdpLogDb {
-    let db_pool = UdpLogDb::with_table_name(table_name);
+pub fn init_with_table(table_name: &str) -> DatabaseLog {
+    let db_pool = DatabaseLog::with_table_name(table_name);
     
     match db_pool.start() {
         Ok(_) => log::info!("UDP log database pooling for table '{}' started successfully", table_name),

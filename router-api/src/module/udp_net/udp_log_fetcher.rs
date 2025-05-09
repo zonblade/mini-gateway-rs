@@ -1,36 +1,12 @@
 use crossbeam_channel::{bounded, Receiver, Sender};
-use serde::{Deserialize, Serialize};
 use std::net::UdpSocket;
 use std::str;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct LogMessage {
-    pub source_ip: String,
-    pub source_port: u16,
-    pub message: String,
-    pub timestamp: std::time::SystemTime,
-    // pub message_formatted: LogMessageFormatted,
-}
+use crate::module::database_log::LogMessage;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogMessageFormatted {
-    pub id: String,
-    pub connection_type: String,
-    pub packet_size: usize,
-    pub status: String,
-    pub comment: String,
-}
-
-impl LogMessage {
-    pub fn formatted(&self) -> String {
-        // format!("[{}:{}] {}", self.source_ip, self.source_port, self.message)
-        format!("{}", self.message)
-    }
-}
 
 pub struct UdpLogFetcher {
     logs: Arc<RwLock<Vec<String>>>,
@@ -147,7 +123,7 @@ impl UdpLogFetcher {
                                     // Log a warning about dropped messages every 5 seconds
                                     let now = std::time::Instant::now();
                                     if now.duration_since(last_warning_time).as_secs() >= 5 {
-                                        eprintln!("Queue full, dropped {} messages. Consider increasing queue size or adding more consumers.", dropped_count);
+                                        // eprintln!!("Queue full, dropped {} messages. Consider increasing queue size or adding more consumers.", dropped_count);
                                         dropped_count = 0; // Reset counter
                                         last_warning_time = now;
                                     }
@@ -166,7 +142,7 @@ impl UdpLogFetcher {
                     Err(e) => {
                         // Ignore would-block errors which happen on timeout
                         if e.kind() != std::io::ErrorKind::WouldBlock {
-                            eprintln!("Error receiving UDP data: {}", e);
+                            // eprintln!!("Error receiving UDP data: {}", e);
                         }
                     }
                 }

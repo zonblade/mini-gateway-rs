@@ -23,14 +23,15 @@ use mapper::{setup_standard_logging, setup_tag_based_logging};
 ///    and initializes the standard `env_logger` directly as a last resort,
 ///    logging a warning about using the default configuration.
 pub fn writer_start() {
-    // Try the tag-based logging first
+    // // Try the tag-based logging first
+    eprintln!("[----] Initializing tag-based logging...");
     if setup_tag_based_logging().is_ok() {
-        log::info!("Tag-based logging initialized successfully");
+        eprintln!("[----] Tag-based logging initialized successfully");
         return;
     }
     
     // Log failure to standard error as the logging system isn't fully up yet.
-    eprintln!("Failed to initialize tag-based logging");
+    eprintln!("[----] Failed to initialize tag-based logging");
     
     // Fall back to standard logging (currently env_logger)
     if setup_standard_logging().is_ok() {
@@ -40,7 +41,7 @@ pub fn writer_start() {
     }
     
     // Log failure to standard error.
-    eprintln!("Failed to initialize standard logging");
+    eprintln!("[----] Failed to initialize standard logging");
     
     // Last resort: standard env_logger to stderr
     // Ensure RUST_LOG is set for env_logger.

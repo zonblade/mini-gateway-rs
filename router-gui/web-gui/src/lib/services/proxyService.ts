@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import type { Proxy } from '$lib/types/proxy';
+import type { Proxy, ProxyWithDomains, TlsDomain } from '$lib/types/proxy';
 import { user } from '$lib/stores/userStore';
 
 // Helper function to get the current API base URL from the user store
@@ -45,38 +45,48 @@ function getAuthHeader(): HeadersInit {
 
 export const proxyService = {
     /**
-     * Get all proxies
+     * Get all proxies with their domains
      */
-    getAllProxies: async (): Promise<Proxy[]> => {
+    getAllProxies: async (): Promise<ProxyWithDomains[]> => {
         const baseUrl = getApiBaseUrl();
         const response = await fetch(`${baseUrl}/settings/proxies`, {
             headers: getAuthHeader()
         });
-        return handleResponse<Proxy[]>(response);
+        return handleResponse<ProxyWithDomains[]>(response);
     },
     
     /**
-     * Get a proxy by ID
+     * Get a proxy by ID with all its domains
      */
-    getProxyById: async (id: string): Promise<Proxy> => {
+    getProxyById: async (id: string): Promise<ProxyWithDomains> => {
         const baseUrl = getApiBaseUrl();
         const response = await fetch(`${baseUrl}/settings/proxy/${id}`, {
             headers: getAuthHeader()
         });
-        return handleResponse<Proxy>(response);
+        return handleResponse<ProxyWithDomains>(response);
     },
     
     /**
      * Create or update a proxy
+     * @param proxy The proxy to save
+     * @param domains Optional domains to associate with the proxy
      */
-    saveProxy: async (proxy: Proxy): Promise<Proxy> => {
+    saveProxy: async (proxy: Proxy, domains?: TlsDomain[]): Promise<ProxyWithDomains> => {
         const baseUrl = getApiBaseUrl();
+        
+        // Format the payload according to the new API structure
+        const payload = { 
+            proxy, 
+            domains: domains || [] 
+        };
+        
         const response = await fetch(`${baseUrl}/settings/proxy`, {
             method: 'POST',
             headers: getAuthHeader(),
-            body: JSON.stringify(proxy)
+            body: JSON.stringify(payload)
         });
-        return handleResponse<Proxy>(response);
+        
+        return handleResponse<ProxyWithDomains>(response);
     },
     
     /**

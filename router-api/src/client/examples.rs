@@ -123,9 +123,10 @@ pub struct LoginResponse {
 /// ```rust
 /// // In your application code:
 /// if let Err(err) = example_usage().await {
-///     eprintln!("Login example failed: {}", err);
+///     // eprintln!!("Login example failed: {}", err);
 /// }
 /// ```
+#[allow(dead_code)]
 pub async fn example_usage() -> Result<()> {
     // Create and connect a client
     let mut client = Client::new();
@@ -142,7 +143,7 @@ pub async fn example_usage() -> Result<()> {
         .param("client_version", "1.0");
         
     // Then we can use client.action() since we now have a reference
-    let response: LoginResponse = client.action("login", &payload).await?;
+    let _response: LoginResponse = client.action("login", &payload).await?;
     
     // Close connection
     client.close().await?;

@@ -31,7 +31,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use lru::LruCache;
 
-use crate::config::{self, GatewayNode};
+use crate::config::{self, GatewayPath};
 
 // Number of cache shards to reduce lock contention
 const CACHE_SHARDS: usize = 8;
@@ -150,8 +150,8 @@ impl ProxyApp {
 
     fn fetch_config(proxy_to: BasicPeer) -> Vec<RewriteRule> {
         let current_addr = proxy_to._address.to_string();
-        let config: Option<Vec<GatewayNode>> =
-            config::RoutingData::GatewayRouting.xget::<Vec<GatewayNode>>();
+        let config: Option<Vec<GatewayPath>> =
+            config::RoutingData::GatewayRouting.xget::<Vec<GatewayPath>>();
         let mut new_rewrites = Vec::new();
         if let Some(cfg) = config {
             for node in cfg {

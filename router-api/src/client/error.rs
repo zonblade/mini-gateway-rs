@@ -40,15 +40,15 @@
 //!     },
 //!     Err(ClientError::ConnectionError(msg)) => {
 //!         // Handle connection problems
-//!         eprintln!("Connection problem: {}", msg);
+//!         // eprintln!!("Connection problem: {}", msg);
 //!     },
 //!     Err(ClientError::SerializationError(msg)) => {
 //!         // Handle serialization issues
-//!         eprintln!("Failed to serialize or deserialize data: {}", msg);
+//!         // eprintln!!("Failed to serialize or deserialize data: {}", msg);
 //!     },
 //!     Err(e) => {
 //!         // Handle any other errors
-//!         eprintln!("Unexpected error: {}", e);
+//!         // eprintln!!("Unexpected error: {}", e);
 //!     }
 //! }
 //! ```
@@ -128,6 +128,7 @@ pub enum ClientError {
     /// This error occurs when attempting to make a request without specifying
     /// which action to perform on the service.
     #[error("Action not set")]
+    #[allow(dead_code)]
     ActionNotSet,
     
     /// Retry error occurred after exhausting all retries.

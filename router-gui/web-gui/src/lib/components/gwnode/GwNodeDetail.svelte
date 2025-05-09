@@ -13,12 +13,26 @@
     
     // Get proxy details if proxy_id exists
     $: if (gwnode.proxy_id && $proxies) {
-        const selectedProxy = $proxies.find((p) => p.id === gwnode.proxy_id);
+        const selectedProxy = $proxies.find((p) => p.proxy.id === gwnode.proxy_id);
         if (selectedProxy) {
-            proxyListen = selectedProxy.addr_listen || "";
-            proxyTls = selectedProxy.tls || false;
-            proxyDomain = selectedProxy.sni || "";
-            proxyTitle = selectedProxy.title || "";
+            proxyListen = selectedProxy.proxy.addr_listen || "";
+            
+            // If gwnode has a domain_id, find the matching domain
+            if (gwnode.domain_id && selectedProxy.domains) {
+                const domain = selectedProxy.domains.find(d => d.id === gwnode.domain_id);
+                if (domain) {
+                    proxyTls = domain.tls || false;
+                    proxyDomain = domain.sni || "";
+                } else {
+                    proxyTls = false;
+                    proxyDomain = gwnode.domain_name || ""; // Fallback to domain_name if domain not found
+                }
+            } else {
+                proxyTls = false;
+                proxyDomain = "";
+            }
+            
+            proxyTitle = selectedProxy.proxy.title || "";
         }
     }
 </script>

@@ -1,4 +1,4 @@
-use crate::module::udp_logger;
+use crate::module::udp_net::udp_logger;
 
 pub fn init() {
     let normal_consumer = udp_logger::get_normal_log_consumer();

@@ -1,222 +1,276 @@
-use super::gateway_node::GatewayNode;
-use crate::api::settings::{gateway_queries, gwnode_queries, proxy_queries};
+use crate::api::settings::{gateway_queries, gwnode_queries, proxy_queries, proxydomain_queries};
 use crate::module::database::{get_connection, DatabaseError};
-use log::{info, warn};
+use serde::{Deserialize, Serialize};
 
-/// Retrieves a list of GatewayNode objects by joining gateway, gwnode, and proxy tables
-///
-/// This function performs a JOIN operation across multiple tables to construct
-/// GatewayNode objects with all the required fields:
-/// - `priority` from the gateway table
-/// - `addr_listen` from the proxy table (which is proxy.addr_target)
-/// - `addr_target` from the gwnode table (which is gwnode.alt_target)
-/// - `path_listen` from the gateway table (which is gateway.pattern)
-/// - `path_target` from the gateway table (which is gateway.target)
-///
-/// # Returns
-///
-/// * `Ok(Vec<GatewayNode>)` - A vector containing all gateway configurations
-/// * `Err(DatabaseError)` - If there was an error retrieving the data
-///
-/// # Errors
-///
-/// This function will return an error if:
-/// - The database connection could not be established
-/// - The SQL query could not be executed
-/// - There was an error mapping the database rows to GatewayNode structures
-pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QGatewayNode {
+    pub priority: u8,               // from gateway_node table set to 0 since we dont use it
+    pub addr_listen: String,        // from proxy table
+    pub addr_target: String,       // from proxy table
+    pub addr_bind: String,          // from proxy table (proxy.addr_target)
+    pub tls: Vec<QGatewayNodeSNI>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QGatewayNodeSNI {
+    pub tls: bool,               // from proxy_domain table associated with the proxy used in gateway_node
+    pub sni: Option<String>,     // from proxy_domain table associated with the proxy used in gateway_node
+    pub tls_pem: Option<String>, // from proxy_domain table associated with the proxy used in gateway_node
+    pub tls_key: Option<String>, // from proxy_domain table associated with the proxy used in gateway_node
+}
+
+/// sync all path
+/// 
+/// table infomation
+/// ```sql
+/// CREATE TABLE gateway_nodes (
+///   id TEXT PRIMARY KEY,
+///   proxy_id TEXT NOT NULL,
+///   domain_id TEXT,
+///   title TEXT NOT NULL,
+///   alt_target TEXT NOT NULL,
+///   priority INTEGER NOT NULL DEFAULT 100,
+///   FOREIGN KEY (proxy_id) REFERENCES proxies (id),
+///   FOREIGN KEY (domain_id) REFERENCES proxy_domains (id)
+/// )
+/// ```
+/// ```sql
+/// CREATE TABLE gateways (
+///   id TEXT PRIMARY KEY,
+///   gwnode_id TEXT NOT NULL,
+///   pattern TEXT NOT NULL,
+///   target TEXT NOT NULL,
+///   priority INTEGER NOT NULL,
+///   FOREIGN KEY (gwnode_id) REFERENCES gateway_nodes (id)
+/// )
+/// ```
+/// ```sql
+/// CREATE TABLE proxy_domains (
+///   id TEXT PRIMARY KEY,
+///   proxy_id TEXT NOT NULL,
+///   tls BOOLEAN NOT NULL DEFAULT 0,
+///   tls_pem TEXT,
+///   tls_key TEXT,
+///   sni TEXT
+/// )
+///```
+/// ```sql
+/// CREATE TABLE proxies (
+///   id TEXT PRIMARY KEY,
+///   title TEXT NOT NULL,
+///   addr_listen TEXT NOT NULL,
+///   addr_target TEXT NOT NULL,
+///   high_speed BOOLEAN NOT NULL DEFAULT 0,
+///   high_speed_addr TEXT
+/// )
+/// ```
+/// 
+// sync all nodes
+pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
     let db = get_connection()?;
 
     // Ensure all required tables exist before querying
     gateway_queries::ensure_gateways_table()?;
     gwnode_queries::ensure_gateway_nodes_table()?;
     proxy_queries::ensure_proxies_table()?;
+    proxydomain_queries::ensure_proxy_domains_table()?;
 
-    // Add diagnostic queries to check if tables have data
-    let gateway_count: i64 = db
-        .query_one("SELECT COUNT(*) FROM gateways", [], |row| row.get(0))?
-        .unwrap_or(0);
-
-    let gwnode_count: i64 = db
-        .query_one("SELECT COUNT(*) FROM gateway_nodes", [], |row| row.get(0))?
-        .unwrap_or(0);
-
-    let proxy_count: i64 = db
-        .query_one("SELECT COUNT(*) FROM proxies", [], |row| row.get(0))?
-        .unwrap_or(0);
-
-    info!(
-        "Table counts - gateways: {}, gateway_nodes: {}, proxies: {}",
-        gateway_count, gwnode_count, proxy_count
-    );
-
-    if gateway_count == 0 || gwnode_count == 0 || proxy_count == 0 {
-        warn!("One or more tables is empty, which will result in empty JOIN results");
-    }
-
-    // Try a simpler query first to see if we get any results from each table
-    let simple_query = "
-        SELECT 
-            COUNT(*) 
+    // Get all unique listening addresses with their target (bind) addresses
+    let addr_query = "
+        SELECT DISTINCT 
+            p.addr_listen,
+            p.addr_target AS addr_bind,
+            gn.alt_target AS alt_target
         FROM 
-            gateways g
-        JOIN 
-            gateway_nodes gn ON g.gwnode_id = gn.id
-        JOIN 
-            proxies p ON gn.proxy_id = p.id";
-
-    let join_count: i64 = db
-        .query_one(simple_query, [], |row| row.get(0))?
-        .unwrap_or(0);
-
-    info!("Query would return {} rows", join_count);
-
-    // Original JOIN query
-    // Join gateway, gateway_nodes (gwnode), and proxies tables
-    // to construct complete GatewayNode objects
-    let gateway_nodes = db.query(
-        "SELECT 
-            g.priority, 
-            p.addr_target AS addr_listen, 
-            gn.alt_target AS addr_target, 
-            g.pattern AS path_listen, 
-            g.target AS path_target
-        FROM 
-            gateways g
-        JOIN 
-            gateway_nodes gn ON g.gwnode_id = gn.id
+            gateway_nodes gn
         JOIN 
             proxies p ON gn.proxy_id = p.id
-        ORDER BY 
-            g.priority DESC",
-        [],
-        |row| {
-            let data = GatewayNode {
-                priority: row.get(0)?,
-                addr_listen: row.get(1)?,
-                addr_target: row.get(2)?,
-                path_listen: row.get(3)?,
-                path_target: row.get(4)?,
-            };
-            log::debug!("GatewayNode: {:#?}", data.clone());
-            Ok(data)
-        },
-    )?;
+    ";
 
-    info!("Final query returned {} rows", gateway_nodes.len());
+    let listening_addresses = db.query(addr_query, [], |row| {
+        Ok((
+            row.get::<_, String>(0)?, // addr_listen
+            row.get::<_, String>(1)?, // addr_target (addr_bind)
+            row.get::<_, String>(2)?, // addr_target
+        ))
+    })?;
+
+    let mut gateway_nodes = Vec::new();
+    
+    // For each unique listening address
+    for (addr_listen, addr_bind, addr_target) in listening_addresses {
+        // Find all gateway nodes using this listening address
+        let nodes_query = "
+            SELECT 
+                gn.id AS node_id
+            FROM 
+                gateway_nodes gn
+            JOIN 
+                proxies p ON gn.proxy_id = p.id
+            WHERE 
+                p.addr_listen = ?
+        ";
+
+        let node_ids = db.query(nodes_query, [&addr_listen], |row| {
+            row.get::<_, String>(0)
+        })?;
+
+        // Collect all TLS configurations for all nodes with this listening address
+        let mut tls_configs = Vec::new();
+        let mut seen_snis = std::collections::HashSet::new();
+
+        for node_id in node_ids {
+            let tls_query = "
+                SELECT 
+                    IFNULL(pd.tls, 0) AS tls,
+                    pd.sni,
+                    pd.tls_pem,
+                    pd.tls_key
+                FROM 
+                    proxy_domains pd
+                JOIN 
+                    gateway_nodes gn ON pd.id = gn.domain_id
+                WHERE 
+                    gn.id = ?
+                UNION
+                SELECT 
+                    IFNULL(pd.tls, 0) AS tls,
+                    pd.sni,
+                    pd.tls_pem,
+                    pd.tls_key
+                FROM 
+                    proxy_domains pd
+                JOIN 
+                    gateway_nodes gn ON pd.proxy_id = gn.proxy_id
+                WHERE 
+                    gn.id = ? 
+                    AND (gn.domain_id IS NULL OR pd.id != gn.domain_id)
+            ";
+
+            let node_tls_configs = db.query(tls_query, [&node_id, &node_id], |row| {
+                Ok(QGatewayNodeSNI {
+                    tls: row.get(0)?,
+                    sni: row.get::<_, Option<String>>(1)?,
+                    tls_pem: row.get(2)?,
+                    tls_key: row.get(3)?,
+                })
+            })?;
+
+            // Add only unique TLS configurations (based on SNI)
+            for config in node_tls_configs {
+                let sni_key = config.sni.clone().unwrap_or_default();
+                if !seen_snis.contains(&sni_key) {
+                    seen_snis.insert(sni_key);
+                    tls_configs.push(config);
+                }
+            }
+        }
+
+        // Create a single gateway node for this listening address with combined TLS configs
+        gateway_nodes.push(QGatewayNode {
+            priority: 0,  // set to 0 as specified
+            addr_listen,
+            addr_target,
+            addr_bind,    // Added addr_bind from proxy.addr_target
+            tls: tls_configs,
+        });
+    }
 
     Ok(gateway_nodes)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::api::settings::{gateway_queries, gwnode_queries, proxy_queries};
-    use crate::api::settings::{Gateway, GatewayNode as SettingsGatewayNode, Proxy};
-    use uuid::Uuid;
 
-    #[test]
-    fn test_get_all_gateway_nodes() {
-        // Setup: Create test data in the database
-        let test_proxy = create_test_proxy();
-        let test_gwnode = create_test_gwnode(&test_proxy.id);
-        let test_gateway = create_test_gateway(&test_gwnode.id);
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QGatewayPath {
+    pub priority: u8,        // from gateway table
+    pub tls: bool,          // from proxy_domain table
+    pub sni: Option<String>, // from proxy_domain table
+    pub addr_bind: String, // from proxy table
+    pub addr_target: String, // from gateway node table
+    pub path_listen: String, // from gateway table
+    pub path_target: String, // from gateway table
+}
+/// sync all path
+/// 
+/// table infomation
+/// ```sql
+/// CREATE TABLE gateway_nodes (
+///   id TEXT PRIMARY KEY,
+///   proxy_id TEXT NOT NULL,
+///   domain_id TEXT,
+///   title TEXT NOT NULL,
+///   alt_target TEXT NOT NULL,
+///   priority INTEGER NOT NULL DEFAULT 100,
+///   FOREIGN KEY (proxy_id) REFERENCES proxies (id),
+///   FOREIGN KEY (domain_id) REFERENCES proxy_domains (id)
+/// )
+/// ```
+/// ```sql
+/// CREATE TABLE gateways (
+///   id TEXT PRIMARY KEY,
+///   gwnode_id TEXT NOT NULL,
+///   pattern TEXT NOT NULL,
+///   target TEXT NOT NULL,
+///   priority INTEGER NOT NULL,
+///   FOREIGN KEY (gwnode_id) REFERENCES gateway_nodes (id)
+/// )
+/// ```
+/// ```sql
+/// CREATE TABLE proxy_domains (
+///   id TEXT PRIMARY KEY,
+///   proxy_id TEXT NOT NULL,
+///   tls BOOLEAN NOT NULL DEFAULT 0,
+///   tls_pem TEXT,
+///   tls_key TEXT,
+///   sni TEXT
+/// )
+///```
+/// ```sql
+/// CREATE TABLE proxies (
+///   id TEXT PRIMARY KEY,
+///   title TEXT NOT NULL,
+///   addr_listen TEXT NOT NULL,
+///   addr_target TEXT NOT NULL,
+///   high_speed BOOLEAN NOT NULL DEFAULT 0,
+///   high_speed_addr TEXT
+/// )
+/// ```
+/// 
+pub fn get_all_gateway_paths() -> Result<Vec<QGatewayPath>, DatabaseError> {
+    let db = get_connection()?;
 
-        // Call the function under test
-        let result = get_all_gateway_nodes();
+    // Ensure all required tables exist before querying
+    gateway_queries::ensure_gateways_table()?;
+    gwnode_queries::ensure_gateway_nodes_table()?;
+    proxy_queries::ensure_proxies_table()?;
+    proxydomain_queries::ensure_proxy_domains_table()?;
 
-        // Cleanup: Remove test data
-        let _ = gateway_queries::delete_gateway_by_id(&test_gateway.id);
-        let _ = gwnode_queries::delete_gateway_node_by_id(&test_gwnode.id);
-        let _ = proxy_queries::delete_proxy_by_id(&test_proxy.id);
+    let query = "SELECT 
+        g.priority,
+        pd.sni,
+        p.addr_target AS addr_bind,
+        gn.alt_target AS addr_target,
+        g.pattern AS path_listen,
+        g.target AS path_target,
+        IFNULL(pd.tls, 0) AS tls
+    FROM gateways g
+    JOIN gateway_nodes gn ON g.gwnode_id = gn.id
+    JOIN proxies p ON gn.proxy_id = p.id
+    LEFT JOIN proxy_domains pd ON gn.domain_id = pd.id
+    ORDER BY g.priority DESC";
 
-        // Assertions
-        assert!(result.is_ok(), "Function should return Ok result");
-
-        let nodes = result.unwrap();
-
-        if !nodes.is_empty() {
-            // Since we can't guarantee our test data is the only data in the database,
-            // we'll just check if the function returns data in the expected format
-            let first_node = &nodes[0];
-            // No need to check range as i8 is already constrained to -128 to 127
-            assert!(
-                first_node.priority >= i8::MIN,
-                "Priority should be a valid i8 value"
-            );
-            assert!(
-                !first_node.addr_listen.is_empty(),
-                "addr_listen should not be empty"
-            );
-            assert!(
-                !first_node.addr_target.is_empty(),
-                "addr_target should not be empty"
-            );
-            assert!(
-                !first_node.path_listen.is_empty(),
-                "path_listen should not be empty"
-            );
-            assert!(
-                !first_node.path_target.is_empty(),
-                "path_target should not be empty"
-            );
-        }
-    }
-
-    // Helper functions to create test data
-    fn create_test_proxy() -> Proxy {
-        let id = Uuid::new_v4().to_string();
-        let proxy = Proxy {
-            id: id.clone(),
-            title: "Test Proxy".to_string(),
-            addr_listen: "127.0.0.1:8080".to_string(),
-            addr_target: "127.0.0.1:8081".to_string(),
-            tls: false,
-            tls_pem: None,
-            tls_key: None,
-            tls_autron: false,
-            sni: None,
-            high_speed: false,
-            high_speed_addr: None,
-        };
-
-        if let Err(e) = proxy_queries::save_proxy(&proxy) {
-            log::error!("Failed to save test proxy: {}", e);
-        }
-
-        proxy
-    }
-
-    fn create_test_gwnode(proxy_id: &str) -> SettingsGatewayNode {
-        let id = Uuid::new_v4().to_string();
-        let gwnode = SettingsGatewayNode {
-            id: id.clone(),
-            title: "Test Gateway Node".to_string(),
-            proxy_id: proxy_id.to_string(),
-            alt_target: "127.0.0.1:8082".to_string(),
-        };
-
-        if let Err(e) = gwnode_queries::save_gateway_node(&gwnode) {
-            log::error!("Failed to save test gwnode: {}", e);
-        }
-
-        gwnode
-    }
-
-    fn create_test_gateway(gwnode_id: &str) -> Gateway {
-        let id = Uuid::new_v4().to_string();
-        let gateway = Gateway {
-            id: id.clone(),
-            gwnode_id: gwnode_id.to_string(),
-            pattern: "/api/*".to_string(),
-            target: "/".to_string(),
-            priority: 10,
-        };
-
-        if let Err(e) = gateway_queries::save_gateway(&gateway) {
-            log::error!("Failed to save test gateway: {}", e);
-        }
-
-        gateway
-    }
+    let rows = db.query(query, [], |row| {
+        Ok(QGatewayPath {
+            priority: row.get(0)?,
+            sni: row.get::<_, Option<String>>(1)?,
+            addr_bind: row.get(2)?,
+            addr_target: row.get(3)?,
+            path_listen: row.get(4)?,
+            path_target: row.get(5)?,
+            tls: row.get(6)?,
+        })
+    })?;
+    
+    Ok(rows)
 }

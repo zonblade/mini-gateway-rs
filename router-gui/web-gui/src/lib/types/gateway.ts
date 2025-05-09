@@ -16,6 +16,8 @@ export interface Gateway {
     target: string;
     /** Priority level (lower number = higher priority) */
     priority: number;
+    /** Optional domain ID this gateway rule is associated with */
+    domain_id?: string;
 }
 
 /**
@@ -32,6 +34,8 @@ export interface CreateGatewayRequest {
     target: string;
     /** Priority level (lower number = higher priority) */
     priority: number;
+    /** Optional domain ID this gateway rule is associated with */
+    domain_id?: string; // Optional for creation, server will generate if empty
 }
 
 /**
@@ -48,6 +52,8 @@ export interface UpdateGatewayRequest {
     target: string;
     /** Priority level (lower number = higher priority) */
     priority: number;
+    /** Optional domain ID this gateway rule is associated with */
+    domain_id?: string; // Optional for creation, server will generate if empty
 }
 
 /**

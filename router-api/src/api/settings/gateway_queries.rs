@@ -42,33 +42,34 @@ use uuid::Uuid;
 pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
-    // Check if the table structure is correct by trying to select the columns we need
-    let check_result = db.query(
-        "SELECT id, gwnode_id, pattern, target, priority FROM gateways LIMIT 1",
-        [],
-        |_| Ok(()),
-    );
+    // Define the expected columns
+    let expected_columns = ["id", "gwnode_id", "pattern", "target", "priority"];
     
-    if check_result.is_err() {
-        // If there's an error, the table might not exist or has an incorrect structure
-        // First try to drop the table if it exists
-        let _ = db.execute("DROP TABLE IF EXISTS gateways", []);
-        log::warn!("Recreating gateways table with correct structure");
-        
-        // Create the table with the correct structure
-        db.execute(
-            "CREATE TABLE gateways (
-                id TEXT PRIMARY KEY,
-                gwnode_id TEXT NOT NULL,
-                pattern TEXT NOT NULL,
-                target TEXT NOT NULL,
-                priority INTEGER NOT NULL,
-                FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
-            )",
-            [],
-        )?;
+    // Check if the table exists with the expected columns and is not corrupted
+    if db.table_exists_with_columns("gateways", &expected_columns)? {
+        log::debug!("gateways table exists and has expected structure");
+        return Ok(());
     }
     
+    log::info!("Creating or repairing gateways table");
+    
+    // Drop the table if it exists but is corrupted or missing columns
+    db.execute("DROP TABLE IF EXISTS gateways", [])?;
+    
+    // Create the table with the full correct structure
+    db.execute(
+        "CREATE TABLE gateways (
+            id TEXT PRIMARY KEY,
+            gwnode_id TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            target TEXT NOT NULL,
+            priority INTEGER NOT NULL,
+            FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
+        )",
+        [],
+    )?;
+    
+    log::info!("Created gateways table with correct structure");
     Ok(())
 }
 
@@ -104,7 +105,7 @@ pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
 ///                     gateway.id, gateway.pattern, gateway.priority);
 ///         }
 ///     },
-///     Err(err) => eprintln!("Error retrieving gateways: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateways: {}", err),
 /// }
 /// ```
 pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
@@ -165,7 +166,7 @@ pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
 ///     Ok(Some(gateway)) => println!("Found gateway: {} (pattern: {}, priority: {})", 
 ///                                   gateway.id, gateway.pattern, gateway.priority),
 ///     Ok(None) => println!("No gateway found with ID: {}", gateway_id),
-///     Err(err) => eprintln!("Error retrieving gateway: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateway: {}", err),
 /// }
 /// ```
 pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
@@ -235,7 +236,7 @@ pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
 ///                     gateway.id, gateway.pattern, gateway.priority);
 ///         }
 ///     },
-///     Err(err) => eprintln!("Error retrieving gateways: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateways: {}", err),
 /// }
 /// ```
 pub fn get_gateways_by_gwnode_id(gwnode_id: &str) -> Result<Vec<Gateway>, DatabaseError> {
@@ -304,7 +305,7 @@ pub fn get_gateways_by_gwnode_id(gwnode_id: &str) -> Result<Vec<Gateway>, Databa
 ///
 /// match gateway_queries::save_gateway(&gateway) {
 ///     Ok(()) => println!("Gateway saved successfully"),
-///     Err(err) => eprintln!("Error saving gateway: {}", err),
+///     Err(err) => // eprintln!!("Error saving gateway: {}", err),
 /// }
 /// ```
 pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
@@ -359,7 +360,7 @@ pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
 /// match gateway_queries::delete_gateway_by_id(gateway_id) {
 ///     Ok(true) => println!("Gateway deleted successfully"),
 ///     Ok(false) => println!("No gateway found with ID: {}", gateway_id),
-///     Err(err) => eprintln!("Error deleting gateway: {}", err),
+///     Err(err) => // eprintln!!("Error deleting gateway: {}", err),
 /// }
 /// ```
 pub fn delete_gateway_by_id(id: &str) -> Result<bool, DatabaseError> {
