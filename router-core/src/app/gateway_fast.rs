@@ -41,6 +41,8 @@
 // use pingora::http::ResponseHeader;
 use async_trait::async_trait;
 use bytes::Bytes;
+use http::uri::Builder;
+use http::Uri;
 use log::{debug, error, info, warn};
 // Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
@@ -154,6 +156,7 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
 #[derive(Clone, Debug)]
 struct RedirectRule {
     pattern: Regex,             // Compiled regex for matching
+    sni: Option<String>,        // Optional SNI for TLS connections
     target_template: String,    // Template string for path transformation (e.g., "/v2/api/$1")
     _alt_listen: String,        // Listener address this rule applies to
     alt_target: Arc<BasicPeer>, // Target backend service (Arc for cheap cloning)
@@ -179,6 +182,8 @@ static DEFAULT_FALLBACK_PEER: LazyLock<Box<HttpPeer>> = LazyLock::new(|| {
     // Emergency fallback would be handled in upstream_peer if needed
 });
 
+static DEFAULT_FALLBACK_PEER_PORT: &str = DEFAULT_PORT.p404;
+
 // --- Gateway Application ---
 
 /// # Gateway Application
@@ -187,7 +192,7 @@ pub struct GatewayApp {
     source: String,                   // Listener address (e.g., "0.0.0.0:8080")
     last_check_time: RwLock<Instant>, // Last time config was checked
     check_interval: Duration,         // How often to check for config changes
-    route_cache: Arc<ShardedLruCache<String, (String, Arc<BasicPeer>)>>, // Cache: key=path+query, value=(rewritten_path+query, target_peer)
+    route_cache: Arc<ShardedLruCache<String, (String, Option<String>, Arc<BasicPeer>)>>, // Cache: key=path+query, value=(rewritten_path+query, sni, target_peer)
 }
 
 impl GatewayApp {
@@ -324,16 +329,14 @@ impl GatewayApp {
 
             // Create the target peer (use Arc for cheap sharing).
             // BasicPeer::new takes &str, so clone addr_target if needed or pass reference
-            log::debug!(
-                "Creating target peer for address: {}",
-                node.addr_target
-            );
+            log::debug!("Creating target peer for address: {}", node.addr_target);
             let target_peer = Arc::new(BasicPeer::new(&node.addr_target));
 
             applicable_rules.push(RedirectRule {
                 pattern,
+                sni: node.sni.clone(),             // Optional SNI
                 target_template: node.path_target, // Store the template string
-                _alt_listen: node.addr_bind,     // Already checked, but store for completeness
+                _alt_listen: node.addr_bind,       // Already checked, but store for completeness
                 alt_target: target_peer,
                 priority: node.priority as usize,
             });
@@ -512,8 +515,57 @@ impl ProxyHttp for GatewayApp {
         session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        eprintln!("[XX] upstream filter called");
-        // Use pingora::Result
+        let peer = match session.get_header("X-Peer") {
+            Some(peer) => peer.to_str(),
+            None => {
+                // No X-Peer header, use default fallback
+                log::error!("[XX] No X-Peer header found. Using default fallback.");
+                return Ok(DEFAULT_FALLBACK_PEER.clone());
+            }
+        };
+
+        let peer = match peer {
+            Ok(p) => p,
+            Err(e) => {
+                error!("[XX] Invalid X-Peer header: {}. Using default fallback.", e);
+                return Ok(DEFAULT_FALLBACK_PEER.clone());
+            }
+        };
+
+        let http_peer = HttpPeer::new(peer, false, String::new());
+        session.req_header_mut().remove_header("X-Peer");
+        return Ok(Box::new(http_peer));
+    }
+
+    async fn proxy_upstream_filter(
+        &self,
+        session: &mut Session,
+        _ctx: &mut Self::CTX,
+    ) -> Result<bool>
+    where
+        Self::CTX: Send + Sync,
+    {
+        //
+        //
+        // --- validate domain if using TLS ---
+        //
+        //
+
+        // Extract authority (host:port) from URI
+        let authority = match session.req_header().uri.authority() {
+            Some(a) => a.as_str().split(':').next().unwrap_or(a.as_str()),
+            None => {
+                error!("No authority found in URI. Cannot validate domain.");
+                return Ok(true); // Return true to continue processing anyway
+            }
+        };
+
+
+        //
+        //
+        // -- Main routing logic starts here ---
+        //
+        //
 
         // 1. Check and potentially reload configuration first.
         self.check_and_reload_config_if_needed();
@@ -529,20 +581,30 @@ impl ProxyHttp for GatewayApp {
         };
 
         // 3. Check cache using the String key
-        if let Some((rewritten_path_query, peer_arc)) = self.route_cache.get(&cache_key) {
+        if let Some((rewritten_path_query, sni, peer_arc)) = self.route_cache.get(&cache_key) {
             // Cache Hit!
             debug!("Cache hit for key: {}", cache_key);
+            if let Some(sni) = sni {
+                if authority != sni {
+                    debug!(
+                        "SNI mismatch: expected '{}', got '{}'. Using default fallback.",
+                        sni, authority
+                    );
+                    return Ok(true);
+                }
+            }
             // Update request URI using the cached rewritten path and query.
             match http::uri::PathAndQuery::from_maybe_shared(rewritten_path_query.clone()) {
                 Ok(pq) => {
                     let mut parts = session.req_header_mut().uri.clone().into_parts();
                     parts.path_and_query = Some(pq);
                     match http::Uri::from_parts(parts) {
-                        Ok(new_uri) => session.req_header_mut().uri = new_uri,
+                        Ok(new_uri) => session.req_header_mut().set_uri(new_uri),
                         Err(e) => {
                             error!("Error rebuilding URI from cached parts: {}", e);
                             // Fallback on error
-                            return Ok(DEFAULT_FALLBACK_PEER.clone()); // Clone the precomputed Box<HttpPeer>
+                            // return Ok(DEFAULT_FALLBACK_PEER.clone()); // Clone the precomputed Box<HttpPeer>
+                            return Ok(true); // Return true to indicate a successful match
                         }
                     }
                 }
@@ -552,25 +614,31 @@ impl ProxyHttp for GatewayApp {
                         rewritten_path_query, e
                     );
                     // Fallback on error
-                    return Ok(DEFAULT_FALLBACK_PEER.clone());
+                    // return Ok(DEFAULT_FALLBACK_PEER.clone());
+                    return Ok(true); // Return true to indicate a successful match
                 }
             }
 
             // Return the cached peer. Cloning Arc is cheap.
-            let peer_address = &peer_arc._address; // Get address string directly
-            let http_peer = HttpPeer::new(peer_address, false, String::new());
-            return Ok(Box::new(http_peer));
+            let peer_address = &peer_arc._address.to_string(); // Get address string directly
+            let _ = session
+                .req_header_mut()
+                .append_header("X-Peer", peer_address);
+            return Ok(true); // Return true to indicate a successful match
         }
 
         // 4. Cache Miss - Apply routing rules
         debug!("Cache miss for key: {}", cache_key);
         debug!("Checking rules for path: {}", path);
-        
+
         let rules = self.get_rules(); // Gets an Arc<Vec<RedirectRule>>
 
         for rule in rules.iter() {
             // ADD THIS LINE FOR DEBUGGING:
-            debug!("Testing path '{}' against rule pattern: '{}' (priority: {})", path, rule.pattern, rule.priority);
+            debug!(
+                "Testing path '{}' against rule pattern: '{}' (priority: {})",
+                path, rule.pattern, rule.priority
+            );
 
             // Match against the path part only
             if let Some(captures) = rule.pattern.captures(path) {
@@ -579,6 +647,15 @@ impl ProxyHttp for GatewayApp {
                     "Rule matched: pattern='{}', target='{}'",
                     rule.pattern, rule.target_template
                 );
+                if let Some(sni) = rule.sni.clone() {
+                    if authority != sni {
+                        debug!(
+                            "SNI mismatch: expected '{}', got '{}'. Using default fallback.",
+                            sni, authority
+                        );
+                        return Ok(true);
+                    }
+                }
 
                 // FIX: Use Captures::expand with a String buffer.
                 let mut rewritten_path_buf = String::new(); // Use String buffer
@@ -599,11 +676,12 @@ impl ProxyHttp for GatewayApp {
                         let mut parts = session.req_header_mut().uri.clone().into_parts();
                         parts.path_and_query = Some(pq);
                         match http::Uri::from_parts(parts) {
-                            Ok(new_uri) => session.req_header_mut().uri = new_uri,
+                            Ok(new_uri) => session.req_header_mut().set_uri(new_uri),
                             Err(e) => {
                                 error!("Error rebuilding URI after rewrite: {}", e);
                                 // Fallback on error
-                                return Ok(DEFAULT_FALLBACK_PEER.clone());
+                                // return Ok(DEFAULT_FALLBACK_PEER.clone());
+                                return Ok(true);
                             }
                         }
                     }
@@ -613,22 +691,26 @@ impl ProxyHttp for GatewayApp {
                             final_path_query, e
                         );
                         // Fallback on error
-                        return Ok(DEFAULT_FALLBACK_PEER.clone());
+                        // return Ok(DEFAULT_FALLBACK_PEER.clone());
+                        return Ok(true);
                     }
                 }
 
                 // Cache the result (cloning Arc is cheap)
                 // Use into_owned() on cache_key if it was borrowed
+                
                 self.route_cache.insert(
                     cache_key.to_owned(),
-                    (final_path_query, rule.alt_target.clone()),
+                    (final_path_query, rule.sni.clone(), rule.alt_target.clone()),
                 );
                 debug!("Cached result for key used in insertion"); // Key might have been owned now
-                // Return the target peer for this rule.
-                // Use the address string from BasicPeer directly
-                let peer_address = &rule.alt_target._address; // Get address string
-                let http_peer = HttpPeer::new(peer_address, false, String::new()); // Create HttpPeer directly
-                return Ok(Box::new(http_peer)); // Box the HttpPeer and return
+                                                                   // Return the target peer for this rule.
+                                                                   // Use the address string from BasicPeer directly
+                let peer_address = &rule.alt_target._address.to_string(); // Get address string
+                let _ = session
+                    .req_header_mut()
+                    .append_header("X-Peer", peer_address);
+                return Ok(true); // Return true to indicate a successful match
             }
         }
 
@@ -638,44 +720,10 @@ impl ProxyHttp for GatewayApp {
             path
         );
         // Clone the precomputed Box<HttpPeer>
-        Ok(DEFAULT_FALLBACK_PEER.clone())
-    }
-
-
-    async fn proxy_upstream_filter(
-        &self,
-        _session: &mut Session,
-        _ctx: &mut Self::CTX,
-    ) -> Result<bool>
-    where
-        Self::CTX: Send + Sync,
-    {
-        
-        // Extract and log the Host header
-        let host = _session.get_header(http::header::HOST)
-            .map(|h| String::from_utf8_lossy(h.as_bytes()).into_owned())
-            .unwrap_or_else(|| "unknown-host".to_string());
-        
-        // Log the host and URI information
-        let uri = _session.req_header().uri.to_string();
-        eprintln!("[XX] Request to Host: {}, URI: {}", host, uri);
-        
-        // For completeness, also check if there's authority information in the URI itself
-        if let Some(authority) = _session.req_header().uri.authority() {
-            let authority_str = authority.as_str();
-            if authority_str != host {
-                eprintln!("[XX] URI authority different from Host header: {}", authority_str);
-            }
-        }
-        
-        // Raw HTTP header dump for debugging
-        let raw_headers = _session.downstream_session.to_h1_raw();
-        let headers_str = String::from_utf8_lossy(&raw_headers);
-        eprintln!("[XX] Raw HTTP headers: {}", headers_str);
-        
+        // Ok(DEFAULT_FALLBACK_PEER.clone())
         Ok(true)
     }
-    
+
     async fn request_body_filter(
         &self,
         _session: &mut Session,
@@ -686,7 +734,6 @@ impl ProxyHttp for GatewayApp {
     where
         Self::CTX: Send + Sync,
     {
-        eprintln!("[XX] Request body filter called");
         Ok(())
     }
 
