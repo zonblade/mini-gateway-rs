@@ -3,6 +3,7 @@
 **/*.rs.bk
 run-dev.sh
 kill_process.sh
+*.pem
 
 # Remove Cargo.lock from gitignore if creating an executable, keep it for libraries
 # More information here https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
