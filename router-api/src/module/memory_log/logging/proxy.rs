@@ -67,9 +67,9 @@ pub fn listen() {
 
                 std::thread::sleep(Duration::from_millis(wait_time));
             }
-            Err(e) => {
+            Err(_e) => {
                 consecutive_empty += 1;
-                std::thread::sleep(Duration::from_millis(10));
+                std::thread::sleep(Duration::from_millis(100));
             }
         }
     }

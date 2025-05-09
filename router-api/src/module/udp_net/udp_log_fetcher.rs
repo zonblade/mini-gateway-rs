@@ -123,7 +123,7 @@ impl UdpLogFetcher {
                                     // Log a warning about dropped messages every 5 seconds
                                     let now = std::time::Instant::now();
                                     if now.duration_since(last_warning_time).as_secs() >= 5 {
-                                        eprintln!("Queue full, dropped {} messages. Consider increasing queue size or adding more consumers.", dropped_count);
+                                        // eprintln!!("Queue full, dropped {} messages. Consider increasing queue size or adding more consumers.", dropped_count);
                                         dropped_count = 0; // Reset counter
                                         last_warning_time = now;
                                     }
@@ -142,7 +142,7 @@ impl UdpLogFetcher {
                     Err(e) => {
                         // Ignore would-block errors which happen on timeout
                         if e.kind() != std::io::ErrorKind::WouldBlock {
-                            eprintln!("Error receiving UDP data: {}", e);
+                            // eprintln!!("Error receiving UDP data: {}", e);
                         }
                     }
                 }

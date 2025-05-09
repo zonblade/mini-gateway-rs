@@ -77,7 +77,7 @@ async fn process_gate_connection(
         
         // Log incoming data before it reaches service
         let message_str = String::from_utf8_lossy(message_buffer);
-        eprintln!("[-TC-]   Incoming data for service '{}': {:#?}", params.service, message_str);
+        eprintln!("[-TC-]   Incoming data for service '{}'", params.service);
 
         // Try to find and use the appropriate service if service handler exists
         if let Some(handler) = &service_handler {

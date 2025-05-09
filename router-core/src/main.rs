@@ -62,7 +62,7 @@ async fn main() {
     {
         system::protocol::start_interface();
     }
-
+    
     eprintln!("[----] Starting service registry...");
     // initialize global sender
     {

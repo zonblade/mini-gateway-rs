@@ -185,6 +185,7 @@ impl DataRegistry {
         config::RoutingData::ProxyID.xset(checksum);
         config::RoutingData::ProxyRouting.xset(proxy_data);
         // restart services
+        
         terminator::service::init();
         Ok(())
     }
@@ -340,6 +341,8 @@ impl ServiceProtocol for DataRegistry {
         let request_str = String::from_utf8_lossy(buffer);
         log::debug!("Received request: {}", request_str);
         let action = &params.action;
+        
+        socket.set_nodelay(true)?;
 
         let response = match (action.as_str(), request_str.as_ref()) {
             ("proxy", payload) => match Self::proxy_data(payload.to_string()) {

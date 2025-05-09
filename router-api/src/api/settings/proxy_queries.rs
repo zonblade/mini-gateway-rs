@@ -199,7 +199,7 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
 ///             println!("Proxy: {} ({})", proxy.title, proxy.addr_listen);
 ///         }
 ///     },
-///     Err(err) => eprintln!("Error retrieving proxies: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving proxies: {}", err),
 /// }
 /// ```
 pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
@@ -269,7 +269,7 @@ pub fn get_all_proxies() -> Result<Vec<Proxy>, DatabaseError> {
 /// match proxy_queries::get_proxy_by_id(proxy_id) {
 ///     Ok(Some(proxy)) => println!("Found proxy: {} ({})", proxy.title, proxy.addr_listen),
 ///     Ok(None) => println!("No proxy found with ID: {}", proxy_id),
-///     Err(err) => eprintln!("Error retrieving proxy: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving proxy: {}", err),
 /// }
 /// ```
 pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
@@ -390,7 +390,7 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
 /// match proxy_queries::delete_proxy_by_id(proxy_id) {
 ///     Ok(true) => println!("Proxy deleted successfully"),
 ///     Ok(false) => println!("No proxy found with ID: {}", proxy_id),
-///     Err(err) => eprintln!("Error deleting proxy: {}", err),
+///     Err(err) => // eprintln!!("Error deleting proxy: {}", err),
 /// }
 /// ```
 pub fn delete_proxy_by_id(id: &str) -> Result<bool, DatabaseError> {
@@ -433,7 +433,7 @@ pub fn delete_proxy_by_id(id: &str) -> Result<bool, DatabaseError> {
 ///
 /// match proxy_queries::generate_target_address() {
 ///     Ok(addr) => println!("Generated target address: {}", addr),
-///     Err(err) => eprintln!("Error generating address: {}", err),
+///     Err(err) => // eprintln!!("Error generating address: {}", err),
 /// }
 /// ```
 pub fn generate_target_address() -> Result<String, String> {
@@ -483,7 +483,7 @@ pub fn generate_target_address() -> Result<String, String> {
 /// match has_duplicate_listen_address("0.0.0.0:443", Some("proxy-1")) {
 ///     Ok(true) => println!("Cannot enable high-speed mode for this address"),
 ///     Ok(false) => println!("High-speed mode can be enabled"),
-///     Err(e) => eprintln!("Database error: {}", e),
+///     Err(e) => // eprintln!!("Database error: {}", e),
 /// }
 /// ```
 pub fn has_duplicate_listen_address(listen_addr: &str, exclude_id: Option<&str>) -> Result<bool, DatabaseError> {

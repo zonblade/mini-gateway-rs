@@ -18,7 +18,7 @@ use super::default_page;
 use crate::{
     app::gateway_fast::GatewayApp,
     config::{self, GatewayNode, ProxyNode},
-    service,
+    service, system,
 };
 use pingora::{
     listeners::tls::TlsSettings,

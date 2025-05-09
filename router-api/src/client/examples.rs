@@ -123,7 +123,7 @@ pub struct LoginResponse {
 /// ```rust
 /// // In your application code:
 /// if let Err(err) = example_usage().await {
-///     eprintln!("Login example failed: {}", err);
+///     // eprintln!!("Login example failed: {}", err);
 /// }
 /// ```
 #[allow(dead_code)]

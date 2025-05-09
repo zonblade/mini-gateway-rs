@@ -104,7 +104,7 @@ pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
 ///             println!("Gateway node: {} (title: {}, proxy: {})", node.id, node.title, node.proxy_id);
 ///         }
 ///     },
-///     Err(err) => eprintln!("Error retrieving gateway nodes: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateway nodes: {}", err),
 /// }
 /// ```
 pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
@@ -180,7 +180,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<GatewayNode>, DatabaseError> {
 ///     Ok(Some(node)) => println!("Found gateway node: {} (title: {}, alt_target: {})",
 ///                                node.id, node.title, node.alt_target),
 ///     Ok(None) => println!("No gateway node found with ID: {}", node_id),
-///     Err(err) => eprintln!("Error retrieving gateway node: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateway node: {}", err),
 /// }
 /// ```
 pub fn get_gateway_node_by_id(id: &str) -> Result<Option<GatewayNode>, DatabaseError> {
@@ -257,7 +257,7 @@ pub fn get_gateway_node_by_id(id: &str) -> Result<Option<GatewayNode>, DatabaseE
 ///                      node.id, node.title, node.alt_target);
 ///         }
 ///     },
-///     Err(err) => eprintln!("Error retrieving gateway nodes: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateway nodes: {}", err),
 /// }
 /// ```
 pub fn get_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<Vec<GatewayNode>, DatabaseError> {
@@ -340,7 +340,7 @@ pub fn get_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<Vec<GatewayNode>,
 ///
 /// match gwnode_queries::save_gateway_node(&node) {
 ///     Ok(()) => println!("Gateway node saved successfully"),
-///     Err(err) => eprintln!("Error saving gateway node: {}", err),
+///     Err(err) => // eprintln!!("Error saving gateway node: {}", err),
 /// }
 /// ```
 pub fn save_gateway_node(node: &GatewayNode) -> Result<(), DatabaseError> {
@@ -406,7 +406,7 @@ pub fn save_gateway_node(node: &GatewayNode) -> Result<(), DatabaseError> {
 /// match gwnode_queries::delete_gateway_node_by_id(node_id) {
 ///     Ok(true) => println!("Gateway node deleted successfully"),
 ///     Ok(false) => println!("No gateway node found with ID: {}", node_id),
-///     Err(err) => eprintln!("Error deleting gateway node: {}", err),
+///     Err(err) => // eprintln!!("Error deleting gateway node: {}", err),
 /// }
 /// ```
 pub fn delete_gateway_node_by_id(id: &str) -> Result<bool, DatabaseError> {
@@ -470,7 +470,7 @@ pub fn generate_gateway_node_id() -> String {
 /// let proxy_id = "550e8400-e29b-41d4-a716-446655440000";
 /// match gwnode_queries::unbind_gateway_nodes_by_proxy_id(proxy_id) {
 ///     Ok(count) => println!("{} gateway nodes were marked as unbound", count),
-///     Err(err) => eprintln!("Error unbinding gateway nodes: {}", err),
+///     Err(err) => // eprintln!!("Error unbinding gateway nodes: {}", err),
 /// }
 /// ```
 pub fn unbind_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<usize, DatabaseError> {

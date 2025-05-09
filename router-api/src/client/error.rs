@@ -40,15 +40,15 @@
 //!     },
 //!     Err(ClientError::ConnectionError(msg)) => {
 //!         // Handle connection problems
-//!         eprintln!("Connection problem: {}", msg);
+//!         // eprintln!!("Connection problem: {}", msg);
 //!     },
 //!     Err(ClientError::SerializationError(msg)) => {
 //!         // Handle serialization issues
-//!         eprintln!("Failed to serialize or deserialize data: {}", msg);
+//!         // eprintln!!("Failed to serialize or deserialize data: {}", msg);
 //!     },
 //!     Err(e) => {
 //!         // Handle any other errors
-//!         eprintln!("Unexpected error: {}", e);
+//!         // eprintln!!("Unexpected error: {}", e);
 //!     }
 //! }
 //! ```

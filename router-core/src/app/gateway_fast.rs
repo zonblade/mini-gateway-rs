@@ -650,7 +650,6 @@ impl ProxyHttp for GatewayApp {
     where
         Self::CTX: Send + Sync,
     {
-        eprintln!("Request body filter called");
         Ok(())
     }
 

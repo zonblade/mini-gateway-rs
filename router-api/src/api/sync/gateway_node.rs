@@ -1,7 +1,7 @@
 use actix_web::{post, HttpResponse};
 use serde::{Deserialize, Serialize};
 
-use crate::api::sync::gateway_node_tcp::sync_gateway_nodes_to_registry;
+use crate::api::sync::gateway_node_tcp::{sync_gateway_nodes_to_registry, sync_gateway_paths_to_registry};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNode {
@@ -24,13 +24,26 @@ pub struct GatewayNode {
 #[post("/gateway")]
 pub async fn gateway() -> HttpResponse {
     
-    let result = sync_gateway_nodes_to_registry().await;
-
-    match result {
-        Ok(data)=> HttpResponse::Ok().json(data),
+    let result = match sync_gateway_nodes_to_registry().await {
+        Ok(data) => {
+            log::info!("Successfully synced gateway nodes to registry");
+            let path_result = sync_gateway_paths_to_registry().await;
+            match path_result {
+                Ok(paths) => {
+                    log::info!("Successfully synced gateway paths to registry");
+                    data
+                }
+                Err(e) => {
+                    log::error!("Failed to sync gateway paths: {}", e);
+                    return HttpResponse::BadRequest().body("Failed to sync gateway paths");
+                }
+            }
+        }
         Err(e) => {
             log::error!("Failed to sync gateway nodes: {}", e);
-            HttpResponse::BadRequest().body("Failed to sync gateway nodes")
+            return HttpResponse::BadRequest().body("Failed to sync gateway nodes");
         }
-    }
+    };
+
+    HttpResponse::Ok().json(result)
 }

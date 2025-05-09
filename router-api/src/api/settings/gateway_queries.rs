@@ -105,7 +105,7 @@ pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
 ///                     gateway.id, gateway.pattern, gateway.priority);
 ///         }
 ///     },
-///     Err(err) => eprintln!("Error retrieving gateways: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateways: {}", err),
 /// }
 /// ```
 pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
@@ -166,7 +166,7 @@ pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
 ///     Ok(Some(gateway)) => println!("Found gateway: {} (pattern: {}, priority: {})", 
 ///                                   gateway.id, gateway.pattern, gateway.priority),
 ///     Ok(None) => println!("No gateway found with ID: {}", gateway_id),
-///     Err(err) => eprintln!("Error retrieving gateway: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateway: {}", err),
 /// }
 /// ```
 pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
@@ -236,7 +236,7 @@ pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
 ///                     gateway.id, gateway.pattern, gateway.priority);
 ///         }
 ///     },
-///     Err(err) => eprintln!("Error retrieving gateways: {}", err),
+///     Err(err) => // eprintln!!("Error retrieving gateways: {}", err),
 /// }
 /// ```
 pub fn get_gateways_by_gwnode_id(gwnode_id: &str) -> Result<Vec<Gateway>, DatabaseError> {
@@ -305,7 +305,7 @@ pub fn get_gateways_by_gwnode_id(gwnode_id: &str) -> Result<Vec<Gateway>, Databa
 ///
 /// match gateway_queries::save_gateway(&gateway) {
 ///     Ok(()) => println!("Gateway saved successfully"),
-///     Err(err) => eprintln!("Error saving gateway: {}", err),
+///     Err(err) => // eprintln!!("Error saving gateway: {}", err),
 /// }
 /// ```
 pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
@@ -360,7 +360,7 @@ pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
 /// match gateway_queries::delete_gateway_by_id(gateway_id) {
 ///     Ok(true) => println!("Gateway deleted successfully"),
 ///     Ok(false) => println!("No gateway found with ID: {}", gateway_id),
-///     Err(err) => eprintln!("Error deleting gateway: {}", err),
+///     Err(err) => // eprintln!!("Error deleting gateway: {}", err),
 /// }
 /// ```
 pub fn delete_gateway_by_id(id: &str) -> Result<bool, DatabaseError> {
