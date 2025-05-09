@@ -41,8 +41,6 @@
 // use pingora::http::ResponseHeader;
 use async_trait::async_trait;
 use bytes::Bytes;
-use http::uri::Builder;
-use http::Uri;
 use log::{debug, error, info, warn};
 // Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
@@ -53,7 +51,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
-use std::ops::Deref;
 use std::sync::{Arc, LazyLock, RwLock};
 use std::time::{Duration, Instant};
 // lazy_static is not used anymore
