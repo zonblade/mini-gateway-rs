@@ -123,7 +123,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
         for node_id in node_ids {
             let tls_query = "
                 SELECT 
-                    pd.tls,
+                    IFNULL(pd.tls, 0) AS tls,
                     pd.sni,
                     pd.tls_pem,
                     pd.tls_key
@@ -135,7 +135,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
                     gn.id = ?
                 UNION
                 SELECT 
-                    pd.tls,
+                    IFNULL(pd.tls, 0) AS tls,
                     pd.sni,
                     pd.tls_pem,
                     pd.tls_key
@@ -184,6 +184,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QGatewayPath {
     pub priority: u8,        // from gateway table
+    pub tls: bool,          // from proxy_domain table
     pub sni: Option<String>, // from proxy_domain table
     pub addr_bind: String, // from proxy table
     pub addr_target: String, // from gateway node table
@@ -251,7 +252,8 @@ pub fn get_all_gateway_paths() -> Result<Vec<QGatewayPath>, DatabaseError> {
         p.addr_target AS addr_bind,
         gn.alt_target AS addr_target,
         g.pattern AS path_listen,
-        g.target AS path_target
+        g.target AS path_target,
+        IFNULL(pd.tls, 0) AS tls
     FROM gateways g
     JOIN gateway_nodes gn ON g.gwnode_id = gn.id
     JOIN proxies p ON gn.proxy_id = p.id
@@ -261,11 +263,12 @@ pub fn get_all_gateway_paths() -> Result<Vec<QGatewayPath>, DatabaseError> {
     let rows = db.query(query, [], |row| {
         Ok(QGatewayPath {
             priority: row.get(0)?,
-            sni: row.get(1)?,
+            sni: row.get::<_, Option<String>>(1)?,
             addr_bind: row.get(2)?,
             addr_target: row.get(3)?,
             path_listen: row.get(4)?,
             path_target: row.get(5)?,
+            tls: row.get(6)?,
         })
     })?;
     

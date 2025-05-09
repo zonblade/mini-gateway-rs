@@ -153,6 +153,7 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
 #[derive(Clone, Debug)]
 struct RedirectRule {
     pattern: Regex,             // Compiled regex for matching
+    tls: bool,                  // Flag for TLS connections
     sni: Option<String>,        // Optional SNI for TLS connections
     target_template: String,    // Template string for path transformation (e.g., "/v2/api/$1")
     _alt_listen: String,        // Listener address this rule applies to
@@ -179,7 +180,7 @@ static DEFAULT_FALLBACK_PEER: LazyLock<Box<HttpPeer>> = LazyLock::new(|| {
     // Emergency fallback would be handled in upstream_peer if needed
 });
 
-static DEFAULT_FALLBACK_PEER_PORT: &str = DEFAULT_PORT.p404;
+static _DEFAULT_FALLBACK_PEER_PORT: &str = DEFAULT_PORT.p404;
 
 // --- Gateway Application ---
 
@@ -189,7 +190,7 @@ pub struct GatewayApp {
     source: String,                   // Listener address (e.g., "0.0.0.0:8080")
     last_check_time: RwLock<Instant>, // Last time config was checked
     check_interval: Duration,         // How often to check for config changes
-    route_cache: Arc<ShardedLruCache<String, (String, Option<String>, Arc<BasicPeer>)>>, // Cache: key=path+query, value=(rewritten_path+query, sni, target_peer)
+    route_cache: Arc<ShardedLruCache<String, (String, Option<String>, bool, Arc<BasicPeer>)>>, // Cache: key=path+query, value=(rewritten_path+query, sni, tls, target_peer)
 }
 
 impl GatewayApp {
@@ -331,6 +332,7 @@ impl GatewayApp {
 
             applicable_rules.push(RedirectRule {
                 pattern,
+                tls: node.tls,                     // TLS flag
                 sni: node.sni.clone(),             // Optional SNI
                 target_template: node.path_target, // Store the template string
                 _alt_listen: node.addr_bind,       // Already checked, but store for completeness
@@ -550,13 +552,19 @@ impl ProxyHttp for GatewayApp {
 
         // Extract authority (host:port) from URI
         let authority = match session.req_header().uri.authority() {
-            Some(a) => a.as_str().split(':').next().unwrap_or(a.as_str()),
+            Some(a) => {
+                a.as_str().split(':').next().unwrap_or(a.as_str())
+            },
             None => {
-                error!("No authority found in URI. Cannot validate domain.");
-                return Ok(true); // Return true to continue processing anyway
+                error!("No authority found in URI. fallback to header");
+                let host = session.req_header().headers.get(http::header::HOST);
+                let host = match host {
+                    Some(h) => h.to_str().unwrap_or(""),
+                    None => ""
+                };
+                host.split(':').next().unwrap_or(host)
             }
         };
-
 
         //
         //
@@ -578,12 +586,12 @@ impl ProxyHttp for GatewayApp {
         };
 
         // 3. Check cache using the String key
-        if let Some((rewritten_path_query, sni, peer_arc)) = self.route_cache.get(&cache_key) {
+        if let Some((rewritten_path_query, sni, _tls, peer_arc)) = self.route_cache.get(&cache_key) {
             // Cache Hit!
             debug!("Cache hit for key: {}", cache_key);
             if let Some(sni) = sni {
                 if authority != sni {
-                    debug!(
+                    error!(
                         "SNI mismatch: expected '{}', got '{}'. Using default fallback.",
                         sni, authority
                     );
@@ -626,7 +634,6 @@ impl ProxyHttp for GatewayApp {
 
         // 4. Cache Miss - Apply routing rules
         debug!("Cache miss for key: {}", cache_key);
-        debug!("Checking rules for path: {}", path);
 
         let rules = self.get_rules(); // Gets an Arc<Vec<RedirectRule>>
 
@@ -646,7 +653,7 @@ impl ProxyHttp for GatewayApp {
                 );
                 if let Some(sni) = rule.sni.clone() {
                     if authority != sni {
-                        debug!(
+                        error!(
                             "SNI mismatch: expected '{}', got '{}'. Using default fallback.",
                             sni, authority
                         );
@@ -698,7 +705,7 @@ impl ProxyHttp for GatewayApp {
                 
                 self.route_cache.insert(
                     cache_key.to_owned(),
-                    (final_path_query, rule.sni.clone(), rule.alt_target.clone()),
+                    (final_path_query, rule.sni.clone(), rule.tls, rule.alt_target.clone()),
                 );
                 debug!("Cached result for key used in insertion"); // Key might have been owned now
                                                                    // Return the target peer for this rule.

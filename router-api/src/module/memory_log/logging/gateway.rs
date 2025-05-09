@@ -25,8 +25,8 @@ pub fn listen() {
         let now = Instant::now();
         if now.duration_since(last_status_print) >= status_interval {
             log::warn!(
-                "Processed {} messages, Errors {}, queue size: {}\r",
-                message_counter, consecutive_empty, log_consumer.queue_size()
+                "   Message {} , Empty {}",
+                message_counter, consecutive_empty
             );
             last_status_print = now;
         }
@@ -69,7 +69,13 @@ pub fn listen() {
             }
             Err(_e) => {
                 consecutive_empty += 1;
-                std::thread::sleep(Duration::from_millis(100));
+                // Exponential backoff with max cap
+                let wait_time = match consecutive_empty {
+                    0..=4 => 10,
+                    5..=19 => 50,
+                    _ => 200,
+                };
+                std::thread::sleep(Duration::from_millis(wait_time));
             }
         }
     }

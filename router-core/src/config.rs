@@ -154,6 +154,7 @@ pub struct ProxyNode {
 pub struct GatewayPath {
     pub priority: u8,
     pub sni: Option<String>,
+    pub tls: bool,
     pub addr_bind: String,
     pub addr_target: String,
     pub path_listen: String,
