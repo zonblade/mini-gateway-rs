@@ -5,9 +5,13 @@
     export let domains: TlsDomain[] = [];
     export let onEdit: () => void;
     export let onDelete: () => void;
-    
+
     // Get the main domain or the first domain in the list
     $: mainDomain = domains.length > 0 ? domains[0].sni : null;
+
+    // Calculate TLS stats
+    $: tlsEnabledCount = domains.filter((d) => d.tls).length;
+    $: tlsDisabledCount = domains.length - tlsEnabledCount;
 </script>
 
 <div
@@ -26,9 +30,23 @@
                     class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 p-1"
                     aria-label="Edit proxy"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path
+                            d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                        ></path>
+                        <path
+                            d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                        ></path>
                     </svg>
                 </button>
                 <button
@@ -36,9 +54,21 @@
                     class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
                     aria-label="Delete proxy"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
                         <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        <path
+                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                        ></path>
                         <line x1="10" y1="11" x2="10" y2="17"></line>
                         <line x1="14" y1="11" x2="14" y2="17"></line>
                     </svg>
@@ -46,34 +76,109 @@
             </div>
         </div>
         <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            <div class="flex items-center my-1">
-                <span class="font-medium w-20">Listen:</span>
-                <span class="truncate">{proxy.addr_listen}</span>
-            </div>
-            
-            {#if domains.length > 0}
-                <div class="flex items-center my-1">
-                    <span class="font-medium w-20">Domain{domains.length > 1 ? 's' : ''}:</span>
-                    <div class="flex flex-col">
-                        {#each domains.slice(0, 2) as domain}
-                            <span class="truncate">{domain.sni || 'No domain'}</span>
-                        {/each}
-                        {#if domains.length > 2}
-                            <span class="truncate text-gray-500">+{domains.length - 2} more</span>
-                        {/if}
+            <table class="w-full">
+                <tbody>
+                    <tr>
+                        <td class="py-1 font-medium w-1/3">Listen</td>
+                        <td class="py-1 truncate">:&ensp;{proxy.addr_listen}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-1 font-medium w-1/3"
+                            >Domain{domains.length > 1 ? "s" : ""}</td
+                        >
+                        <td class="py-1">
+                            {#if domains.length > 0}
+                                <span class="truncate text-gray-500"
+                                    >:&ensp;{domains.length} Domain enabled</span
+                                >
+                            {:else}
+                                <span class="text-gray-500">:&ensp;No domains</span>
+                            {/if}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="py-1 font-medium w-1/3">High-Speed</td>
+                        <td class="py-1">
+                            :&ensp;
+                            {#if proxy.high_speed}
+                                <span class="text-emerald-500 dark:text-emerald-400 font-medium">Enabled</span>
+                            {:else}
+                                <span class="text-gray-400 dark:text-gray-500">Disabled</span>
+                            {/if}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="border-b border-gray-200/20 mt-2 mb-2"></div>
+            <div>
+                {#if proxy.high_speed}
+                    <!-- Warning with more vibrant pastel style -->
+                    <div
+                        class="bg-pink-100 dark:bg-pink-900/40 text-pink-800 dark:text-pink-200 text-xs mb-2 p-2 rounded-md flex items-center border border-pink-200 dark:border-pink-800"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-6 min-w-[32px] mr-1"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                            />
+                        </svg>
+                        <span
+                            >If High speed enabled, only selected Gateway domain will be enabled.</span
+                        >
                     </div>
-                </div>
-            {/if}
-            
-            <div class="flex items-center my-1">
-                <span class="font-medium w-20">TLS:</span>
-                <span>{domains.some(d => d.tls_pem || d.tls_key || d.tls_autron) ? 'Yes' : 'No'}</span>
+                {/if}
+                {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}
+                    <!-- Warning with more vibrant pastel style -->
+                    <div
+                        class="bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-200 text-xs mb-2 p-2 rounded-md flex items-center border border-orange-200 dark:border-orange-800"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-6 min-w-[32px] mr-1"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                            />
+                        </svg>
+                        <span
+                            >If one of the domain is enabling TLS, the non-TLS
+                            domain will be ignored.</span
+                        >
+                    </div>
+                {/if}
             </div>
-            
-            <div class="flex items-center my-1">
-                <span class="font-medium w-20">High-Speed:</span>
-                <span>{proxy.high_speed ? 'Yes' : 'No'}</span>
-            </div>
+            <div class="font-medium mb-1">TLS Status</div>
+            <table class="w-full border-collapse text-xs">
+                <tbody>
+                    <tr>
+                        <td class="py-1">TLS</td>
+                        <td class="py-1">:&ensp;{tlsEnabledCount} Domain</td>
+                    </tr>
+                    <tr>
+                        <td class="py-1">TCP</td>
+                        <td class="py-1"
+                            >:&ensp;{tlsDisabledCount} Domain {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}<span
+                                    class="text-red-600 dark:text-red-400 font-semibold"
+                                    >(ignored)</span
+                                >{/if}</td
+                        >
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

@@ -18,7 +18,7 @@ use super::default_page;
 use crate::{
     app::gateway_fast::GatewayApp,
     config::{self, GatewayNode, ProxyNode},
-    service, system,
+    service,
 };
 use pingora::{
     listeners::tls::TlsSettings,
@@ -52,7 +52,7 @@ mod boringssl_openssl {
 
     impl DynamicCert {
         pub(super) fn new() -> Box<Self> {
-            Box::new(DynamicCert { 
+            Box::new(DynamicCert {
                 certs: Vec::new(),
                 cache: Mutex::new(HashMap::new()),
                 max_cache_size: 1000, // Default size, can be adjusted based on expected traffic patterns
@@ -86,15 +86,18 @@ mod boringssl_openssl {
             // Existing implementation
             if pattern.starts_with("*.") {
                 let suffix = &pattern[1..];
-                domain.ends_with(suffix) && 
-                domain[..domain.len() - suffix.len()].matches('.').count() == 0
+                domain.ends_with(suffix)
+                    && domain[..domain.len() - suffix.len()].matches('.').count() == 0
             } else {
                 pattern == domain
             }
         }
 
         // Find certificate for a hostname and cache the result
-        fn find_cert_for_hostname(&self, hostname: &str) -> Option<(Arc<X509>, Arc<PKey<Private>>)> {
+        fn find_cert_for_hostname(
+            &self,
+            hostname: &str,
+        ) -> Option<(Arc<X509>, Arc<PKey<Private>>)> {
             // First check the cache
             {
                 let cache = self.cache.lock().unwrap();
@@ -105,11 +108,11 @@ mod boringssl_openssl {
 
             // Not in cache, search for it
             let result = self.find_matching_cert(hostname);
-            
+
             // If found, add to cache
             if let Some((cert, key)) = &result {
                 let mut cache = self.cache.lock().unwrap();
-                
+
                 // Simple cache size management
                 if cache.len() >= self.max_cache_size {
                     // Remove some entries if we're at capacity
@@ -126,13 +129,13 @@ mod boringssl_openssl {
                         cache.clear(); // Small cache, just clear it
                     }
                 }
-                
+
                 cache.insert(hostname.to_string(), (cert.clone(), key.clone()));
             }
-            
+
             result
         }
-        
+
         // Search for matching certificate (exact or wildcard)
         fn find_matching_cert(&self, hostname: &str) -> Option<(Arc<X509>, Arc<PKey<Private>>)> {
             // First try exact matches
@@ -152,13 +155,16 @@ mod boringssl_openssl {
                     }
                 }
             }
-            
+
             // No match found, return the default if available
             if !self.certs.is_empty() {
                 let (_, default_cert, default_key) = &self.certs[0];
-                return Some((Arc::new(default_cert.clone()), Arc::new(default_key.clone())));
+                return Some((
+                    Arc::new(default_cert.clone()),
+                    Arc::new(default_key.clone()),
+                ));
             }
-            
+
             None
         }
     }
@@ -249,7 +255,10 @@ pub fn init() {
 
                 // check if the listen address is already listened
                 if already_listened.contains(&listen_addr) {
-                    eprintln!("[----] Gateway service {} is already listened", &listen_addr);
+                    eprintln!(
+                        "[----] Gateway service {} is already listened",
+                        &listen_addr
+                    );
                     continue;
                 }
                 already_listened.push(listen_addr.clone());
@@ -400,7 +409,8 @@ pub fn init() {
     // Wait for all server threads to complete (typically on shutdown)
     for handle in server_threads {
         eprintln!("[----] Waiting for server thread to finish...");
-        eprintln!(r#"
+        eprintln!(
+            r#"
 [----] ------------------ start docs ---------------------------[----]
 [----]                                                          [----]
 [----] This is the server thread that handles all the requests. [----]
@@ -413,7 +423,8 @@ pub fn init() {
 [----]   CTRL+X                                                 [----]
 [----]                                                          [----]
 [----] -------------------- end docs ---------------------------[----]
-"#);
+"#
+        );
         if let Err(e) = handle.join() {
             eprintln!("[----] Server thread failed: {:?}", e);
         }
