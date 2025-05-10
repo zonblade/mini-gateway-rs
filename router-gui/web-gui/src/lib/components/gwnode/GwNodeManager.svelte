@@ -11,6 +11,7 @@
     import SearchInput from "$lib/components/common/SearchInput.svelte";
     import EmptyState from "$lib/components/common/EmptyState.svelte";
     import Button from "$lib/components/common/Button.svelte";
+    import Swal from "sweetalert2";
     
     // For search functionality
     export let searchTerm = "";
@@ -133,22 +134,58 @@
                 await gwnodeActions.createGwNode(createRequest);
             }
             
+            // Show success message
+            await Swal.fire({
+                title: isEditMode ? 'Updated!' : 'Created!',
+                text: `Gateway node successfully ${isEditMode ? 'updated' : 'created'}.`,
+                icon: 'success',
+                timer: 2000,
+                showConfirmButton: false
+            });
+            
             // Close the modal
             showGwNodeModal = false;
         } catch (error: unknown) {
             console.error("Error saving gateway node:", error);
-            alert(`Failed to save gateway node: ${error instanceof Error ? error.message : String(error)}`);
+            await Swal.fire({
+                title: 'Error!',
+                text: `Failed to save gateway node: ${error instanceof Error ? error.message : String(error)}`,
+                icon: 'error'
+            });
         }
     }
     
     // Function to delete a gwnode
     async function deleteGwNode(id: string): Promise<void> {
-        if (confirm("Are you sure you want to delete this gateway node?")) {
+        const result = await Swal.fire({
+            title: 'Are you sure?',
+            text: "You won't be able to revert this!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Yes, delete it!'
+        });
+        
+        if (result.isConfirmed) {
             try {
                 await gwnodeActions.deleteGwNode(id);
+                
+                // Show success message
+                await Swal.fire({
+                    title: 'Deleted!',
+                    text: 'The gateway node has been deleted.',
+                    icon: 'success',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
             } catch (error: unknown) {
                 console.error("Error deleting gateway node:", error);
-                alert(`Failed to delete gateway node: ${error instanceof Error ? error.message : String(error)}`);
+                await Swal.fire({
+                    title: 'Error!',
+                    text: `Failed to delete gateway node: ${error instanceof Error ? error.message : String(error)}`,
+                    icon: 'error'
+                });
             }
         }
     }
@@ -156,16 +193,40 @@
     // Function to sync gateway nodes with the server
     async function syncGatewayNodes(): Promise<void> {
         try {
+            // Show loading indicator
+            Swal.fire({
+                title: 'Syncing...',
+                text: 'Please wait while we sync gateway nodes',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            
             isLoading = true;
             loadError = null;
             const result = await gwnodeActions.syncGatewayNodes();
             isLoading = false;
-            alert(result.message);
+            
+            // Show success message
+            await Swal.fire({
+                title: 'Success!',
+                text: result.message,
+                icon: 'success',
+                timer: 2000,
+                showConfirmButton: false
+            });
         } catch (error: unknown) {
             console.error("Error syncing gateway nodes:", error);
             loadError = error instanceof Error ? error.message : "Failed to sync nodes";
-            alert(`Failed to sync gateway nodes: ${error instanceof Error ? error.message : String(error)}`);
             isLoading = false;
+            
+            // Show error message
+            await Swal.fire({
+                title: 'Sync Failed',
+                text: `Failed to sync gateway nodes: ${error instanceof Error ? error.message : String(error)}`,
+                icon: 'error'
+            });
         }
     }
     
