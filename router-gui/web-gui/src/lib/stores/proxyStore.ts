@@ -174,7 +174,7 @@ function createProxyStore() {
                 update(state => ({ 
                     ...state, 
                     loading: false, 
-                    loadError: true,
+                    loadError: false,
                     error: err instanceof Error ? err.message : 'An unknown error occurred' 
                 }));
                 throw err;

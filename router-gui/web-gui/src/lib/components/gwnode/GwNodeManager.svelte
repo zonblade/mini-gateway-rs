@@ -218,7 +218,7 @@
             });
         } catch (error: unknown) {
             console.error("Error syncing gateway nodes:", error);
-            loadError = error instanceof Error ? error.message : "Failed to sync nodes";
+            // loadError = error instanceof Error ? error.message : "Failed to sync nodes";
             isLoading = false;
             
             // Show error message
