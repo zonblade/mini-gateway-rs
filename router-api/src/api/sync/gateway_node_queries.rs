@@ -86,6 +86,8 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
             gateway_nodes gn
         JOIN 
             proxies p ON gn.proxy_id = p.id
+        WHERE
+            p.high_speed = 0
     ";
 
     let listening_addresses = db.query(addr_query, [], |row| {

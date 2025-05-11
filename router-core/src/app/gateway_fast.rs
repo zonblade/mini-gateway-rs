@@ -58,11 +58,36 @@ use lru::LruCache; // Use the standard LRU crate
 
 // Assuming these are correctly defined in your project structure
 use crate::config::{self, GatewayPath, DEFAULT_PORT};
+use crate::system::writer::rawid::atomic_id;
 
 // Number of cache shards to reduce lock contention
 const CACHE_SHARDS: usize = 16;
 // Default capacity per shard if not otherwise specified
 const DEFAULT_PER_SHARD_CAPACITY: usize = 250; // ~4000 total routes
+
+pub struct ContextGw {
+    pub conn_id: Option<String>,
+    pub websocket: bool,
+    pub conn_type: Option<String>,
+    pub peer: Option<String>,
+    pub size_in: usize,
+    pub size_out: usize,
+    pub src_addr: Option<String>,
+}
+
+impl Default for ContextGw {
+    fn default() -> Self {
+        Self {
+            conn_id: None,
+            websocket: false,
+            conn_type: None,
+            peer: None,
+            size_in: 0,
+            size_out: 0,
+            src_addr: None,
+        }
+    }
+}
 
 // --- Sharded LRU Cache Implementation ---
 // Uses the `lru` crate for efficient O(1) operations.
@@ -504,35 +529,41 @@ fn is_regex_pattern(pattern: &str) -> bool {
 
 #[async_trait]
 impl ProxyHttp for GatewayApp {
-    type CTX = (); // No context needed for this simple router
+    type CTX = ContextGw; // No context needed for this simple router
 
-    fn new_ctx(&self) -> Self::CTX {}
+    fn new_ctx(&self) -> Self::CTX {
+        ContextGw {
+            src_addr: Some(self.source.clone()),
+            ..Default::default()
+        }
+    }
 
     /// Core routing logic: checks cache, applies rules, updates request, returns upstream peer.
     async fn upstream_peer(
         &self,
-        session: &mut Session,
+        _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
-        let peer = match session.get_header("X-Peer") {
-            Some(peer) => peer.to_str(),
+        let peer = match &_ctx.peer {
+            Some(peer) => peer,
             None => {
-                // No X-Peer header, use default fallback
-                log::error!("[XX] No X-Peer header found. Using default fallback.");
-                return Ok(DEFAULT_FALLBACK_PEER.clone());
+                error!("No peer found in context. Returning default fallback peer.");
+                return Ok(DEFAULT_FALLBACK_PEER.clone()); // Return the precomputed default
             }
         };
 
-        let peer = match peer {
-            Ok(p) => p,
-            Err(e) => {
-                error!("[XX] Invalid X-Peer header: {}. Using default fallback.", e);
-                return Ok(DEFAULT_FALLBACK_PEER.clone());
-            }
-        };
+        if _ctx.websocket {
+            info!(
+                "[GWX] | ID:{:?}, TYPE:INIT, CONN:{:?}, SIZE:{}, STAT:N/A, SRC:{:?}, DST:{:?} |",
+                _ctx.conn_id,
+                Some("WS"),
+                0,
+                _ctx.src_addr,
+                _ctx.peer
+            );
+        }
 
         let http_peer = HttpPeer::new(peer, false, String::new());
-        session.req_header_mut().remove_header("X-Peer");
         return Ok(Box::new(http_peer));
     }
 
@@ -544,27 +575,43 @@ impl ProxyHttp for GatewayApp {
     where
         Self::CTX: Send + Sync,
     {
+        _ctx.conn_id = Some(atomic_id());
         //
         //
         // --- validate domain if using TLS ---
         //
         //
+        let upgrade_conn = match session.req_header().headers.get(http::header::UPGRADE) {
+            Some(upgrade) => upgrade.to_str().unwrap_or(""),
+            None => "",
+        };
 
         // Extract authority (host:port) from URI
         let authority = match session.req_header().uri.authority() {
-            Some(a) => {
-                a.as_str().split(':').next().unwrap_or(a.as_str())
-            },
+            Some(a) => a.as_str().split(':').next().unwrap_or(a.as_str()),
             None => {
                 error!("No authority found in URI. fallback to header");
                 let host = session.req_header().headers.get(http::header::HOST);
                 let host = match host {
-                    Some(h) => h.to_str().unwrap_or(""),
-                    None => ""
+                    Some(h) => match h.to_str() {
+                        Ok(h) => h,
+                        Err(_) => {
+                            error!("Invalid host header value. Using empty string.");
+                            ""
+                        }
+                    },
+                    None => "",
                 };
                 host.split(':').next().unwrap_or(host)
             }
         };
+
+        if upgrade_conn == "websocket" {
+            _ctx.websocket = true;
+            _ctx.conn_type = Some("WS".into());
+        } else {
+            _ctx.conn_type = Some("HTTP".into());
+        }
 
         //
         //
@@ -586,7 +633,8 @@ impl ProxyHttp for GatewayApp {
         };
 
         // 3. Check cache using the String key
-        if let Some((rewritten_path_query, sni, _tls, peer_arc)) = self.route_cache.get(&cache_key) {
+        if let Some((rewritten_path_query, sni, _tls, peer_arc)) = self.route_cache.get(&cache_key)
+        {
             // Cache Hit!
             debug!("Cache hit for key: {}", cache_key);
             if let Some(sni) = sni {
@@ -626,9 +674,7 @@ impl ProxyHttp for GatewayApp {
 
             // Return the cached peer. Cloning Arc is cheap.
             let peer_address = &peer_arc._address.to_string(); // Get address string directly
-            let _ = session
-                .req_header_mut()
-                .append_header("X-Peer", peer_address);
+            _ctx.peer = Some(peer_address.clone());
             return Ok(true); // Return true to indicate a successful match
         }
 
@@ -702,18 +748,21 @@ impl ProxyHttp for GatewayApp {
 
                 // Cache the result (cloning Arc is cheap)
                 // Use into_owned() on cache_key if it was borrowed
-                
+
                 self.route_cache.insert(
                     cache_key.to_owned(),
-                    (final_path_query, rule.sni.clone(), rule.tls, rule.alt_target.clone()),
+                    (
+                        final_path_query,
+                        rule.sni.clone(),
+                        rule.tls,
+                        rule.alt_target.clone(),
+                    ),
                 );
                 debug!("Cached result for key used in insertion"); // Key might have been owned now
                                                                    // Return the target peer for this rule.
                                                                    // Use the address string from BasicPeer directly
                 let peer_address = &rule.alt_target._address.to_string(); // Get address string
-                let _ = session
-                    .req_header_mut()
-                    .append_header("X-Peer", peer_address);
+                _ctx.peer = Some(peer_address.clone());
                 return Ok(true); // Return true to indicate a successful match
             }
         }
@@ -738,24 +787,45 @@ impl ProxyHttp for GatewayApp {
     where
         Self::CTX: Send + Sync,
     {
+        let size_in = _body.as_ref().map_or(0, |b| b.len());
+        _ctx.size_in = size_in;
+        info!(
+            "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} |",
+            _ctx.conn_id.clone().unwrap_or("-".into()),
+            _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+            size_in,
+            _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+            _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+        );
         Ok(())
     }
 
+    fn response_body_filter(
+        &self,
+        _session: &mut Session,
+        _body: &mut Option<Bytes>,
+        _end_of_stream: bool,
+        _ctx: &mut Self::CTX,
+    ) -> Result<Option<Duration>>
+    where
+        Self::CTX: Send + Sync,
+    {
+        _ctx.size_out = _body.as_ref().map_or(0, |b| b.len());
+        Ok(None)
+    }
     /// Logs request details after completion.
-    async fn logging(&self, session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {
-        let response_code = session
+    async fn logging(&self, _session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {
+        let response_code = _session
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
-        let path = session.req_header().uri.path(); // Borrow path directly
-        let body_size = session.body_bytes_sent();
-
-        // Log using borrowed path to avoid allocation
         info!(
-            "[GWX] | ID:{}, STATUS:{}, SIZE:{} |",
-            path, response_code, body_size,
+            "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
+            _ctx.conn_id.clone().unwrap_or("-".into()),
+            _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+            _ctx.size_out,
+            response_code,
+            _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+            _ctx.peer.clone().unwrap_or("UNKNOWN".into())
         );
-
-        // Optional: Log cache stats periodically if needed (requires adding counters)
-        // Consider adding AtomicUsize counters to ShardedLruCache if stats are needed.
     }
 }

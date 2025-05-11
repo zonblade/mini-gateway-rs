@@ -32,6 +32,7 @@ use std::hash::{Hash, Hasher};
 use lru::LruCache;
 
 use crate::config::{self, GatewayPath};
+use crate::system::writer::rawid::atomic_id;
 
 // Number of cache shards to reduce lock contention
 const CACHE_SHARDS: usize = 8;
@@ -120,6 +121,7 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
 pub struct ProxyApp {
     client_connector: TransportConnector,
     proxy_to: BasicPeer,
+    proxy_source: String,
     path_rewrites: Arc<RwLock<Vec<RewriteRule>>>,
     // Cache for rewritten requests: key = original request line, value = rewritten request
     rewrite_cache: Arc<ShardedLruCache<String, String>>,
@@ -135,12 +137,13 @@ enum DuplexEvent {
 }
 
 impl ProxyApp {
-    pub fn new(proxy_to: BasicPeer) -> Self {
+    pub fn new(proxy_to: BasicPeer, proxy_source: String) -> Self {
         let path_rewrites = Self::fetch_config(proxy_to.clone());
 
         ProxyApp {
             client_connector: TransportConnector::new(None),
             proxy_to,
+            proxy_source,
             path_rewrites: Arc::new(RwLock::new(path_rewrites)),
             rewrite_cache: Arc::new(ShardedLruCache::new(DEFAULT_PER_SHARD_CAPACITY)),
             last_check_time: RwLock::new(std::time::Instant::now()),
@@ -262,12 +265,16 @@ impl ProxyApp {
     }
 
     // Regex-based HTTP request line parser and rewriter
-    fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> usize {
+    fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> (usize, bool) {
         // First convert the buffer to a string for processing
         let request_str = match std::str::from_utf8(&buffer[..length]) {
             Ok(s) => s,
-            Err(_) => return length, // Not valid UTF-8, return unchanged
+            Err(_) => return (length, false), // Not valid UTF-8, return unchanged
         };
+
+        // Flag to track if this is a WebSocket upgrade request
+        let is_websocket = request_str.contains("Upgrade: websocket")
+            || request_str.contains("Upgrade: WebSocket");
 
         // Check if this looks like an HTTP request
         if !request_str.starts_with("GET ")
@@ -277,7 +284,7 @@ impl ProxyApp {
             && !request_str.starts_with("CONNECT ")
             && !request_str.starts_with("OPTIONS ")
         {
-            return length;
+            return (length, is_websocket);
         }
 
         // First check for configuration changes at regular intervals
@@ -292,23 +299,19 @@ impl ProxyApp {
             // Make sure we don't overflow the buffer
             if new_len <= buffer.len() {
                 buffer[..new_len].copy_from_slice(new_bytes);
-                return new_len;
+                return (new_len, is_websocket);
             } else {
                 debug!("Cached rewritten request too large for buffer");
-                return length;
+                return (length, false);
             }
         }
 
         debug!("Cache miss for request rewrite");
 
-        // Flag to track if this is a WebSocket upgrade request
-        let is_websocket = request_str.contains("Upgrade: websocket")
-            || request_str.contains("Upgrade: WebSocket");
-
         // Find the first line of the request (the request line)
         let line_end = match request_str.find("\r\n") {
             Some(pos) => pos,
-            None => return length, // Not a complete HTTP request line
+            None => return (length, is_websocket), // Not a complete HTTP request line
         };
 
         let request_line = &request_str[..line_end];
@@ -321,7 +324,7 @@ impl ProxyApp {
         let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
         if parts.len() < 3 {
             debug!("Malformed request line: '{}'", request_line);
-            return length; // Malformed, return original
+            return (length, is_websocket); // Malformed, return original
         }
         let method = parts[0];
         let request_path = parts[1];
@@ -333,7 +336,7 @@ impl ProxyApp {
             Ok(guard) => guard,
             Err(e) => {
                 error!("Failed to acquire read lock on path_rewrites: {}", e);
-                return length; // Return original length if lock acquisition fails
+                return (length, is_websocket); // Return original length and websocket flag if lock acquisition fails
             }
         };
         for rule in rules_guard.iter() {
@@ -392,10 +395,10 @@ impl ProxyApp {
                 if new_len <= buffer.len() {
                     // Copy the new request into the buffer
                     buffer[..new_len].copy_from_slice(new_bytes);
-                    return new_len;
+                    return (new_len,is_websocket);
                 } else {
                     debug!("Rewritten request too large for buffer");
-                    return length; // Return original length if new request is too large
+                    return (length,is_websocket); // Return original length if new request is too large
                 }
             }
         }
@@ -403,7 +406,7 @@ impl ProxyApp {
         // No rewrite performed
         debug!("No rewrite rule matched for request path: {}", request_path);
         // should close if no match
-        0
+        (0,is_websocket)
     }
 
     /// Checks if the configuration should be reloaded based on time interval.
@@ -484,6 +487,9 @@ impl ProxyApp {
         let mut upstream_buf = [0; 4096]; // Increased buffer size for HTTP headers
         let mut downstream_buf = [0; 4096];
         let timeout_duration = std::time::Duration::from_secs(60);
+        // (websocket, upstream_len, downstream_len, status)
+        let id = atomic_id();
+        let mut temp_record = (id, None, 0, 0, "N/A");
 
         loop {
             let downstream_read =
@@ -518,16 +524,83 @@ impl ProxyApp {
             }
             match event {
                 DuplexEvent::DownstreamRead(0) => {
-                    debug!("downstream session closing");
+                    temp_record.4 = "DOWN@OFF";
+
+                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
+                        temp_record.0, 
+                        {
+                            if let Some(data) = temp_record.1 {
+                                if data {
+                                    "WS"
+                                } else {
+                                    "TCP"
+                                }
+                            } else {
+                                "TCP"
+                            }
+                        }, 
+                        temp_record.3, 
+                        temp_record.4,
+                        self.proxy_source,
+                        self.proxy_to._address
+                    );
                     return;
                 }
                 DuplexEvent::UpstreamRead(0) => {
-                    debug!("upstream session closing");
+                    temp_record.4 = "UP@OFF";
+
+                    log::info!("[PXY] | ID:{}, TYPE:UPSTREAM, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
+                        temp_record.0, 
+                        {
+                            if let Some(data) = temp_record.1 {
+                                if data {
+                                    "WS"
+                                } else {
+                                    "TCP"
+                                }
+                            } else {
+                                "TCP"
+                            }
+                        }, 
+                        temp_record.2, 
+                        temp_record.4,
+                        self.proxy_source,
+                        self.proxy_to._address
+                    );
                     return;
                 }
                 DuplexEvent::DownstreamRead(n) => {
                     // Try to rewrite the request if it's HTTP
-                    let write_len = self.rewrite_http_request(&mut upstream_buf, n);
+                    let (write_len, websocket) = self.rewrite_http_request(&mut upstream_buf, n);
+                    temp_record.1 = {
+                        if let None = temp_record.1 {
+                            Some(websocket)
+                        } else {
+                            temp_record.1
+                        }
+                    };
+                    temp_record.3 = write_len;
+                    temp_record.4 = "DOWN@ON";
+
+                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
+                        temp_record.0, 
+                        {
+                            if let Some(data) = temp_record.1 {
+                                if data {
+                                    "WS"
+                                } else {
+                                    "TCP"
+                                }
+                            } else {
+                                "TCP"
+                            }
+                        }, 
+                        temp_record.3, 
+                        temp_record.4,
+                        self.proxy_source,
+                        self.proxy_to._address
+                    );
+
                     if write_len == 0 {
                         debug!("Request rewrite failed, closing connection");
                         return; // Close connection on rewrite failure
@@ -544,6 +617,28 @@ impl ProxyApp {
                     }
                 }
                 DuplexEvent::UpstreamRead(n) => {
+                    temp_record.2 = n;
+                    temp_record.4 = "UP@ON";
+
+                    log::info!("[PXY] | ID:{}, TYPE:UPSTREAM, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
+                        temp_record.0, 
+                        {
+                            if let Some(data) = temp_record.1 {
+                                if data {
+                                    "WS"
+                                } else {
+                                    "TCP"
+                                }
+                            } else {
+                                "TCP"
+                            }
+                        }, 
+                        temp_record.2, 
+                        temp_record.4,
+                        self.proxy_source,
+                        self.proxy_to._address
+                    );
+
                     log::debug!("Incoming data from upstream: {}", n);
                      if let Err(e) = server_session
                         .write_all(&downstream_buf[0..n])

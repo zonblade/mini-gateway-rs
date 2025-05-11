@@ -1,4 +1,3 @@
-
 use std::ffi::CString;
 use std::io::{self, Error, ErrorKind};
 use std::mem;
@@ -42,7 +41,11 @@ impl QueueControl {
 
     pub fn lock(&self) {
         // Simple spin lock
-        while self.lock.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while self
+            .lock
+            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             std::hint::spin_loop();
         }
     }
@@ -52,7 +55,8 @@ impl QueueControl {
     }
     pub fn dequeue_item(&self, read_idx: usize, capacity: usize) {
         // Update read index with Release ordering
-        self.read_index.store((read_idx + 1) % capacity, Ordering::Release);
+        self.read_index
+            .store((read_idx + 1) % capacity, Ordering::Release);
         // Update count with Release ordering
         self.count.fetch_sub(1, Ordering::Release);
     }
@@ -73,14 +77,14 @@ impl SharedMemoryConsumer {
     // Open existing shared memory
     pub fn open(name: &str, expected_size: usize) -> io::Result<Self> {
         // Create a C-style string for the name
-        let c_name = CString::new(name)
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "Invalid name"))?;
+        let c_name =
+            CString::new(name).map_err(|_| Error::new(ErrorKind::InvalidInput, "Invalid name"))?;
 
         // Open shared memory object
         let fd = unsafe {
             libc::shm_open(
                 c_name.as_ptr(),
-                libc::O_RDWR,  // We need write access for the control structure
+                libc::O_RDWR, // We need write access for the control structure
                 0o600,
             )
         };
@@ -125,27 +129,69 @@ impl SharedMemoryConsumer {
         unsafe {
             // Lock the queue
             (*self.control).lock();
-            
+
             // Use explicit Acquire ordering for cross-process visibility
             let count = (*self.control).count.load(Ordering::Acquire);
             if count == 0 {
                 (*self.control).unlock();
                 return Ok(None);
             }
-            
+
             // Get current read position with explicit Acquire ordering
             let read_idx = (*self.control).read_index.load(Ordering::Acquire);
             let capacity = (*self.control).capacity.load(Ordering::Acquire);
 
+            // Safety check - if read index is out of bounds, something is wrong
+            if read_idx >= capacity {
+                (*self.control).unlock();
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Invalid read index: {} (capacity: {})", read_idx, capacity),
+                ));
+            }
+
             // Calculate offset in buffer
             let offset = read_idx * ENTRY_MAX_SIZE;
-            
+
+            // Verify that offset is within bounds of allocated memory
+            if offset >= self.size - SHM_METADATA_SIZE {
+                (*self.control).unlock();
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "Buffer offset out of bounds: {} (max: {})",
+                        offset,
+                        self.size - SHM_METADATA_SIZE
+                    ),
+                ));
+            }
+
             // Get pointer to position
             let entry_ptr = self.data_start.add(offset);
-            
+
             // Read entry size first
             let entry_size = *(entry_ptr as *const usize);
-            
+
+            // Check entry size is sensible
+            if entry_size == 0 || entry_size > ENTRY_MAX_SIZE - mem::size_of::<usize>() {
+                // Skip this entry by advancing read index
+                let capacity = (*self.control).capacity.load(Ordering::Acquire);
+                (*self.control)
+                    .read_index
+                    .store((read_idx + 1) % capacity, Ordering::Release);
+                (*self.control).count.fetch_sub(1, Ordering::Release);
+
+                (*self.control).unlock();
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "Invalid entry size: {} (max: {}), skipping entry",
+                        entry_size,
+                        ENTRY_MAX_SIZE - mem::size_of::<usize>()
+                    ),
+                ));
+            }
+
             // Read the actual data
             let mut data = vec![0u8; entry_size];
             ptr::copy_nonoverlapping(
@@ -153,22 +199,13 @@ impl SharedMemoryConsumer {
                 data.as_mut_ptr(),
                 entry_size,
             );
-            
-            // Update read index
-            (*self.control).read_index.store(
-                (read_idx + 1) % capacity,
-                Ordering::Relaxed,
-            );
-            
-            // Update count
-            (*self.control).count.fetch_sub(1, Ordering::Relaxed);
-            
-            // Use the new helper method to update indices
+
+            // Update read index and count
             (*self.control).dequeue_item(read_idx, capacity);
-            
+
             // Unlock
             (*self.control).unlock();
-            
+
             Ok(Some(data))
         }
     }
@@ -177,14 +214,20 @@ impl SharedMemoryConsumer {
     pub fn dequeue_with_timeout(&self, timeout_ms: u64) -> io::Result<Option<Vec<u8>>> {
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
-        
+
         while start.elapsed() < timeout {
-            match self.dequeue()? {
-                Some(data) => return Ok(Some(data)),
-                None => std::thread::sleep(std::time::Duration::from_millis(10)),
+            match self.dequeue() {
+                Ok(Some(data)) => return Ok(Some(data)),
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                Err(e) => {
+                    // Log the error
+                    // log::error!("Error in dequeue: {}", e);
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    return Err(e);
+                }
             }
         }
-        
+
         Ok(None)
     }
 
@@ -192,18 +235,17 @@ impl SharedMemoryConsumer {
     pub fn queue_size(&self) -> usize {
         unsafe { (*self.control).count.load(Ordering::Relaxed) }
     }
-    
+
     // Get maximum capacity of queue
     pub fn capacity(&self) -> usize {
         unsafe { (*self.control).capacity.load(Ordering::Relaxed) }
     }
-    
-    // Clean up shared memory (call this when done with it)
+
+    // Clean up shared memory resources but don't unlink (the producer/router-core owns the shared memory)
     pub fn cleanup(&self) -> io::Result<()> {
-        let result = unsafe { libc::shm_unlink(self.shm_name.as_ptr()) };
-        if result < 0 {
-            return Err(Error::last_os_error());
-        }
+        // Consumer should not call shm_unlink as it would remove the shared memory
+        // that may still be in use by other processes.
+        // Only unmap memory and close file descriptor in Drop implementation.
         Ok(())
     }
 }
@@ -240,7 +282,7 @@ impl LogConsumer {
         let shm = SharedMemoryConsumer::open(name, size)?;
         Ok(LogConsumer { shm })
     }
-    
+
     #[allow(dead_code)]
     pub fn get_next_log(&self) -> io::Result<Option<(u64, u8, String)>> {
         match self.shm.dequeue()? {
@@ -249,30 +291,30 @@ impl LogConsumer {
                 if buffer.len() < mem::size_of::<LogEntry>() {
                     return Err(Error::new(ErrorKind::InvalidData, "Invalid log entry"));
                 }
-                
+
                 unsafe {
                     let entry = ptr::read(buffer.as_ptr() as *const LogEntry);
-                    
+
                     // Make sure message length is valid
                     let expected_len = mem::size_of::<LogEntry>() + entry.message_len as usize;
                     if buffer.len() != expected_len {
                         return Err(Error::new(ErrorKind::InvalidData, "Invalid message length"));
                     }
-                    
+
                     // Extract message
                     let message_start = mem::size_of::<LogEntry>();
                     let message_bytes = &buffer[message_start..];
-                    
+
                     // Convert to string
                     let message = String::from_utf8_lossy(message_bytes).to_string();
-                    
+
                     Ok(Some((entry.timestamp, entry.level, message)))
                 }
-            },
+            }
             None => Ok(None),
         }
     }
-    
+
     pub fn get_log_with_timeout(&self, timeout_ms: u64) -> io::Result<Option<(u64, u8, String)>> {
         match self.shm.dequeue_with_timeout(timeout_ms)? {
             Some(buffer) => {
@@ -280,42 +322,41 @@ impl LogConsumer {
                 if buffer.len() < mem::size_of::<LogEntry>() {
                     return Err(Error::new(ErrorKind::InvalidData, "Invalid log entry"));
                 }
-                
+
                 unsafe {
                     let entry = ptr::read(buffer.as_ptr() as *const LogEntry);
-                    
+
                     // Make sure message length is valid
                     let expected_len = mem::size_of::<LogEntry>() + entry.message_len as usize;
                     if buffer.len() != expected_len {
                         return Err(Error::new(ErrorKind::InvalidData, "Invalid message length"));
                     }
-                    
+
                     // Extract message
                     let message_start = mem::size_of::<LogEntry>();
                     let message_bytes = &buffer[message_start..];
-                    
+
                     // Convert to string
                     let message = String::from_utf8_lossy(message_bytes).to_string();
-                    
+
                     Ok(Some((entry.timestamp, entry.level, message)))
                 }
-            },
+            }
             None => Ok(None),
         }
     }
-    
+
     pub fn queue_size(&self) -> usize {
         self.shm.queue_size()
     }
-    
+
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.shm.capacity()
     }
-    
+
     #[allow(dead_code)]
     pub fn cleanup(&self) -> io::Result<()> {
         self.shm.cleanup()
     }
 }
-

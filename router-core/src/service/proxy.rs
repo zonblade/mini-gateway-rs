@@ -11,7 +11,7 @@ pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::Prox
     Service::with_listeners(
         "Proxy Service".to_string(),
         Listeners::tcp(addr),
-        proxy_fast::ProxyApp::new(peer),
+        proxy_fast::ProxyApp::new(peer, String::from(addr)),
     )
 }
 
@@ -46,6 +46,6 @@ pub fn proxy_service_tls_fast(
     Service::with_listeners(
         "Proxy Service TLS".to_string(),
         listeners,
-        proxy_fast::ProxyApp::new(peer),
+        proxy_fast::ProxyApp::new(peer,String::from(addr)),
     )
 }
