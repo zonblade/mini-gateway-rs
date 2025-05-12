@@ -69,7 +69,7 @@ pub struct SharedMemoryConsumer {
     control: *mut QueueControl,
     data_start: *mut u8,
     shm_fd: i32,
-    shm_name: CString,
+    _shm_name: CString,
 }
 
 // Implementing consumer
@@ -120,7 +120,7 @@ impl SharedMemoryConsumer {
             control: control_ptr,
             data_start,
             shm_fd: fd,
-            shm_name: c_name,
+            _shm_name: c_name,
         })
     }
 

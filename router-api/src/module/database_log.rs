@@ -26,6 +26,7 @@ pub struct LogMessageFormatted {
 }
 
 impl LogMessage {
+    #[allow(dead_code)]
     pub fn formatted(&self) -> String {
         // format!("[{}:{}] {}", self.source_ip, self.source_port, self.message)
         format!("{}", self.message)

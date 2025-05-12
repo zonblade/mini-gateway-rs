@@ -35,11 +35,14 @@
 //! 2. Store this data in a time-series format
 //! 3. Aggregate and analyze the data for reporting
 //! 4. Provide both real-time and historical views
-mod logs;
-mod logs_broadcast;
+// mod logs;
+// mod logs_broadcast;
+mod log_default;
+mod log_bytesio;
+mod log_status_code;
 
 use actix_web::web;
-use logs_broadcast::LogsBroadcaster;
+// use logs_broadcast::LogsBroadcaster;
 
 /// Configure statistics API routes
 /// 
@@ -53,15 +56,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     // Statistics endpoints will be implemented here in the future
     // Example route configuration:
 
-    let sse_logs = LogsBroadcaster::create();
-    let sse_logs = web::Data::from(sse_logs);
+    // let sse_logs = LogsBroadcaster::create();
+    // let sse_logs = web::Data::from(sse_logs);
 
     cfg.service(
         web::scope("/statistics")
             // .wrap(JwtAuth::new())
             // .wrap(RoleAuth::admin())
-            .app_data(sse_logs)
-            .service(logs::logs_stream)
+            .service(log_default::init)
+            .service(log_status_code::init)
     //         .route("/gateways/{id}", web::get().to(handlers::get_gateway_stats))
     //         .route("/proxies/{id}", web::get().to(handlers::get_proxy_stats))
     //         .route("/traffic", web::get().to(handlers::get_traffic_stats))
