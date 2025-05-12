@@ -76,10 +76,6 @@ async fn main() {
         ctrlc::set_handler(move || {
             log::debug!("SIGINT received, shutting down servers...");
             eprintln!("\n[----] SIGINT received, shutting down servers...");
-            eprintln!("[----] Cleaning up memory log...");
-            let _ = memory_log::log_cleanup();
-            eprintln!("[----] Cleaning up memory log done.");
-            eprintln!("[----] Finish...\n\n");
             running_clone.store(false, Ordering::SeqCst);
             eprintln!("[----] Restarting the Proxy and Gateway...");
         })
@@ -95,6 +91,10 @@ async fn main() {
         if system::terminator::cli::init(Duration::from_millis(0)) {
             let _ = memory_log::log_cleanup();
             eprintln!("[----] Ctrl+X received, exiting...");
+            eprintln!("[----] Cleaning up memory log...");
+            let _ = memory_log::log_cleanup();
+            eprintln!("[----] Cleaning up memory log done.");
+            eprintln!("[----] Finish...\n\n");
             break;
         }
 

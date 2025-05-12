@@ -5,12 +5,12 @@ import { domainsToApiFormat } from '$lib/types/proxy';
 // Proxy actions to be used by components
 export const proxyActions = {
     // Fetch all proxies with their domains
-    getProxies: async (): Promise<ProxyWithDomains[]> => {
+    getProxies: async (): Promise<ProxyWithDomains[]|null> => {
         try {
             return await proxyService.getAllProxies();
         } catch (error) {
             console.error('Failed to fetch proxies:', error);
-            return []; // Return an empty array on error
+            return nul; // Return an empty array on error
         }
     },
     

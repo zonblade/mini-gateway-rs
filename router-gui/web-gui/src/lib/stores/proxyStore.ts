@@ -9,6 +9,7 @@ export type { Proxy, ProxyWithDomains, DomainConfig } from '$lib/types/proxy';
 interface ProxyState {
     proxies: ProxyWithDomains[];
     loading: boolean;
+    loadError: boolean;
     error: string | null;
     currentPage: number;
     itemsPerPage: number;
@@ -20,6 +21,7 @@ interface ProxyState {
 const initialState: ProxyState = {
     proxies: [],
     loading: false,
+    loadError: false,
     error: null,
     currentPage: 1,
     itemsPerPage: 10,
@@ -56,17 +58,22 @@ function createProxyStore() {
             
             try {
                 const proxies = await proxyActions.getProxies();
+                if (proxies === null) {
+                    throw new Error('No proxies found');
+                }
                 set({
                     ...initialState,
                     proxies,
                     hasMore: false,  // All data is loaded at once
-                    loading: false
+                    loading: false,
+                    loadError: false
                 });
             } catch (err) {
                 console.error('Error fetching proxies:', err);
                 update(state => ({ 
                     ...state, 
                     loading: false, 
+                    loadError: true,
                     error: err instanceof Error ? err.message : 'An unknown error occurred' 
                 }));
             }
@@ -107,7 +114,8 @@ function createProxyStore() {
                     return { 
                         ...state, 
                         proxies: [...state.proxies, savedProxyWithDomains], 
-                        loading: false 
+                        loading: false,
+                        loadError: false
                     };
                 });
                 
@@ -117,7 +125,8 @@ function createProxyStore() {
                 update(state => ({ 
                     ...state, 
                     loading: false, 
-                    error: err instanceof Error ? err.message : 'An unknown error occurred' 
+                    error: err instanceof Error ? err.message : 'An unknown error occurred',
+                    loadError: true
                 }));
                 throw err;
             }
@@ -134,7 +143,8 @@ function createProxyStore() {
                     update(state => ({
                         ...state,
                         proxies: state.proxies.filter(p => p.proxy.id !== id),
-                        loading: false
+                        loading: false,
+                        loadError: false
                     }));
                 }
                 
@@ -144,6 +154,7 @@ function createProxyStore() {
                 update(state => ({ 
                     ...state, 
                     loading: false, 
+                    loadError: true,
                     error: err instanceof Error ? err.message : 'An unknown error occurred' 
                 }));
                 return false;
@@ -156,13 +167,14 @@ function createProxyStore() {
             
             try {
                 const result = await proxyActions.syncProxies();
-                update(state => ({ ...state, loading: false }));
+                update(state => ({ ...state, loading: false, loadError: false }));
                 return result;
             } catch (err) {
                 console.error('Error syncing proxies:', err);
                 update(state => ({ 
                     ...state, 
                     loading: false, 
+                    loadError: false,
                     error: err instanceof Error ? err.message : 'An unknown error occurred' 
                 }));
                 throw err;

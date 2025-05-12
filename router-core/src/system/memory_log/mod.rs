@@ -54,20 +54,39 @@ impl QueueControl {
             _reserved: [0; 2048],
         }
     }
+    pub fn lock(&self) -> Result<(), io::Error> {
+        // Add a timeout to prevent indefinite spinning
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(500); // 500ms max wait
 
-    pub fn lock(&self) {
-        // Simple spin lock
         while self
             .lock
             .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
+            // Check for timeout
+            if start.elapsed() > timeout {
+                return Err(Error::new(
+                    ErrorKind::TimedOut,
+                    "Failed to acquire lock within timeout",
+                ));
+            }
             std::hint::spin_loop();
         }
+
+        Ok(()) // Successfully acquired lock
     }
 
     pub fn unlock(&self) {
-        self.lock.store(0, Ordering::Release);
+        // Only unlock if currently locked
+        let was_locked = self
+            .lock
+            .compare_exchange(1, 0, Ordering::Release, Ordering::Relaxed)
+            .is_ok();
+        if !was_locked {
+            // Optionally log this situation for debugging
+            // eprintln!("[-LO-] Attempted to unlock an already unlocked mutex");
+        }
     }
 
     // Enhanced enqueue_item with bounds checking and corruption prevention
@@ -373,7 +392,7 @@ impl SharedMemoryProducer {
 
             if is_corrupted {
                 // Acquire lock before resetting
-                (*self.control).lock();
+                let _ = (*self.control).lock();
 
                 // Force reset the control structure
                 (*self.control).force_reset(capacity);
@@ -398,77 +417,96 @@ impl SharedMemoryProducer {
         }
 
         unsafe {
-            // Lock the queue
-            (*self.control).lock();
-
-            // After getting the lock, run a full validation of the control structure
-            let count = (*self.control).count.load(Ordering::Acquire);
-            let capacity = (*self.control).capacity.load(Ordering::Acquire);
-            // let write_idx = (*self.control).write_index.load(Ordering::Acquire);
-
-            // Double-check for corruption after acquiring the lock
-            if count > capacity * 2 || count == usize::MAX {
-                // Reset the control structure
-                (*self.control).force_reset(capacity);
-            }
-
-            // Handle queue full situation based on policy
-            if count >= capacity {
-                match self.overflow_policy {
-                    OverflowPolicy::Block => {
-                        // Record overflow event - directly access the atomic field
-                        (*self.control)
-                            .overflow_count
-                            .fetch_add(1, Ordering::Relaxed);
-
-                        // Unlock and return error
-                        (*self.control).unlock();
-                        return Err(Error::new(ErrorKind::Other, "Queue is full"));
+            match (*self.control).lock() {
+                Ok(()) => {
+                    // We got the lock, now use a defer-like pattern to ensure unlock
+                    struct LockGuard<'a> {
+                        control: &'a QueueControl,
                     }
-                    OverflowPolicy::Overwrite => {
-                        // Record overflow event - directly access the atomic field
-                        (*self.control)
-                            .overflow_count
-                            .fetch_add(1, Ordering::Relaxed);
+                    
+                    impl<'a> Drop for LockGuard<'a> {
+                        fn drop(&mut self) {
+                            self.control.unlock();
+                        }
                     }
+                    
+                    // Create a guard that will automatically unlock when it goes out of scope
+                    let _guard = LockGuard { control: &*self.control };
+                    
+                    // After getting the lock, run a full validation of the control structure
+                    let count = (*self.control).count.load(Ordering::Acquire);
+                    let capacity = (*self.control).capacity.load(Ordering::Acquire);
+                    // let write_idx = (*self.control).write_index.load(Ordering::Acquire);
+
+                    // Double-check for corruption after acquiring the lock
+                    if count > capacity * 2 || count == usize::MAX {
+                        // Reset the control structure
+                        (*self.control).force_reset(capacity);
+                    }
+
+                    // Handle queue full situation based on policy
+                    if count >= capacity {
+                        match self.overflow_policy {
+                            OverflowPolicy::Block => {
+                                // Record overflow event - directly access the atomic field
+                                (*self.control)
+                                    .overflow_count
+                                    .fetch_add(1, Ordering::Relaxed);
+
+                                // Unlock and return error
+                                (*self.control).unlock();
+                                return Err(Error::new(ErrorKind::Other, "Queue is full"));
+                            }
+                            OverflowPolicy::Overwrite => {
+                                // Record overflow event - directly access the atomic field
+                                (*self.control)
+                                    .overflow_count
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    }
+
+                    // Get current write position with explicit Acquire ordering
+                    let write_idx = (*self.control).write_index.load(Ordering::Acquire);
+
+                    // Calculate offset in buffer
+                    let offset = write_idx * ENTRY_MAX_SIZE;
+
+                    // Get pointer to position
+                    let entry_ptr = self.data_start.add(offset);
+
+                    // Write entry size first
+                    *(entry_ptr as *mut usize) = data.len();
+
+                    // Then write the actual data
+                    ptr::copy_nonoverlapping(
+                        data.as_ptr(),
+                        entry_ptr.add(mem::size_of::<usize>()),
+                        data.len(),
+                    );
+
+                    // Verify count is reasonable before updating
+                    if count < capacity * 2 {
+                        (*self.control).enqueue_item(write_idx, capacity);
+                    } else {
+                        // Force reset counters if they appear corrupted
+                        (*self.control).force_reset(capacity);
+                        // Try again with reset counters
+                        let new_write_idx = (*self.control).write_index.load(Ordering::Acquire);
+                        (*self.control).enqueue_item(new_write_idx, capacity);
+                    }
+
+                    // Unlock
+                    (*self.control).unlock();
+                },
+
+                Err(e) => {
+                    return Err(e);
                 }
             }
 
-            // Get current write position with explicit Acquire ordering
-            let write_idx = (*self.control).write_index.load(Ordering::Acquire);
-
-            // Calculate offset in buffer
-            let offset = write_idx * ENTRY_MAX_SIZE;
-
-            // Get pointer to position
-            let entry_ptr = self.data_start.add(offset);
-
-            // Write entry size first
-            *(entry_ptr as *mut usize) = data.len();
-
-            // Then write the actual data
-            ptr::copy_nonoverlapping(
-                data.as_ptr(),
-                entry_ptr.add(mem::size_of::<usize>()),
-                data.len(),
-            );
-
-            // Verify count is reasonable before updating
-            if count < capacity * 2 {
-                (*self.control).enqueue_item(write_idx, capacity);
-            } else {
-                // Force reset counters if they appear corrupted
-                (*self.control).force_reset(capacity);
-                // Try again with reset counters
-                let new_write_idx = (*self.control).write_index.load(Ordering::Acquire);
-                (*self.control).enqueue_item(new_write_idx, capacity);
-            }
-
-            // Unlock
-            (*self.control).unlock();
+            Ok(())
         }
-
-        Ok(())
     }
 
     // Get current number of items in queue
@@ -494,6 +532,7 @@ impl SharedMemoryProducer {
 
     // Clean up shared memory (call this when done with it)
     pub fn cleanup(&self) -> io::Result<()> {
+        eprintln!("[-LO-] Cleaning up log producer... x");
         let result = unsafe { libc::shm_unlink(self.shm_name.as_ptr()) };
         if result < 0 {
             let err = Error::last_os_error();
@@ -627,6 +666,10 @@ impl LogProducer {
         let header_size = mem::size_of::<LogEntry>();
         let total_size_of_payload = header_size + message.len(); // Total size of LogEntry struct + message bytes
 
+        if message.is_empty() {
+            println!("Empty message received");
+            return Ok(());
+        }
         // Maximum size an entry can hold for its payload (LogEntry + message)
         // This is distinct from ENTRY_MAX_SIZE which includes the initial 'data_len' field written by SharedMemoryProducer.
         let max_payload_in_shm_entry = ENTRY_MAX_SIZE - mem::size_of::<usize>();
@@ -709,7 +752,9 @@ impl LogProducer {
 
         // Send to shared memory with better error reporting
         match self.shm.enqueue(&buffer) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                Ok(())
+            }
             Err(e) => Err(e),
         }
     }
@@ -730,6 +775,7 @@ impl LogProducer {
     }
 
     pub fn cleanup(&self) -> io::Result<()> {
+        eprintln!("[-LO-] Cleaning up log producer...");
         match self.shm.cleanup() {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
@@ -752,6 +798,7 @@ static mut GLOBAL_LOG_GATEWAY: Option<LogProducer> = None;
 #[allow(static_mut_refs)]
 pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
     if GLOBAL_LOG_PROXY.is_none() {
+        eprintln!("[-LO-] Initializing proxy logger...");
         // Request 10 million entries with smaller size
         let desired_capacity = 10_000_000; // 10 million entries
 
@@ -804,6 +851,7 @@ pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
 #[allow(static_mut_refs)]
 pub unsafe fn gateway_logger() -> io::Result<&'static LogProducer> {
     if GLOBAL_LOG_GATEWAY.is_none() {
+        eprintln!("[-LO-] Initializing gateway logger...");
         // Request 10 million entries with smaller size
         let desired_capacity = 10_000_000; // 10 million entries
 

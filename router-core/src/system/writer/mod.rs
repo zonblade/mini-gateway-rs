@@ -6,6 +6,7 @@
 
 mod logger;
 mod mapper;
+pub mod rawid;
 
 use mapper::{setup_standard_logging, setup_tag_based_logging};
 

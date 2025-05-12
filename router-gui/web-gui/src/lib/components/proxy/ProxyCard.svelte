@@ -80,7 +80,8 @@
                 <tbody>
                     <tr>
                         <td class="py-1 font-medium w-1/3">Listen</td>
-                        <td class="py-1 truncate">:&ensp;{proxy.addr_listen}</td>
+                        <td class="py-1 truncate">:&ensp;{proxy.addr_listen}</td
+                        >
                     </tr>
                     <tr>
                         <td class="py-1 font-medium w-1/3"
@@ -89,28 +90,117 @@
                         <td class="py-1">
                             {#if domains.length > 0}
                                 <span class="truncate text-gray-500"
-                                    >:&ensp;{domains.length} Domain enabled</span
+                                    >:&ensp;{domains.length} Domain{domains.length >
+                                    1
+                                        ? "s"
+                                        : ""}</span
                                 >
                             {:else}
-                                <span class="text-gray-500">:&ensp;No domains</span>
+                                <span class="text-gray-500"
+                                    >:&ensp;No domains</span
+                                >
                             {/if}
                         </td>
                     </tr>
                     <tr>
-                        <td class="py-1 font-medium w-1/3">High-Speed</td>
-                        <td class="py-1">
+                        <td class="py-1 font-medium w-1/3">Node Type</td>
+                        <td class="py-1 flex">
                             :&ensp;
                             {#if proxy.high_speed}
-                                <span class="text-emerald-500 dark:text-emerald-400 font-medium">Enabled</span>
+                                <span
+                                    class="text-purple-600 dark:text-purple-400 font-medium flex items-center"
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 mr-1"
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                    >
+                                        <path
+                                            fill-rule="evenodd"
+                                            d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
+                                            clip-rule="evenodd"
+                                        />
+                                    </svg>
+                                    High Speed
+                                </span>
                             {:else}
-                                <span class="text-gray-400 dark:text-gray-500">Disabled</span>
+                                <span
+                                    class="text-blue-400 dark:text-blue-300 flex items-center"
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 mr-1"
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                    >
+                                        <path
+                                            d="M5.5 16a3.5 3.5 0 01-.369-6.98 4 4 0 117.753-1.977A4.5 4.5 0 1113.5 16h-8z"
+                                        />
+                                    </svg>
+                                    Multiple
+                                </span>
                             {/if}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="py-1 font-medium w-1/3">TLS Status</td>
+                        <td class="py-1 flex">
+                            :&ensp;
+                            {#if tlsEnabledCount > 0}
+                                <span
+                                    class="text-emerald-500 dark:text-emerald-400 font-medium flex items-center"
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 mr-1"
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                    >
+                                        <path
+                                            fill-rule="evenodd"
+                                            d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                                            clip-rule="evenodd"
+                                        />
+                                    </svg>
+                                    Enabled
+                                </span>
+                            {:else}
+                                <span
+                                    class="text-gray-400 dark:text-gray-500 flex items-center"
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        class="h-4 w-4 mr-1"
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                    >
+                                        <path
+                                            d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z"
+                                        />
+                                    </svg>
+                                    Disabled
+                                </span>
+                            {/if}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="py-1 text-sm italic w-1/3 pl-[20px]">TLS</td>
+                        <td class="py-1">:&ensp;<span class="text-gray-500">{tlsEnabledCount} Domain{tlsEnabledCount>1 ? 's' : ''}</span> </td>
+                    </tr>
+                    <tr>
+                        <td class="py-1 text-sm italic w-1/3 pl-[20px]">TCP</td>
+                        <td class="py-1"
+                            >:&ensp;<span class="text-gray-500">{tlsDisabledCount} Domain{tlsDisabledCount>1 ? 's' : ''}</span> {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}<span
+                                    class="text-red-600 dark:text-red-400 font-semibold"
+                                    >(ignored)</span
+                                >{/if}
                         </td>
                     </tr>
                 </tbody>
             </table>
-            <div class="border-b border-gray-200/20 mt-2 mb-2"></div>
-            <div>
+
+            <div class="mt-2">
                 {#if proxy.high_speed}
                     <!-- Warning with more vibrant pastel style -->
                     <div
@@ -131,7 +221,8 @@
                             />
                         </svg>
                         <span
-                            >If High speed enabled, only selected Gateway domain will be enabled.</span
+                            >If High speed enabled, only selected Gateway domain
+                            will be enabled.</span
                         >
                     </div>
                 {/if}
@@ -161,24 +252,6 @@
                     </div>
                 {/if}
             </div>
-            <div class="font-medium mb-1">TLS Status</div>
-            <table class="w-full border-collapse text-xs">
-                <tbody>
-                    <tr>
-                        <td class="py-1">TLS</td>
-                        <td class="py-1">:&ensp;{tlsEnabledCount} Domain</td>
-                    </tr>
-                    <tr>
-                        <td class="py-1">TCP</td>
-                        <td class="py-1"
-                            >:&ensp;{tlsDisabledCount} Domain {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}<span
-                                    class="text-red-600 dark:text-red-400 font-semibold"
-                                    >(ignored)</span
-                                >{/if}</td
-                        >
-                    </tr>
-                </tbody>
-            </table>
         </div>
     </div>
 </div>
