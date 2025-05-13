@@ -175,7 +175,7 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
             bytes_in: bytes_in as i32,
             bytes_out: bytes_out as i32,
         };
-        
+
         let _ = tlog_gateway::append_data(log_entry);
     }
 }

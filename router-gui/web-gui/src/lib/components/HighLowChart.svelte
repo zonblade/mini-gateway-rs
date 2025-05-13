@@ -58,6 +58,8 @@
     export let data: DataSeries[] = [];
     export let labels: string[] = [];
     export let visiblePoints: number = 12; // Number of data points visible in the viewport
+    export let showXLabels: boolean = false; // Control visibility of X-axis labels
+    export let yAxisLabelColor: string = '#ddd'; // Y-axis label color - light gray by default
   
     // DOM references
     let canvas: HTMLCanvasElement;
@@ -75,8 +77,15 @@
     let offsetX = 0;
     let offsetY = 0;
     let isPanning = false;
+    let isHorizontalPanning = false; // Flag for left-click horizontal panning
     let startPan: PanState;
     let needsDraw = false;
+    
+    // Touch interaction state
+    let touchStartDistance = 0;
+    let touchStartCenter = { x: 0, y: 0 };
+    let touchStartVisiblePoints = 0;
+    let isTouching = false;
     
     // Zoom configuration
     let autoVerticalZoom = true; // Auto-adjust Y axis based on visible data
@@ -518,6 +527,7 @@
       // Draw fixed position ticks with pixel-based positions
       ctx.textAlign = 'right';
       ctx.font = '12px sans-serif';
+      ctx.fillStyle = yAxisLabelColor; // Use the configurable color for Y-axis labels
       
       // Track last label position to prevent overlap
       let lastLabelY = -100; // Start with an offscreen value
@@ -542,7 +552,7 @@
         }
         
         // Draw tick mark
-        ctx.strokeStyle = '#333';
+        ctx.strokeStyle = yAxisLabelColor; // Also use the same color for tick marks
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(-5, transformedY);
@@ -575,7 +585,7 @@
           formattedValue = tickValue.toFixed(decimalPlaces);
         }
         
-        // Draw the label
+        // Draw the label (color already set to yAxisLabelColor above)
         ctx.fillText(formattedValue, -10, transformedY + 4);
         
         // Update last label position
@@ -587,8 +597,8 @@
       // ==============================================
       // X-AXIS LABELS
       // ==============================================
-      // Add X-axis labels if there are any
-      if (labels.length > 0) {
+      // Add X-axis labels if there are any and if they should be shown
+      if (showXLabels && labels.length > 0) {
         ctx.save();
         ctx.translate(padding, padding);
         ctx.textAlign = 'center';
@@ -874,16 +884,26 @@
     }
     
     /**
-     * Initiates panning operation on right mouse button press.
+     * Initiates panning operation on mouse button press.
      * @param {MouseEvent} e - The mouse event object
      */
     function handleMouseDown(e: MouseEvent): void { 
-      if (e.button !== 2) return;
-      isPanning = true;
-      startPan = {
-        x: e.clientX - offsetX,
-        y: e.clientY - offsetY
-      }; 
+      if (e.button === 2) {
+        // Right-click: pan in both axes
+        isPanning = true;
+        isHorizontalPanning = false;
+        startPan = {
+          x: e.clientX - offsetX,
+          y: e.clientY - offsetY
+        };
+      } else if (e.button === 0) {
+        // Left-click: pan only horizontally
+        isHorizontalPanning = true;
+        startPan = {
+          x: e.clientX - offsetX,
+          y: e.clientY - offsetY
+        };
+      }
     }
     
     /**
@@ -891,25 +911,125 @@
      * @param {MouseEvent} e - The mouse event object
      */
     function handleMouseMove(e: MouseEvent): void { 
-      if (!isPanning) {
+      if (!isPanning && !isHorizontalPanning) {
         handleMouseMoveHover(e);
         return;
       }
       
-      offsetX = e.clientX - startPan.x; 
-      offsetY = e.clientY - startPan.y; 
+      if (isPanning) {
+        // Full panning (right-click)
+        offsetX = e.clientX - startPan.x; 
+        offsetY = e.clientY - startPan.y;
+      } else if (isHorizontalPanning) {
+        // Horizontal panning only (left-click)
+        offsetX = e.clientX - startPan.x;
+      }
+      
       const {width, height} = canvas.getBoundingClientRect(); 
       clampOffsets(width-padding*2, height-padding*2); 
       scheduleDraw(); 
     }
     
     /**
-     * Terminates panning operation on right mouse button release.
+     * Terminates panning operation on mouse button release.
      * @param {MouseEvent} e - The mouse event object
      */
     function handleMouseUp(e: MouseEvent): void { 
-      if (e.button !== 2) return;
-      isPanning = false; 
+      if (e.button === 2) {
+        isPanning = false;
+      } else if (e.button === 0) {
+        isHorizontalPanning = false;
+      }
+    }
+    
+    /**
+     * Handle touch start event for two-finger gestures
+     * @param {TouchEvent} e - The touch event
+     */
+    function handleTouchStart(e: TouchEvent): void {
+      e.preventDefault();
+      
+      if (e.touches.length === 2) {
+        // Two-finger gesture started
+        isTouching = true;
+        
+        // Calculate initial distance between fingers
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        
+        // Distance for zoom
+        const dx = touch1.clientX - touch2.clientX;
+        const dy = touch1.clientY - touch2.clientY;
+        touchStartDistance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Center point for pan reference
+        touchStartCenter = {
+          x: (touch1.clientX + touch2.clientX) / 2,
+          y: (touch1.clientY + touch2.clientY) / 2
+        };
+        
+        // Store current state
+        touchStartVisiblePoints = visiblePoints;
+        
+        // For panning
+        startPan = {
+          x: touchStartCenter.x - offsetX,
+          y: touchStartCenter.y - offsetY
+        };
+      }
+    }
+    
+    /**
+     * Handle touch move event for two-finger gestures
+     * @param {TouchEvent} e - The touch event
+     */
+    function handleTouchMove(e: TouchEvent): void {
+      e.preventDefault();
+      
+      if (!isTouching || e.touches.length !== 2) return;
+      
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      
+      // Calculate current distance between fingers
+      const dx = touch1.clientX - touch2.clientX;
+      const dy = touch1.clientY - touch2.clientY;
+      const currentDistance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Current center point
+      const currentCenter = {
+        x: (touch1.clientX + touch2.clientX) / 2,
+        y: (touch1.clientY + touch2.clientY) / 2
+      };
+      
+      // Determine the dominant gesture direction (horizontal or vertical)
+      const horizontalChange = Math.abs(currentCenter.x - touchStartCenter.x);
+      const verticalChange = Math.abs(currentCenter.y - touchStartCenter.y);
+      
+      if (horizontalChange > verticalChange) {
+        // Horizontal pan (dominant)
+        offsetX = currentCenter.x - startPan.x;
+      } else {
+        // Vertical gesture = zoom
+        const zoomRatio = touchStartDistance / currentDistance;
+        const newVisiblePoints = touchStartVisiblePoints * zoomRatio;
+        
+        // Apply zoom while maintaining center
+        adjustHorizontalZoom(newVisiblePoints, currentCenter.x);
+        return;
+      }
+      
+      const {width, height} = canvas.getBoundingClientRect();
+      clampOffsets(width-padding*2, height-padding*2);
+      scheduleDraw();
+    }
+    
+    /**
+     * Handle touch end event
+     * @param {TouchEvent} e - The touch event
+     */
+    function handleTouchEnd(e: TouchEvent): void {
+      isTouching = false;
     }
     
     /**
@@ -954,6 +1074,11 @@
         scheduleDraw();
       });
       
+      // Add touch event listeners
+      canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
+      canvas.addEventListener('touchmove', handleTouchMove, {passive: false});
+      canvas.addEventListener('touchend', handleTouchEnd);
+      
       // Add keyboard event listener
       window.addEventListener('keydown', handleKeydown);
       
@@ -979,6 +1104,12 @@
         window.removeEventListener('mouseup', handleMouseUp);
         canvas.removeEventListener('contextmenu', disableContext);
         canvas.removeEventListener('mouseleave', () => {});
+        
+        // Remove touch event listeners
+        canvas.removeEventListener('touchstart', handleTouchStart);
+        canvas.removeEventListener('touchmove', handleTouchMove);
+        canvas.removeEventListener('touchend', handleTouchEnd);
+        
         window.removeEventListener('keydown', handleKeydown);
       };
     });

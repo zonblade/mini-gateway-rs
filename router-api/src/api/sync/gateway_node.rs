@@ -29,7 +29,7 @@ pub async fn gateway() -> HttpResponse {
             log::info!("Successfully synced gateway nodes to registry");
             let path_result = sync_gateway_paths_to_registry().await;
             match path_result {
-                Ok(paths) => {
+                Ok(_paths) => {
                     log::info!("Successfully synced gateway paths to registry");
                     data
                 }

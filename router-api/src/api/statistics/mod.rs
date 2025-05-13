@@ -65,6 +65,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // .wrap(RoleAuth::admin())
             .service(log_default::init)
             .service(log_status_code::init)
+            .service(log_bytesio::init)
     //         .route("/gateways/{id}", web::get().to(handlers::get_gateway_stats))
     //         .route("/proxies/{id}", web::get().to(handlers::get_proxy_stats))
     //         .route("/traffic", web::get().to(handlers::get_traffic_stats))
