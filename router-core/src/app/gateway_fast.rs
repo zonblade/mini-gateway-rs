@@ -42,8 +42,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use log::{debug, error, info, warn};
-use pingora::cache::{NoCacheReason, RespCacheable};
-use pingora::http::ResponseHeader;
 // Use log macros consistently
 use pingora::prelude::*; // Import commonly used items
 use pingora::proxy::{ProxyHttp, Session};

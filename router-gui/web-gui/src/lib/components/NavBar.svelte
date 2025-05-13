@@ -15,6 +15,7 @@
     <!-- Desktop Menu -->
     <nav class="hidden md:flex space-x-6">
         <a href="/" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Dashboard</a>
+        <a href="/stats" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Stats</a>
         <a href="/users" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Users</a>
         <a href="/proxy" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Proxy</a>
         <a href="/gwnode" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Gateway Nodes</a>
