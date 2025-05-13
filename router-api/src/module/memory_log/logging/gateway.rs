@@ -107,16 +107,23 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
         // | ID:17936787362358910377, TYPE:REQ, CONN:HTTP, SIZE:0, STAT:N/A, SRC:127.0.0.1:42615, DST:127.0.0.1:3004 |
         // log::info!("GWX : Processing: {} - {}: {}", datetime, level, message);
         let message_inner = message.as_str();
-        let message_inner = message_inner.split('|').collect::<Vec<&str>>();
+        let message_vector = message_inner.split('|').collect::<Vec<&str>>();
 
         let message_inner = {
-            if message_inner.len() > 1 {
-                message_inner[1]
+            if message_vector.len() > 1 {
+                message_vector[1]
             } else {
                 continue; // Skip if the message format is not as expected
             }
         };
-        
+
+        let header_inner = {
+            if message_vector.len() > 2 {
+                message_vector[2]
+            } else {
+                continue; // Skip if the message format is not as expected
+            }
+        };
         
         // Initialize variables to store extracted values
         let mut conn_id = String::new();

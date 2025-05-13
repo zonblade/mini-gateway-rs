@@ -1,18 +1,32 @@
-use actix_web::{get, HttpResponse, Responder};
+use actix_web::{get, web, HttpResponse, Responder};
+use chrono::{Duration, Utc};
+use serde::Deserialize;
 
-use crate::module::temporary_log::tlog_gateway;
+use crate::module::temporary_log::{tlog_gateway, tlog_proxy};
 
-/// Get a proxy by ID
-///
-/// This endpoint returns a specific proxy configuration by its ID,
-/// along with all associated proxy domains.
+
+#[derive(Deserialize)]
+struct Params {
+    target: Option<String>,
+}
+
 #[get("/default")]
-pub async fn init() -> impl Responder {
-    let end = chrono::Utc::now();
-    // start 30 minutes before
-    let start = end - chrono::Duration::minutes(30);
+pub async fn init(query: web::Query<Params>) -> impl Responder {
+    let end = Utc::now();
+    let start = end - Duration::minutes(120);
 
-    let result = tlog_gateway::get_data_time_frame(start, end);
+    let result = {
+        match &query.target {
+            Some(str) => {
+                match str.as_str() {
+                    "proxy" => tlog_proxy::get_data_time_frame(start, end),
+                    "domain" => tlog_gateway::get_data_time_frame(start, end),
+                    _ => tlog_gateway::get_data_time_frame(start, end)
+                }
+            }
+            None => tlog_gateway::get_data_time_frame(start, end),
+        }
+    };
 
     let result = match result {
         Ok(data) => data,
