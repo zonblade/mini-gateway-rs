@@ -32,7 +32,7 @@
             <h1
                 class="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2"
             >
-                Router Statistics
+                Mini Gateway Statistics
             </h1>
             <p class="text-gray-600 dark:text-gray-400">
                 Real-time monitoring of router performance and traffic

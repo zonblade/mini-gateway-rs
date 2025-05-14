@@ -37,7 +37,7 @@
                 on:change={handleTargetChange}
                 class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-200"
             >
-                <option value="domain">By Domain</option>
+                <option value="domain">By Gateway</option>
                 <option value="proxy">By Proxy</option>
             </select>
         </div>

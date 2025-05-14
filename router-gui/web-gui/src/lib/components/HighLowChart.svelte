@@ -60,6 +60,7 @@
     export let visiblePoints: number = 12; // Number of data points visible in the viewport
     export let showXLabels: boolean = false; // Control visibility of X-axis labels
     export let yAxisLabelColor: string = '#ddd'; // Y-axis label color - light gray by default
+    export let yAxisPosition: 'left' | 'right' = 'right'; // Default to left for backward compatibility
   
     // DOM references
     let canvas: HTMLCanvasElement;
@@ -255,9 +256,16 @@
       ctx.strokeStyle = '#333'; 
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(padding, padding);
-      ctx.lineTo(padding, padding+chartH);
-      ctx.lineTo(padding+chartW, padding+chartH);
+      if (yAxisPosition === 'left') {
+        ctx.moveTo(padding, padding);
+        ctx.lineTo(padding, padding+chartH);
+        ctx.lineTo(padding+chartW, padding+chartH);
+      } else {
+        ctx.moveTo(width-padding, padding);
+        ctx.lineTo(width-padding, padding+chartH);
+        ctx.lineTo(padding, padding+chartH);
+        ctx.lineTo(padding+chartW, padding+chartH);
+      }
       ctx.stroke();
   
       // ============================================================
@@ -487,12 +495,24 @@
       // Y-AXIS WITH EXCLUSIVE VERTICAL TRANSFORMATION
       // ==============================================
       ctx.save();
-      ctx.beginPath(); 
-      ctx.rect(0, padding, padding, chartH); 
-      ctx.clip();
-      
-      // Fixed Y-axis label handling
-      ctx.translate(padding, padding);
+
+      // Adjust clipping region and position based on yAxisPosition
+      if (yAxisPosition === 'left') {
+        ctx.beginPath(); 
+        ctx.rect(0, padding, padding, chartH); 
+        ctx.clip();
+        
+        // Fixed Y-axis label handling for left side
+        ctx.translate(padding, padding);
+      } else {
+        // Right side Y-axis
+        ctx.beginPath(); 
+        ctx.rect(width - padding, padding, padding, chartH); 
+        ctx.clip();
+        
+        // Fixed Y-axis label handling for right side
+        ctx.translate(width - padding, padding);
+      }
       
       // Determine optimal tick spacing for Y axis with more constraints
       const minYLabelSpacingPixels = 30; // Minimum spacing between Y labels
@@ -525,12 +545,16 @@
       }
       
       // Draw fixed position ticks with pixel-based positions
-      ctx.textAlign = 'right';
+      if (yAxisPosition === 'left') {
+        ctx.textAlign = 'right';
+      } else {
+        ctx.textAlign = 'left';
+      }
       ctx.font = '12px sans-serif';
-      ctx.fillStyle = yAxisLabelColor; // Use the configurable color for Y-axis labels
+      ctx.fillStyle = yAxisLabelColor;
       
       // Track last label position to prevent overlap
-      let lastLabelY = -100; // Start with an offscreen value
+      let lastLabelY = -100;
       
       for (let tickValue = firstTick; tickValue <= lastTick; tickValue += actualSpacing) {
         // Skip if outside data range
@@ -551,12 +575,17 @@
           continue; // Skip this label to prevent overlap
         }
         
-        // Draw tick mark
-        ctx.strokeStyle = yAxisLabelColor; // Also use the same color for tick marks
+        // Draw tick mark - adjust direction based on position
+        ctx.strokeStyle = yAxisLabelColor;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(-5, transformedY);
-        ctx.lineTo(0, transformedY);
+        if (yAxisPosition === 'left') {
+          ctx.moveTo(-5, transformedY);
+          ctx.lineTo(0, transformedY);
+        } else {
+          ctx.moveTo(0, transformedY);
+          ctx.lineTo(5, transformedY);
+        }
         ctx.stroke();
         
         // Format tick value based on magnitude
@@ -585,8 +614,12 @@
           formattedValue = tickValue.toFixed(decimalPlaces);
         }
         
-        // Draw the label (color already set to yAxisLabelColor above)
-        ctx.fillText(formattedValue, -10, transformedY + 4);
+        // Draw the label with adjusted position
+        if (yAxisPosition === 'left') {
+          ctx.fillText(formattedValue, -10, transformedY + 4);
+        } else {
+          ctx.fillText(formattedValue, 10, transformedY + 4);
+        }
         
         // Update last label position
         lastLabelY = transformedY;
@@ -679,14 +712,27 @@
     }
     
     /**
-     * Reset view to default
+     * Reset view to default, showing the most recent data (right side) initially
      */
     function resetView(): void {
       if (data.length) {
-        offsetX = 0;
+        const { width } = $size;
+        const chartW = width - padding*2;
+        
+        // Calculate the width needed to display all data points
+        const maxDataPoints = Math.max(...data.map(s => (s.highs || []).length), 0);
+        const pointWidth = chartW / visiblePoints;
+        const totalPointWidth = pointWidth * maxDataPoints;
+        
+        // Set offsetX to show the most recent data (right-aligned)
+        // This will position the view at the rightmost edge of the data
+        offsetX = -(totalPointWidth - chartW);
+        
+        // Reset other view parameters
         offsetY = 0;
         scale = 1;
         visiblePoints = 12;
+        
         scheduleDraw();
       }
     }
@@ -1057,7 +1103,11 @@
           canvas.width = entry.contentRect.width; 
           canvas.height = entry.contentRect.height; 
         }
-        scheduleDraw();
+        
+        // Reset view to show the most recent data when size changes
+        if (data.length) {
+          resetView();
+        }
       });
       
       resizeObserver.observe(canvas.parentElement!);
@@ -1085,14 +1135,10 @@
       // Subscribe to size changes for redraw
       const unsubscribe = size.subscribe(() => scheduleDraw());
       
-      // Initialize with default scale and offset for visible points
-      const resetViewOnDataChange = (): void => {
-        if (data.length) {
-          resetView();
-        }
-      };
-      
-      // We don't need to subscribe to data - it will be handled by the reactive declaration below
+      // Initialize with the view showing the most recent data
+      if (data.length) {
+        resetView();
+      }
       
       // Cleanup function
       return () => {

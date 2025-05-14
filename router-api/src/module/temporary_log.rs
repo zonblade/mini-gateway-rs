@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque}; // Added HashSet to imports
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::io::AsRawFd;
+// use std::os::unix::io::AsRawFd;
+use std::os::fd::IntoRawFd;
 use std::path::PathBuf;
 use std::ptr;
 use thiserror::Error;
@@ -273,11 +274,36 @@ impl LogStore {
             (new_path, new_start_time)
         };
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&segment_file_path)?;
+        let mut file = None;
+        let mut retry_count = 0;
+        let max_retries = 3;
+        let mut last_error = None;
+
+        while retry_count < max_retries {
+            match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&segment_file_path)
+            {
+                Ok(f) => {
+                    file = Some(f);
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("Failed to open segment file (attempt {}): {}", retry_count + 1, e);
+                    last_error = Some(e);
+                    retry_count += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+
+        let file = match file {
+            Some(f) => f,
+            None => return Err(LogStoreError::IoError(last_error.unwrap())),
+        };
+
         let metadata = file.metadata()?;
         let on_disk_size_before_resize = metadata.len() as usize;
 
@@ -285,20 +311,38 @@ impl LogStore {
             file.set_len(SEGMENT_SIZE as u64)?;
         }
 
-        let fd = file.as_raw_fd();
-        let mmap_ptr = unsafe {
-            libc::mmap(
-                ptr::null_mut(),
-                SEGMENT_SIZE,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                fd,
-                0,
-            )
-        };
-        if mmap_ptr == libc::MAP_FAILED {
+        let fd = file.into_raw_fd();
+        
+        let mut mmap_ptr = ptr::null_mut();
+        let mut mmap_retry_count = 0;
+        
+        while mmap_retry_count < max_retries {
+            let ptr = unsafe {
+                libc::mmap(
+                    ptr::null_mut(),
+                    SEGMENT_SIZE,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_SHARED,
+                    fd,
+                    0,
+                )
+            };
+            
+            if ptr != libc::MAP_FAILED {
+                mmap_ptr = ptr;
+                break;
+            }
+            
             let err = io::Error::last_os_error();
-            return Err(LogStoreError::IoError(err));
+            log::warn!("mmap failed (attempt {}): {}", mmap_retry_count + 1, err);
+            mmap_retry_count += 1;
+            
+            if mmap_retry_count >= max_retries {
+                unsafe { libc::close(fd) };
+                return Err(LogStoreError::IoError(err));
+            }
+            
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
         let mut loaded_logs_from_disk = VecDeque::new();
@@ -374,25 +418,43 @@ impl LogStore {
 
     fn rotate_segment(&mut self, rotation_time: DateTime<Utc>) -> Result<(), LogStoreError> {
         if let Some(segment_to_archive) = self.active_segment.take() {
+            // Try to sync memory to disk with error handling
             unsafe {
                 if libc::msync(
                     segment_to_archive.mmap_ptr as *mut libc::c_void,
                     segment_to_archive.write_offset,
                     libc::MS_SYNC,
-                ) == -1
-                {}
+                ) == -1 {
+                    log::warn!("msync failed: {}", io::Error::last_os_error());
+                    // Continue anyway - this is not fatal
+                }
             }
 
             let original_file_path = segment_to_archive.file_path.clone();
             let final_write_offset = segment_to_archive.write_offset;
 
+            // Unmap memory and close file descriptor with error handling
+            let mut unmap_error = false;
+            let mut close_error = false;
+            
             unsafe {
                 if libc::munmap(
                     segment_to_archive.mmap_ptr as *mut libc::c_void,
                     segment_to_archive.size,
-                ) == -1
-                {}
-                if libc::close(segment_to_archive.file_descriptor) == -1 {}
+                ) == -1 {
+                    log::error!("munmap failed: {}", io::Error::last_os_error());
+                    unmap_error = true;
+                }
+                
+                if libc::close(segment_to_archive.file_descriptor) == -1 {
+                    log::error!("close failed: {}", io::Error::last_os_error());
+                    close_error = true;
+                }
+            }
+
+            // If both operations failed, we might be in a bad state, but try to continue
+            if unmap_error && close_error {
+                log::error!("Both munmap and close failed during segment rotation");
             }
 
             if final_write_offset < SEGMENT_SIZE {

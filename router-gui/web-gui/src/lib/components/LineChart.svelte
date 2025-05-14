@@ -104,19 +104,20 @@
   function clampOffsets(w: number, h: number): void {
     // For X, we calculate based on the total data width compared to visible area
     const maxDataPoints = Math.max(...data.map((s) => s.values.length), 0);
-    const totalPointWidth = w * (maxDataPoints / visiblePoints);
+    const pointWidth = w / visiblePoints;
+    const totalPointWidth = pointWidth * maxDataPoints;
 
-    // Allow scrolling to the beginning and end of data
+    // Ensure no extra space on the right (newest data)
+    // minX is the rightmost position (newest data)
+    const minX = Math.min(-(totalPointWidth - w), 0);
+    
+    // maxX is the leftmost position (oldest data)
+    // Allow scrolling to the beginning of data
     const maxX = 0;
-    const minX = -(totalPointWidth - w);
-
-    // For Y, keep the existing constraint
-    const maxY = 0;
-    const minY = -h * (scale - 1) - 0;
 
     // Apply constraints
     offsetX = Math.min(maxX, Math.max(minX, offsetX));
-    offsetY = Math.min(maxY, Math.max(minY, offsetY));
+    offsetY = Math.min(0, Math.max(-h * (scale - 1), offsetY));
   }
 
   /**
@@ -140,16 +141,16 @@
   function getVisibleDataPoints(chartW: number): VisibleDataPoints {
     if (!data.length) return { indices: [], values: [] };
 
+    const maxDataPoints = Math.max(...data.map((s) => s.values.length), 0);
+    if (maxDataPoints === 0) return { indices: [], values: [] };
+    
     const pointWidth = chartW / visiblePoints;
     const leftEdge = -offsetX / pointWidth;
     const rightEdge = leftEdge + visiblePoints;
 
     // Get indices of visible points
     const startIdx = Math.max(0, Math.floor(leftEdge));
-    const endIdx = Math.min(
-      Math.max(...data.map((s) => s.values.length)),
-      Math.ceil(rightEdge),
-    );
+    const endIdx = Math.min(maxDataPoints, Math.ceil(rightEdge));
 
     // Get all values from visible points
     const visibleValues: number[] = [];
@@ -158,6 +159,24 @@
         visibleValues.push(series.values[i]);
       }
     });
+
+    // If no visible values or very few values, include the most recent points
+    // to ensure Y-axis is properly scaled from the beginning
+    if (visibleValues.length < visiblePoints / 2 && maxDataPoints > 0) {
+      data.forEach((series) => {
+        if (series.values.length > 0) {
+          // Add the last few values to ensure Y-axis is properly scaled
+          const lastIdx = series.values.length - 1;
+          const startFrom = Math.max(0, lastIdx - visiblePoints + 1);
+          for (let i = startFrom; i <= lastIdx; i++) {
+            // Only add values that aren't already in the array
+            if (i < startIdx || i >= endIdx) {
+              visibleValues.push(series.values[i]);
+            }
+          }
+        }
+      });
+    }
 
     return {
       indices: [startIdx, endIdx],
@@ -180,7 +199,11 @@
     // Calculate min/max Y values - either from all data or only visible data
     let minY: number, maxY: number, rangeY: number;
 
-    if (autoVerticalZoom) {
+    // Always use all data for initial Y-axis calculation, even with autoVerticalZoom enabled
+    // This ensures Y-axis values are visible from the first load
+    const allValues = data.flatMap((s) => s.values);
+    
+    if (autoVerticalZoom && allValues.length > 0) {
       // Get only values currently visible in the viewport
       const visibleData = getVisibleDataPoints(chartW);
 
@@ -195,19 +218,17 @@
         minY -= padding;
       } else {
         // Fallback to all data
-        const all = data.flatMap((s) => s.values);
-        maxY = Math.max(...all, 0);
-        minY = Math.min(...all, 0);
+        maxY = Math.max(...allValues, 0);
+        minY = Math.min(...allValues, 0);
       }
     } else {
       // Use all data for Y axis scaling
-      const all = data.flatMap((s) => s.values);
-      maxY = Math.max(...all, 0);
-      minY = Math.min(...all, 0);
+      maxY = allValues.length > 0 ? Math.max(...allValues, 0) : 1;
+      minY = allValues.length > 0 ? Math.min(...allValues, 0) : 0;
     }
 
-    // Ensure we have a valid range
-    rangeY = maxY - minY || 1;
+    // Ensure we have a valid range (prevent division by zero)
+    rangeY = Math.max(maxY - minY, 0.1);
 
     // Determine maximum number of data points in any series
     const maxDataPoints = Math.max(...data.map((s) => s.values.length), 0);
@@ -224,6 +245,9 @@
     ctx.beginPath();
     ctx.moveTo(padding, padding);
     ctx.lineTo(padding, padding + chartH);
+    ctx.lineTo(padding + chartW, padding + chartH);
+    // Add right Y-axis line
+    ctx.moveTo(padding + chartW, padding);
     ctx.lineTo(padding + chartW, padding + chartH);
     ctx.stroke();
 
@@ -381,11 +405,12 @@
     // ==============================================
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, padding, padding, chartH);
+    // Change from left to right side
+    ctx.rect(width - padding, padding, padding, chartH);
     ctx.clip();
 
     // Fixed Y-axis label handling
-    ctx.translate(padding, padding);
+    ctx.translate(width - padding, padding);
 
     // Determine optimal tick spacing for Y axis with more constraints
     const minYLabelSpacingPixels = 30; // Minimum spacing between Y labels
@@ -419,12 +444,16 @@
     }
 
     // Draw fixed position ticks with pixel-based positions
-    ctx.textAlign = "right";
+    // Change text alignment from right to left
+    ctx.textAlign = "left";
     ctx.font = "12px sans-serif";
-    ctx.fillStyle = yAxisLabelColor; // Use the configurable color for Y-axis labels
+    ctx.fillStyle = yAxisLabelColor;
 
     // Track last label position to prevent overlap
     let lastLabelY = -100; // Start with an offscreen value
+
+    // Ensure we draw at least one label even if there's minimal data range
+    let labelsDrawn = 0;
 
     for (
       let tickValue = firstTick;
@@ -486,11 +515,37 @@
         formattedValue = tickValue.toFixed(decimalPlaces);
       }
 
-      // Draw the label (color already set above)
-      ctx.fillText(formattedValue, -10, transformedY + 4);
+      // Draw tick mark - adjust position for right side
+      ctx.strokeStyle = yAxisLabelColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, transformedY);
+      ctx.lineTo(5, transformedY);
+      ctx.stroke();
 
-      // Update last label position
+      // Draw the label - adjust position for right side
+      ctx.fillText(formattedValue, 10, transformedY + 4);
+
+      // Update last label position and count
       lastLabelY = transformedY;
+      labelsDrawn++;
+    }
+
+    // If no labels were drawn, force display of at least min and max values
+    if (labelsDrawn === 0) {
+      // Draw min value
+      ctx.beginPath();
+      ctx.moveTo(0, chartH);
+      ctx.lineTo(5, chartH);
+      ctx.stroke();
+      ctx.fillText(minY.toString(), 10, chartH + 4);
+      
+      // Draw max value
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(5, 0);
+      ctx.stroke();
+      ctx.fillText(maxY.toString(), 10, 4);
     }
 
     ctx.restore();
@@ -934,10 +989,24 @@
    */
   function resetView(): void {
     if (data.length && data[0].values.length) {
-      offsetX = 0;
+      const { width } = $size;
+      const chartW = width - padding * 2;
+      const maxDataPoints = Math.max(...data.map((s) => s.values.length), 0);
+      const pointWidth = chartW / visiblePoints;
+      
+      // Calculate offset to show the most recent data points aligned with the right Y-axis
+      // Add 1 pixel to ensure points touch the Y-axis
+      offsetX = -((maxDataPoints * pointWidth) - chartW) - 1;
+      
+      // Ensure we don't have extra space on the right by clamping
+      offsetX = Math.min(offsetX, 0);
+      
       offsetY = 0;
       scale = 1;
-      visiblePoints = 12;
+      
+      // Force Y-axis to recalculate and show values
+      autoVerticalZoom = true;
+      
       scheduleDraw();
     }
   }
@@ -987,27 +1056,19 @@
     // Subscribe to size changes for redraw
     const unsubscribe = size.subscribe(() => scheduleDraw());
 
-    // Initialize with default scale and offset for visible points
-    const resetViewHandler = () => {
-      if (data.length && data[0].values.length) {
-        const { width, height } = $size;
-        const chartW = width - padding * 2;
-
-        // Set initial offset to show first 12 points
-        offsetX = 0;
-        offsetY = 0;
-        scale = 1;
-
+    // Initialize view after component is mounted and size is determined
+    // This ensures Y-axis values are calculated properly from the start
+    setTimeout(() => {
+      resetView();
+      // Force a second redraw after a short delay to ensure Y-axis values are displayed
+      setTimeout(() => {
         scheduleDraw();
-      }
-    };
-
-    // Fixed the unsubscribeData reference issue - it wasn't actually defined or needed
+      }, 50);
+    }, 0);
 
     // Cleanup function
     return () => {
       unsubscribe();
-      // Removed unsubscribeData() since it wasn't properly defined
       resizeObserver.disconnect();
       canvas.removeEventListener("wheel", handleWheel);
       canvas.removeEventListener("mousedown", handleMouseDown);
@@ -1028,7 +1089,27 @@
   // Use a reactive declaration instead of subscription
   $: if (data && data !== prevData) {
     if (data.length) {
-      resetView();
+      // Check if data length has increased (new data added)
+      const oldMaxPoints = prevData.length > 0 ? 
+        Math.max(...prevData.map(s => s.values.length)) : 0;
+      const newMaxPoints = Math.max(...data.map(s => s.values.length));
+      
+      if (newMaxPoints > oldMaxPoints) {
+        // Data was added, adjust offset to maintain position relative to newest data
+        const { width } = $size;
+        const chartW = width - padding * 2;
+        const pointWidth = chartW / visiblePoints;
+        
+        // Adjust offset by the width of the new points
+        offsetX -= (newMaxPoints - oldMaxPoints) * pointWidth;
+        
+        // Make sure we're still within bounds
+        clampOffsets(chartW, $size.height - padding * 2);
+        scheduleDraw();
+      } else {
+        // Data was reset or reduced, just reset view
+        resetView();
+      }
     }
     prevData = data;
   }
