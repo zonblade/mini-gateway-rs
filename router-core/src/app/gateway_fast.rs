@@ -806,7 +806,7 @@ impl ProxyHttp for GatewayApp {
             .join("\n");
 
 
-        println!("Request Header: {}", header_str);
+        // println!("Request Header: {}", header_str);
         info!(
             "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} |",
             _ctx.conn_id.clone().unwrap_or("-".into()),
