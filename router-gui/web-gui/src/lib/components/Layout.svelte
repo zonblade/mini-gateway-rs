@@ -27,7 +27,7 @@
     <div
         class="flex flex-col items-center justify-center w-full h-screen bg-gray-50 dark:bg-[#0d1117] text-gray-900 dark:text-gray-100"
     >
-        <div class="w-full max-w-md px-4">
+        <div class="w-full max-w-[900px] px-4">
             <slot />
         </div>
     </div>
