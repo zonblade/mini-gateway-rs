@@ -61,20 +61,26 @@
 
 <svelte:window on:click={handleClickOutside} />
 
-<!-- Header/Navigation -->
-<header class="bg-white dark:bg-[#161b22] shadow-sm relative z-10">
-    <div class="mx-auto px-4 sm:px-6 lg:px-8">
-        <NavBar 
-            username={username} 
-            onLogout={onLogout} 
-            on:click={handleNavClick}
+<div class="flex">
+    <!-- Navigation Sidebar -->
+    <NavBar 
+        username={username} 
+        onLogout={onLogout} 
+        on:click={handleNavClick}
+    />
+    
+    <!-- Main Content Area with padding for sidebar -->
+    <div class="md:ml-64 w-full transition-all duration-300 ease-in-out">
+        <!-- Mobile Header appears here, but is styled in NavBar component -->
+        <div class="md:hidden">
+            <!-- This div is intentionally empty as mobile header is in NavBar component -->
+        </div>
+        
+        <MobileMenu 
+            isOpen={isMobileMenuOpen}
+            username={username}
+            onClose={closeMobileMenu}
+            onLogout={onLogout}
         />
     </div>
-</header>
-
-<MobileMenu 
-    isOpen={isMobileMenuOpen}
-    username={username}
-    onClose={closeMobileMenu}
-    onLogout={onLogout}
-/>
+</div>
