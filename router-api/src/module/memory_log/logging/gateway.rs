@@ -101,20 +101,88 @@ pub fn listen() {
 // Extract batch processing to a separate function
 fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
     // Replace with actual batch processing logic
-    for (datetime, level, message) in batch {
+    for (datetime, _level, message) in batch {
         // Process each log entry (commented out to avoid unnecessary prints)
         // Uncomment if processing is actually needed
-        // ID:17936787362358910377, TYPE:REQ, CONN:HTTP, SIZE:0, STAT:N/A, SRC:127.0.0.1:42615, DST:127.0.0.1:3004 |
+        // | ID:17936787362358910377, TYPE:REQ, CONN:HTTP, SIZE:0, STAT:N/A, SRC:127.0.0.1:42615, DST:127.0.0.1:3004 |
         // log::info!("GWX : Processing: {} - {}: {}", datetime, level, message);
+        let message_inner = message.as_str();
+        let message_vector = message_inner.split('|').collect::<Vec<&str>>();
 
-        // let _ = tlog_gateway::append_data(TemporaryLog{
-        //     date_time: datetime.clone(),
-        //     conn_id: String::new(),
-        //     status_code: 0,
-        //     conn_req: 0,
-        //     conn_res: 0,
-        //     bytes_in: 0,
-        //     bytes_out: 0,
-        // });
+        let message_inner = {
+            if message_vector.len() > 1 {
+                message_vector[1]
+            } else {
+                continue; // Skip if the message format is not as expected
+            }
+        };
+
+        let header_inner = {
+            if message_vector.len() > 2 {
+                message_vector[2]
+            } else {
+                continue; // Skip if the message format is not as expected
+            }
+        };
+        
+        // Initialize variables to store extracted values
+        let mut conn_id = String::new();
+        let mut msg_type = "";
+        let mut conn_type = "";
+        let mut size: u64 = 0;
+        let mut status = "";
+        let mut source = String::new();
+        let mut destination = String::new();
+        
+        // Direct field extraction
+        for field in message_inner.split(',') {
+            let field = field.trim();
+            
+            if let Some(colon_idx) = field.find(':') {
+                let key = &field[..colon_idx].trim();
+                let value = &field[colon_idx+1..].trim();
+                
+                // Direct field matching without HashMap
+                match *key {
+                    "ID" => conn_id = value.to_string(),
+                    "TYPE" => msg_type = value,
+                    "CONN" => conn_type = value,
+                    "SIZE" => size = value.parse().unwrap_or(0),
+                    "STAT" => status = value,
+                    "SRC" => source = value.to_string(),
+                    "DST" => destination = value.to_string(),
+                    _ => {} // Ignore unknown fields
+                }
+            }
+        }
+        
+        // Determine request vs response
+        let (conn_req, conn_res, bytes_in, bytes_out) = match msg_type {
+            "REQ" => (1, 0, size, 0),
+            "RES" => (0, 1, 0, size),
+            _ => (0, 0, 0, 0),
+        };
+        
+        // Convert status to numeric code
+        let status_code = if status == "N/A" {
+            0
+        } else {
+            status.parse::<i32>().unwrap_or(0)
+        };
+        
+        // Create and append the TemporaryLog
+        let log_entry = TemporaryLog {
+            date_time: datetime.clone(),
+            conn_id,
+            conn_type: conn_type.to_string(),
+            peer: (source, destination),
+            status_code,
+            conn_req,
+            conn_res,
+            bytes_in: bytes_in as i32,
+            bytes_out: bytes_out as i32,
+        };
+
+        let _ = tlog_gateway::append_data(log_entry);
     }
 }

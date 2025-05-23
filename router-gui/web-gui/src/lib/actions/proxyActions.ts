@@ -10,7 +10,7 @@ export const proxyActions = {
             return await proxyService.getAllProxies();
         } catch (error) {
             console.error('Failed to fetch proxies:', error);
-            return nul; // Return an empty array on error
+            return null; // Return null on error
         }
     },
     

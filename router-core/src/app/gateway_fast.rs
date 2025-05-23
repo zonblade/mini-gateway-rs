@@ -789,6 +789,24 @@ impl ProxyHttp for GatewayApp {
     {
         let size_in = _body.as_ref().map_or(0, |b| b.len());
         _ctx.size_in = size_in;
+        // eprintln!(
+        //     "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} | Request",
+        //     _ctx.conn_id.clone().unwrap_or("-".into()),
+        //     _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+        //     size_in,
+        //     _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+        //     _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+        // );
+        let header = &_session.req_header().headers;
+        
+        let header_str = header
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k, v.to_str().unwrap_or("")))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+
+        // println!("Request Header: {}", header_str);
         info!(
             "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} |",
             _ctx.conn_id.clone().unwrap_or("-".into()),
@@ -818,6 +836,15 @@ impl ProxyHttp for GatewayApp {
         let response_code = _session
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
+        // eprintln!(
+        //     "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} | Response",
+        //     _ctx.conn_id.clone().unwrap_or("-".into()),
+        //     _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+        //     _ctx.size_out,
+        //     response_code,
+        //     _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+        //     _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+        // );
         info!(
             "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
             _ctx.conn_id.clone().unwrap_or("-".into()),
@@ -828,4 +855,56 @@ impl ProxyHttp for GatewayApp {
             _ctx.peer.clone().unwrap_or("UNKNOWN".into())
         );
     }
+
+    // fn request_cache_filter(&self, _session: &mut Session, _ctx: &mut Self::CTX) -> Result<()> {
+    //     eprintln!(
+    //         "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} | Cache Request",
+    //         _ctx.conn_id.clone().unwrap_or("-".into()),
+    //         _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.size_in,
+    //         _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+    //     );
+    //     info!(
+    //         "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} |",
+    //         _ctx.conn_id.clone().unwrap_or("-".into()),
+    //         _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.size_in,
+    //         _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+    //     );
+    //     Ok(())
+    // }
+
+    // /// Decide if the response is cacheable
+    // fn response_cache_filter(
+    //     &self,
+    //     _session: &Session,
+    //     _resp: &ResponseHeader,
+    //     _ctx: &mut Self::CTX,
+    // ) -> Result<RespCacheable> {
+    //     let response_code = _session
+    //         .response_written()
+    //         .map_or(0, |resp| resp.status.as_u16());
+    //     eprintln!(
+
+    //         "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} | Cache Response",
+    //         _ctx.conn_id.clone().unwrap_or("-".into()),
+    //         _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.size_out,
+    //         response_code,
+    //         _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+    //     );
+    //     info!(
+    //         "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
+    //         _ctx.conn_id.clone().unwrap_or("-".into()),
+    //         _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.size_out,
+    //         response_code,
+    //         _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+    //         _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+    //     );
+    //     Ok(RespCacheable::Uncacheable(NoCacheReason::Custom("default")))
+    // }
 }

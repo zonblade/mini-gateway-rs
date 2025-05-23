@@ -47,6 +47,11 @@ The Router API is designed around the following core components and their relati
 - [Synchronization](#synchronization)
 - [Proxy Node Sync](#proxy-node-sync)
 - [Gateway Node Sync](#gateway-node-sync)
+- [Statistics](#statistics)
+  - [Statistics Endpoints](#statistics-endpoints)
+    - [Get Default Statistics](#get-default-statistics)
+    - [Get Statistics by Status Code](#get-statistics-by-status-code)
+    - [Get Bytes Statistics](#get-bytes-statistics)
 
 ## Authentication
 
@@ -998,42 +1003,131 @@ Synchronizes all configured gateway nodes to the registry service.
 }
 ```
 
-## Pattern Matching
+## Statistics
 
-The gateway supports various pattern matching techniques:
+The Statistics API provides endpoints for monitoring and reporting gateway and proxy statistics.
 
-- **Exact path matching**: `/api/users`
-- **Prefix matching with wildcard**: `/api/*`
-- **Regex-like patterns**: `^/users/[0-9]+`
+### Statistics Endpoints
 
-When using capture groups in patterns, you can reference them in the target using `$n` syntax (e.g., `$1`, `$2`):
+#### Get Default Statistics
 
-- Pattern: `^/api/(.*)$`
-- Target: `/v2/api/$1`
-- Result: `/api/users` → `/v2/api/users`
+Retrieves statistics for request and response counts over time.
 
-## Priority System
+**Endpoint:** `GET /api/v1/statistics/default`
 
-Gateways are processed in order of priority, with lower numbers having higher precedence. When multiple patterns match an incoming request, the one with the lowest priority value is used.
+**Query Parameters:**
 
-## API Endpoints
+| Parameter | Type   | Description                                                 | Required |
+|-----------|--------|-------------------------------------------------------------|----------|
+| target    | string | Data source: "domain" (default) or "proxy"                   | No       |
 
-## Proxy endpoints:
-- GET /settings/proxies - List all proxies
-- GET /settings/proxy/{id} - Get a specific proxy by ID
-- POST /settings/proxy - Create or update a proxy
-- DELETE /settings/proxy/{id} - Delete a proxy
+**Response:** Returns an array of time series data points collected in 15-second intervals over the last 120 minutes.
 
-## Gateway Node endpoints:
-- GET /settings/gwnode/list - List all gateway nodes
-- GET /settings/gwnode/list/{proxy_id} - List gateway nodes for a specific proxy
-- GET /settings/gwnode/{id} - Get a specific gateway node by ID
-- POST /settings/gwnode/set - Create or update a gateway node
-- POST /settings/gwnode/delete - Delete a gateway node
+| Field       | Type       | Description                                            |
+|-------------|------------|--------------------------------------------------------|
+| date_time   | string     | ISO-8601 formatted timestamp for the data point        |
+| value       | number     | Failed/unmatched requests (req_count - res_count)      |
+| high        | number     | Response count                                         |
+| low         | number     | Request count                                          |
 
-## Gateway endpoints:
-- GET /settings/gateway/list - List all gateways
-- GET /settings/gateway/list/{gwnode_id} - List gateways for a specific gateway node
-- GET /settings/gateway/{id} - Get a specific gateway by ID
-- POST /settings/gateway/set - Create or update a gateway
-- POST /settings/gateway/delete - Delete a gateway
+**Example Response:**
+```json
+[
+  {
+    "date_time": "2023-04-15T10:00:00Z",
+    "value": 2,
+    "high": 48,
+    "low": 50
+  },
+  {
+    "date_time": "2023-04-15T10:00:15Z",
+    "value": 0,
+    "high": 52,
+    "low": 52
+  }
+]
+```
+
+#### Get Statistics by Status Code
+
+Retrieves statistics filtered by HTTP status code.
+
+**Endpoint:** `GET /api/v1/statistics/status/{status}`
+
+**Path Parameters:**
+
+| Parameter | Description                  |
+|-----------|------------------------------|
+| status    | HTTP status code to filter by|
+
+**Query Parameters:**
+
+| Parameter | Type   | Description                                                 | Required |
+|-----------|--------|-------------------------------------------------------------|----------|
+| target    | string | Data source: "domain" (default) or "proxy"                   | No       |
+
+**Response:** Returns an array of time series data points collected in 15-second intervals over the last 120 minutes.
+
+| Field       | Type       | Description                                            |
+|-------------|------------|--------------------------------------------------------|
+| date_time   | string     | ISO-8601 formatted timestamp for the data point        |
+| value       | number     | how many status counted in range     |
+| high        | number     | not used                   |
+| low         | number     | not used                   |
+
+**Example Response:**
+```json
+[
+  {
+    "date_time": "2023-04-15T10:00:00Z",
+    "value": 5,
+    "high": 120,
+    "low": 45
+  },
+  {
+    "date_time": "2023-04-15T10:00:15Z",
+    "value": 3,
+    "high": 95,
+    "low": 30
+  }
+]
+```
+
+#### Get Bytes Statistics
+
+Retrieves statistics about bytes transferred.
+
+**Endpoint:** `GET /api/v1/statistics/bytes`
+
+**Query Parameters:**
+
+| Parameter | Type   | Description                                                 | Required |
+|-----------|--------|-------------------------------------------------------------|----------|
+| target    | string | Data source: "domain" (default) or "proxy"                   | No       |
+
+**Response:** Returns an array of time series data points collected in 15-second intervals over the last 120 minutes.
+
+| Field       | Type       | Description                                            |
+|-------------|------------|--------------------------------------------------------|
+| date_time   | string     | ISO-8601 formatted timestamp for the data point        |
+| value       | number     | Average bytes transferred in the 15-second interval    |
+| high        | number     | Highest one-second average bytes transferred           |
+| low         | number     | Lowest one-second average bytes transferred            |
+
+**Example Response:**
+```json
+[
+  {
+    "date_time": "2023-04-15T10:00:00Z",
+    "value": 8456,
+    "high": 12580,
+    "low": 4532
+  },
+  {
+    "date_time": "2023-04-15T10:00:15Z",
+    "value": 7245,
+    "high": 10485,
+    "low": 5124
+  }
+]
+```

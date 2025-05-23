@@ -1,45 +1,48 @@
 //! # Statistics API Module
 //! 
-//! This module provides endpoints for collecting, analyzing, and reporting statistics
-//! related to the gateway and proxy services. It enables monitoring of system performance,
-//! usage patterns, and health metrics.
+//! This module provides endpoints for collecting and reporting gateway statistics.
 //! 
 //! ## Features
 //! 
-//! The Statistics API is designed to provide:
+//! - **Recent Metrics**: Provides recent (last 120 minutes) gateway statistics.
+//! - **Status Code Filtering**: Allows filtering statistics by HTTP status code.
+//! - **Traffic Volume**: Reports total bytes in/out for the recent period.
 //! 
-//! - **Real-time Metrics**: Current performance data of gateway and proxy nodes
-//! - **Historical Data**: Aggregated statistics over various time periods
-//! - **System Health**: Information about the overall system status and health
-//! - **Traffic Analysis**: Patterns and trends in request/response flows
-//! - **Error Reporting**: Aggregated error statistics and frequencies
+//! ## Endpoints (Implemented)
 //! 
-//! ## Endpoints (Planned)
+//! - `GET /api/v1/statistics/default` - Returns default gateway statistics for the last 120 minutes.
+//! - `GET /api/v1/statistics/status/{status}` - Returns gateway statistics filtered by HTTP status code for the last 120 minutes.
+//! - `GET /api/v1/statistics/bytes` - Returns total bytes in/out for the last 120 minutes.
 //! 
-//! - `GET /api/v1/statistics/overview` - Summary of key performance indicators
-//! - `GET /api/v1/statistics/gateways/{id}` - Statistics for a specific gateway node
-//! - `GET /api/v1/statistics/proxies/{id}` - Statistics for a specific proxy node
-//! - `GET /api/v1/statistics/traffic` - Traffic patterns and volume data
-//! - `GET /api/v1/statistics/errors` - Error frequency and distribution
+//! ### Query Parameters
+//! 
+//! All endpoints accept the following optional query parameter:
+//! 
+//! - `target`: string, optional. Determines the data source:
+//!     - `domain` (default): Returns statistics for gateway domains.
+//!     - `proxy`: Returns statistics for proxies.
 //! 
 //! ## Authorization
 //! 
-//! Statistics endpoints require authentication and are typically restricted to users
+//! Statistics endpoints may require authentication and are typically restricted to users
 //! with admin or staff roles, as they provide sensitive operational data about the system.
 //! 
 //! ## Data Collection
 //! 
 //! Statistics are collected through background processes that:
 //! 
-//! 1. Gather metrics from running gateway and proxy nodes
+//! 1. Gather metrics from running gateway nodes
 //! 2. Store this data in a time-series format
 //! 3. Aggregate and analyze the data for reporting
-//! 4. Provide both real-time and historical views
-mod logs;
-mod logs_broadcast;
+//! 4. Provide recent views (last 120 minutes)
+// mod logs;
+// mod logs_broadcast;
+mod log_default;
+mod log_bytesio;
+mod log_status_code;
 
 use actix_web::web;
-use logs_broadcast::LogsBroadcaster;
+// use logs_broadcast::LogsBroadcaster;
 
 /// Configure statistics API routes
 /// 
@@ -53,15 +56,16 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     // Statistics endpoints will be implemented here in the future
     // Example route configuration:
 
-    let sse_logs = LogsBroadcaster::create();
-    let sse_logs = web::Data::from(sse_logs);
+    // let sse_logs = LogsBroadcaster::create();
+    // let sse_logs = web::Data::from(sse_logs);
 
     cfg.service(
         web::scope("/statistics")
             // .wrap(JwtAuth::new())
             // .wrap(RoleAuth::admin())
-            .app_data(sse_logs)
-            .service(logs::logs_stream)
+            .service(log_default::init)
+            .service(log_status_code::init)
+            .service(log_bytesio::init)
     //         .route("/gateways/{id}", web::get().to(handlers::get_gateway_stats))
     //         .route("/proxies/{id}", web::get().to(handlers::get_proxy_stats))
     //         .route("/traffic", web::get().to(handlers::get_traffic_stats))

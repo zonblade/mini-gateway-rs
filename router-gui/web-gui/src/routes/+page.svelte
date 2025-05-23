@@ -8,7 +8,7 @@
     let isLoggedIn = false;
 
     // Subscribe to the user store
-    const unsubscribe = user.subscribe(value => {
+    const unsubscribe = user.subscribe((value) => {
         isLoggedIn = !!value;
     });
 

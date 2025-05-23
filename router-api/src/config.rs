@@ -2,6 +2,8 @@ use mini_config::Configure;
 use std::sync::{Arc, RwLock};
 use std::sync::Once;
 
+use crate::module::temporary_log;
+
 #[derive(Debug, Clone, Configure)]
 pub enum Api {
     TCPAddress
@@ -60,4 +62,6 @@ pub fn init(){
     
     // Add initial values
     append_config("tcp_address", "127.0.0.1:30099");
+
+    temporary_log::init();
 }

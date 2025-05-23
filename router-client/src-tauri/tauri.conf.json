@@ -13,9 +13,9 @@
     "windows": [
       {
         "title": "Mini Gateway 0.0.1-Alpha.3",
-        "width": 900,
+        "width": 1280,
         "height": 700,
-        "resizable": true
+        "resizable": false
       }
     ],
     "security": {
