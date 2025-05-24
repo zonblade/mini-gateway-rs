@@ -31,7 +31,7 @@
         {disabled}
         value={value}
         on:change={handleChange}
-        class="w-full p-2 rounded-md border
+        class="w-full p-2 border
             {error ? 'border-red-500 dark:border-red-400' : 'border-gray-300 dark:border-gray-600'} 
             bg-white dark:bg-gray-700 
             text-gray-900 dark:text-gray-100 

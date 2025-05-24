@@ -127,13 +127,13 @@ export const gwnodeService = {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to create gateway node: ${response.statusText}`);
+                throw new Error((await response.json()).error??`Failed to create gateway node: ${response.statusText}`);
             }
 
             return await response.json();
-        } catch (error) {
+        } catch (error:any) {
             console.error('Error creating gateway node:', error);
-            throw error;
+            throw error.error??error;
         }
     },
 
@@ -152,13 +152,13 @@ export const gwnodeService = {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to update gateway node: ${response.statusText}`);
+                throw new Error((await response.json()).error??`Failed to update gateway node: ${response.statusText}`);
             }
 
             return await response.json();
-        } catch (error) {
+        } catch (error:any) {
             console.error(`Error updating gateway node ${gwnode.id}:`, error);
-            throw error;
+            throw error.error??error;
         }
     },
 

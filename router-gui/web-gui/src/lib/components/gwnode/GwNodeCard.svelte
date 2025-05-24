@@ -46,7 +46,7 @@
 </script>
 
 <div
-    class="border border-gray-200 dark:border-gray-700 hover:bg-white/40 hover:dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600 duration-200 p-4 relative"
+    class="border border-gray-200 hover:shadow-md dark:border-gray-700 hover:bg-white/40 hover:dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600 duration-200 p-4 relative"
 >
     <!-- Action buttons (positioned absolute top right) -->
     <div class="absolute top-2 right-2 flex space-x-2">
@@ -154,7 +154,7 @@
                     <td class="py-1 pr-2 italic w-20">Address:</td>
                     <td class="py-1">
                         <span
-                            class="font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                            class="font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1"
                             >{gwnode.alt_target}</span
                         >
                     </td>

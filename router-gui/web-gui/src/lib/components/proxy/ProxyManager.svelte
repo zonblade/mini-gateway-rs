@@ -28,7 +28,7 @@
 
     // Subscribe to the store
     const unsubProxy = proxyStore.subscribe((state) => {
-        console.log("Proxy store state:", state);
+        console.debug("Proxy store state:", state);
         proxiesWithDomains = state.proxies;
         isLoading = state.loading;
         isLoadError = state.loadError;
@@ -99,29 +99,38 @@
     // Function to delete a proxy
     async function deleteProxy(id: string, listen: string) {
         proxyToDelete = { id, listen };
+        errorMessage = null; // Reset error message
         showDeleteModal = true;
+    }
+
+    function handleDeleteCancel() {
+        console.log("handleDeleteCancel");
+        showDeleteModal = false;
+        proxyToDelete = null;
+        errorMessage = null; // Reset error message
     }
 
     async function handleDeleteConfirm() {
         if (!proxyToDelete) return;
-        
+
         try {
             isProcessing = true;
-            await proxyStore.deleteProxy(proxyToDelete.id);
+            let [ok, message] = await proxyStore.deleteProxy(proxyToDelete.id);
             await proxyStore.fetchProxies();
-            showDeleteModal = false;
-            proxyToDelete = null;
+            if (message.length > 0) {
+                throw new Error(message);
+            }
+            if (ok) {
+                showDeleteModal = false;
+                proxyToDelete = null;
+                errorMessage = null; // Reset error message
+            }
         } catch (error) {
-            console.error('Error deleting proxy:', error);
-            errorMessage = `Failed to delete proxy: ${error instanceof Error ? error.message : String(error)}`;
+            console.error("Error deleting proxy:", error);
+            errorMessage = error instanceof Error ? error.message : String(error);
         } finally {
             isProcessing = false;
         }
-    }
-
-    function handleDeleteCancel() {
-        showDeleteModal = false;
-        proxyToDelete = null;
     }
 
     // Function to sync proxies with the server
@@ -251,7 +260,11 @@
                         proxy={proxyWithDomains.proxy}
                         domains={proxyWithDomains.domains || []}
                         onEdit={() => editProxy(proxyWithDomains.proxy.id)}
-                        onDelete={() => deleteProxy(proxyWithDomains.proxy.id, proxyWithDomains.proxy.addr_listen)}
+                        onDelete={() =>
+                            deleteProxy(
+                                proxyWithDomains.proxy.id,
+                                proxyWithDomains.proxy.addr_listen,
+                            )}
                     />
                 </div>
             {/each}
@@ -271,7 +284,8 @@
     <DeleteConfirmationModal
         showModal={showDeleteModal}
         type="proxy"
-        addressToVerify={proxyToDelete?.listen || ''}
+        {errorMessage}
+        addressToVerify={proxyToDelete?.listen || ""}
         {isProcessing}
         on:confirm={handleDeleteConfirm}
         on:cancel={handleDeleteCancel}

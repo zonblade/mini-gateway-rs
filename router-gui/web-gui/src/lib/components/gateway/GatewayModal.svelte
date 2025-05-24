@@ -15,6 +15,9 @@
     };
     export let gwnodeId: string = "";
     
+    // Error state
+    let errorMessage: string | null = null;
+    
     // Computed title based on mode
     $: title = isEditMode ? "Edit Routing Rule" : "Add Routing Rule";
     
@@ -34,6 +37,9 @@
     
     // Function to save gateway
     function saveGateway(): void {
+        // Reset error message
+        errorMessage = null;
+        
         // Always ensure the gwnode_id is set correctly
         if (!localGateway.gwnode_id && gwnodeId) {
             localGateway.gwnode_id = gwnodeId;
@@ -41,7 +47,7 @@
         
         // Validate required fields
         if (!localGateway.pattern || !localGateway.target || localGateway.priority === undefined) {
-            alert("Please fill in all required fields");
+            errorMessage = "Please fill in all required fields";
             return;
         }
         
@@ -50,6 +56,7 @@
     
     // Function to close the modal
     function closeModal(): void {
+        errorMessage = null;
         dispatch("close");
     }
     
@@ -101,6 +108,15 @@
                     </svg>
                 </button>
             </div>
+            
+            <!-- Error message -->
+            {#if errorMessage}
+                <div class="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-3 mb-4">
+                    <p class="text-sm text-red-700 dark:text-red-300">
+                        {errorMessage}
+                    </p>
+                </div>
+            {/if}
             
             <!-- Modal content -->
             <div class="space-y-4">

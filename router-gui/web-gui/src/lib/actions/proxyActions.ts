@@ -61,7 +61,7 @@ export const proxyActions = {
             return await proxyService.saveProxy(proxy, apiDomains);
         } catch (error: any) {
             console.error('Error saving proxy:', error);
-            throw error;
+            throw error.error??error;
         }
     },
     

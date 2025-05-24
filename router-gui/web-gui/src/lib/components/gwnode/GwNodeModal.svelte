@@ -21,6 +21,7 @@
     export let proxies: Proxy[] = [];
     export let onSave: () => void;
     export let onClose: () => void;
+    export let errorMessage: string | null = null;
 
     // Additional proxy details
     let proxyListen: string = "";
@@ -232,6 +233,14 @@
                         </svg>
                     </button>
                 </div>
+
+                {#if errorMessage}
+                    <div class="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500">
+                        <p class="text-sm text-red-700 dark:text-red-300">
+                            {errorMessage}
+                        </p>
+                    </div>
+                {/if}
 
                 <form on:submit|preventDefault={onSave} class="space-y-4">
                     <InputField

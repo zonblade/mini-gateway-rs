@@ -16,7 +16,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         console.error('API Error:', errorData);
-        throw new Error(errorData?.error || `API Error: ${response.statusText}`);
+        if (errorData && errorData.error) {
+            throw errorData; // Throw the entire error object
+        }
+        throw new Error(`API Error: ${response.statusText}`);
     }
     return await response.json() as T;
 }

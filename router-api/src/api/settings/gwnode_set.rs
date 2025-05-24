@@ -7,6 +7,7 @@ use actix_web::{post, web, HttpResponse, Responder, HttpRequest};
 use super::{GatewayNode, gwnode_queries};
 use super::{proxy_queries, gateway_queries};
 use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
+use crate::module::database::DatabaseError;
 
 /// Creates or updates a gateway node configuration
 ///
@@ -72,7 +73,7 @@ pub async fn set_gateway_node(
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::InternalServerError().json(
+            return HttpResponse::BadRequest().json(
                 serde_json::json!({"error": "Failed to get user authentication"})
             )
         }
@@ -96,6 +97,37 @@ pub async fn set_gateway_node(
     if node.title.is_empty() {
         node.title = format!("Gateway Node {}", &node.id[..8]);
     }
+
+    // check if ip address is with port, if not, return error
+    if !node.alt_target.contains(":") {
+        return HttpResponse::BadRequest().json(
+            serde_json::json!({"error": "Alt target must be a valid IP address with port"})
+        );
+    }
+
+    // check if after : is a valid port 1 - 65535, return error if not
+    if let Some(port) = node.alt_target.split(":").nth(1) {
+        if port.parse::<u16>().is_err() {
+            return HttpResponse::BadRequest().json(
+                serde_json::json!({"error": "Alt target must be a valid IP address with port"})
+            );
+        }
+    }
+    
+    // Get proxy details for better error messages
+    let proxy_name = match proxy_queries::get_proxy_by_id(&node.proxy_id) {
+        Ok(Some(proxy)) => proxy.title,
+        Ok(None) => node.proxy_id.clone(),
+        Err(e) => {
+            log::error!("Error retrieving proxy {}: {}", node.proxy_id, e);
+            return HttpResponse::BadRequest().json(
+                serde_json::json!({
+                    "error": format!("Failed to verify proxy existence: {}", e),
+                    "proxy_id": node.proxy_id
+                })
+            );
+        }
+    };
     
     // Verify that the referenced proxy exists
     match proxy_queries::get_proxy_by_id(&node.proxy_id) {
@@ -105,19 +137,42 @@ pub async fn set_gateway_node(
                 Ok(_) => HttpResponse::Ok().json(node),
                 Err(err) => {
                     log::error!("Failed to save gateway node: {}", err);
-                    HttpResponse::InternalServerError().json(format!("Error: {}", err))
+                    let error_message = match err {
+                        DatabaseError::Sqlite(sqlite_error) => {
+                            if let rusqlite::Error::SqliteFailure(err, _) = sqlite_error {
+                                if err.code == rusqlite::ffi::ErrorCode::ConstraintViolation {
+                                    format!("Cannot save gateway node '{}' because of database constraints. Please check if the proxy '{}' exists and is valid.", node.title, proxy_name)
+                                } else {
+                                    format!("Database error while saving gateway node '{}': {}", node.title, sqlite_error)
+                                }
+                            } else {
+                                format!("SQLite error: {}", sqlite_error)
+                            }
+                        },
+                        _ => format!("Failed to save gateway node '{}': {}", node.title, err)
+                    };
+                    HttpResponse::BadRequest().json(serde_json::json!({
+                        "error": error_message,
+                        "gateway_node_id": node.id
+                    }))
                 }
             }
         },
         Ok(None) => {
             // Proxy does not exist
-            log::error!("Cannot create gateway node: Proxy ID {} not found", node.proxy_id);
-            HttpResponse::BadRequest().json(format!("Error: Proxy ID {} not found", node.proxy_id))
+            log::error!("Cannot create gateway node: Proxy '{}' not found", proxy_name);
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Cannot create gateway node: Proxy '{}' not found", proxy_name),
+                "proxy_id": node.proxy_id
+            }))
         },
         Err(err) => {
             // Error retrieving proxy
             log::error!("Failed to check proxy existence: {}", err);
-            HttpResponse::InternalServerError().json(format!("Error: {}", err))
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Failed to verify proxy existence: {}", err),
+                "proxy_id": node.proxy_id
+            }))
         }
     }
 }
@@ -153,7 +208,8 @@ pub async fn set_gateway_node(
 /// # Cascading Deletion
 ///
 /// This endpoint implements a two-step deletion process:
-/// 1. First, it retrieves and deletes all gateways that reference the gateway node
+/// 1. First, it retrieves and deletes all gateways associated with the specified
+/// gateway node
 /// 2. Then, it deletes the gateway node itself
 ///
 /// If any part of this process fails, the operation is aborted and an error is returned.
@@ -177,7 +233,7 @@ pub async fn delete_gateway_node(
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::InternalServerError().json(
+            return HttpResponse::BadRequest().json(
                 serde_json::json!({"error": "Failed to get user authentication"})
             )
         }
@@ -191,6 +247,21 @@ pub async fn delete_gateway_node(
     }
     
     let id = &req_body.id;
+
+    // Get gateway node details for better error messages
+    let node_name = match gwnode_queries::get_gateway_node_by_id(id) {
+        Ok(Some(node)) => node.title,
+        Ok(None) => id.clone(),
+        Err(e) => {
+            log::error!("Error retrieving gateway node {}: {}", id, e);
+            return HttpResponse::BadRequest().json(
+                serde_json::json!({
+                    "error": format!("Failed to verify gateway node existence: {}", e),
+                    "gateway_node_id": id
+                })
+            );
+        }
+    };
     
     // First, get all gateways associated with this gateway node
     match gateway_queries::get_gateways_by_gwnode_id(id) {
@@ -201,30 +272,59 @@ pub async fn delete_gateway_node(
             for gateway in &gateways {
                 if let Err(err) = gateway_queries::delete_gateway_by_id(&gateway.id) {
                     log::error!("Failed to delete associated gateway {}: {}", gateway.id, err);
-                    return HttpResponse::InternalServerError()
-                        .json(format!("Error deleting associated gateway {}: {}", gateway.id, err));
+                    return HttpResponse::BadRequest().json(serde_json::json!({
+                        "error": format!("Failed to delete associated gateway for '{}': {}", node_name, err),
+                        "gateway_node_id": id,
+                        "gateway_id": gateway.id
+                    }));
                 }
             }
             
             // Now delete the gateway node itself
             match gwnode_queries::delete_gateway_node_by_id(id) {
                 Ok(true) => {
-                    if gateway_count > 0 {
-                        HttpResponse::Ok().json(format!("Gateway node deleted successfully along with {} associated gateways", gateway_count))
+                    let message = if gateway_count > 0 {
+                        format!("Gateway node '{}' deleted successfully along with {} associated gateways", node_name, gateway_count)
                     } else {
-                        HttpResponse::Ok().json("Gateway node deleted successfully")
-                    }
+                        format!("Gateway node '{}' deleted successfully", node_name)
+                    };
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "message": message
+                    }))
                 },
-                Ok(false) => HttpResponse::NotFound().json("Gateway node not found"),
+                Ok(false) => HttpResponse::NotFound().json(serde_json::json!({
+                    "error": format!("Gateway node '{}' not found", node_name),
+                    "gateway_node_id": id
+                })),
                 Err(err) => {
                     log::error!("Failed to delete gateway node: {}", err);
-                    HttpResponse::InternalServerError().json(format!("Error: {}", err))
+                    let error_message = match err {
+                        DatabaseError::Sqlite(sqlite_error) => {
+                            if let rusqlite::Error::SqliteFailure(err, _) = sqlite_error {
+                                if err.code == rusqlite::ffi::ErrorCode::ConstraintViolation {
+                                    format!("Cannot delete gateway node '{}' because it is still referenced by other entities", node_name)
+                                } else {
+                                    format!("Database error while deleting gateway node '{}': {}", node_name, sqlite_error)
+                                }
+                            } else {
+                                format!("SQLite error: {}", sqlite_error)
+                            }
+                        },
+                        _ => format!("Failed to delete gateway node '{}': {}", node_name, err)
+                    };
+                    HttpResponse::BadRequest().json(serde_json::json!({
+                        "error": error_message,
+                        "gateway_node_id": id
+                    }))
                 }
             }
         },
         Err(err) => {
             log::error!("Failed to retrieve associated gateways: {}", err);
-            HttpResponse::InternalServerError().json(format!("Error: {}", err))
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Failed to retrieve associated gateways for '{}': {}", node_name, err),
+                "gateway_node_id": id
+            }))
         }
     }
 }

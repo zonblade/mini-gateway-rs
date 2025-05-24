@@ -215,7 +215,7 @@ function handleSubmit(): void {
                             type="checkbox" 
                             id="useTls" 
                             bind:checked={proxy.useTls}
-                            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                         />
                         <label for="useTls" class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
                             Use TLS
@@ -229,7 +229,7 @@ function handleSubmit(): void {
                                     type="checkbox" 
                                     id="autoTls" 
                                     bind:checked={proxy.autoTls}
-                                    class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                    class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                                     disabled={true}
                                 />
                                 <label for="autoTls" class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
@@ -280,7 +280,7 @@ function handleSubmit(): void {
                                 type="checkbox" 
                                 id="highSpeed" 
                                 bind:checked={proxy.highSpeed}
-                                class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                             />
                             <label for="highSpeed" class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
                                 Enable High-Speed Mode
@@ -288,7 +288,7 @@ function handleSubmit(): void {
                         </div>
                         
                         {#if showHighSpeedWarning}
-                            <div class="pl-6 text-sm text-yellow-700 dark:text-yellow-500 bg-yellow-100 dark:bg-yellow-900/30 p-2 rounded">
+                            <div class="pl-6 text-sm text-yellow-700 dark:text-yellow-500 bg-yellow-100 dark:bg-yellow-900/30 p-2">
                                 <p>No gateway nodes available for this proxy. High-speed mode will use the default target address.</p>
                             </div>
                         {/if}

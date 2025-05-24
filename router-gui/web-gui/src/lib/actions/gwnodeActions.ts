@@ -112,9 +112,9 @@ export const gwnodeActions = {
             gwNodes.update(nodes => [...nodes, createdNode]);
             
             return createdNode;
-        } catch (error) {
-            console.error("Failed to create gateway node:", error);
-            throw error;
+        } catch (error:any) {
+            console.error("Failed to create gateway node:", error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -137,9 +137,9 @@ export const gwnodeActions = {
             });
             
             return updatedNode;
-        } catch (error) {
-            console.error(`Failed to update gateway node ${gwnode.id}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to update gateway node ${gwnode.id}:`, error.error??error);
+            throw error.error??error;
         }
     },
 

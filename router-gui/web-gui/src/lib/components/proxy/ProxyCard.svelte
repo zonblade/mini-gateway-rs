@@ -17,7 +17,7 @@
 </script>
 
 <div
-    class="overflow-hidden border border-gray-200 dark:border-gray-700 hover:bg-white/40 hover:dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600 duration-200 min-h-[220px]"
+    class="overflow-hidden hover:shadow-md border border-gray-200 dark:border-gray-700 hover:bg-white/40 hover:dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600 duration-200 min-h-[220px]"
 >
     <div>
         <div class="flex justify-end items-start px-4 py-2">
@@ -177,7 +177,7 @@
                 {#if proxy.high_speed}
                     <!-- Warning with more vibrant pastel style -->
                     <div
-                        class="bg-pink-100 dark:bg-pink-900/40 text-pink-800 dark:text-pink-200 text-xs mb-2 p-2 rounded-md flex items-center border border-pink-200 dark:border-pink-800"
+                        class="bg-pink-100 dark:bg-pink-900/40 text-pink-800 dark:text-pink-200 text-xs mb-2 p-2 flex items-center border border-pink-200 dark:border-pink-800"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -202,7 +202,7 @@
                 {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}
                     <!-- Warning with more vibrant pastel style -->
                     <div
-                        class="bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-200 text-xs mb-2 p-2 rounded-md flex items-center border border-orange-200 dark:border-orange-800"
+                        class="bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-200 text-xs mb-2 p-2 flex items-center border border-orange-200 dark:border-orange-800"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"

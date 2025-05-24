@@ -56,13 +56,8 @@
 
     <!-- Mobile Header -->
     <div class="md:hidden flex h-16 justify-between items-center w-full ">
-        <div class="flex items-center">
-            <img src="/logo.png" alt="Logo" class="h-8 w-auto mr-4" />
-            <span class="text-xl font-normal">Mini Gateway</span>
-        </div>
-        
         <!-- Mobile Menu Button -->
-        <div class="flex items-center">
+        <div class="flex max-w-[64px] items-center">
             <button 
                 id="menu-toggle"
                 class="inline-flex items-center justify-center p-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 transition-colors"
@@ -73,5 +68,10 @@
                 <Menu class="h-6 w-6" />
             </button>
         </div>
+        <div class="flex flex-1 items-center">
+            <img src="/logo.png" alt="Logo" class="h-8 w-auto mr-4" />
+            <span class="text-xl font-normal">Mini Gateway</span>
+        </div>
+        
     </div>
 </div>
