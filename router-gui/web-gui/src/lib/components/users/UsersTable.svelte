@@ -32,7 +32,7 @@
                     <td class="py-3 px-4">{user.username}</td>
                     <td class="py-3 px-4">{user.email}</td>
                     <td class="py-3 px-4">
-                        <span class="px-2 py-1 text-xs rounded-full 
+                        <span class="px-2 py-1 text-xs 
                             {user.role === 'Admin' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300' : 
                             user.role === 'Staff' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300' : 
                             user.role === 'Guest' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300' : 
@@ -41,7 +41,7 @@
                         </span>
                     </td>
                     <td class="py-3 px-4">
-                        <span class="inline-flex items-center px-2 py-1 text-xs rounded-full 
+                        <span class="inline-flex items-center px-2 py-1 text-xs 
                             {user.active ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 
                             'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}">
                             {user.active ? 'Active' : 'Inactive'}

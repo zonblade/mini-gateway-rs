@@ -99,23 +99,23 @@
 </script>
 
 <div
-    class="min-h-screen flex items-center justify-center transition-colors duration-300 bg-gray-50 dark:bg-[#0d1117] text-gray-900 dark:text-gray-100 p-4"
+    class="min-h-screen flex items-center justify-center transition-colors duration-300 bg-gray-50 dark:bg-[#121212] text-gray-900 dark:text-gray-100 p-4"
 >
     <div
-        class="max-w-5xl w-full bg-white dark:bg-[#161b22] rounded-lg shadow-md overflow-hidden"
+        class="max-w-5xl w-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800"
     >
         <div class="p-6 sm:p-8">
             <div class="flex justify-center mb-8">
-                <img src="/logo.png" alt="Logo" class="h-[120px] w-auto" />
+                <img src="/logo.png" alt="Logo" class="h-[80px] w-auto opacity-90" />
             </div>
 
-            <h2 class="text-2xl font-bold text-center mb-6">
+            <h2 class="text-2xl font-normal text-center mb-6">
                 Mini Gateway
             </h2>
 
             <div class="flex flex-col md:flex-row gap-8">
                 <!-- Connection List -->
-                <div class="w-full md:w-1/2 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700 pb-6 md:pb-0 md:pr-6">
+                <div class="w-full md:w-1/2 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-800 pb-6 md:pb-0 md:pr-6">
                     <ConnectionsList bind:selectedConnectionId={selectedConnectionId} />
                 </div>
                 
@@ -134,14 +134,12 @@
                             type="checkbox" 
                             id="rememberMe" 
                             bind:checked={rememberMe}
-                            class="mr-2 rounded border-gray-300 dark:border-gray-700 text-[#238636] focus:ring-[#238636]" 
+                            class="mr-2 border-gray-300 dark:border-gray-700 text-gray-500 focus:ring-0" 
                         />
                         <label for="rememberMe" class="text-sm">Remember username</label>
                     </div>
                     
-                    <p
-                        class="mt-8 text-center text-sm text-gray-500 dark:text-gray-400"
-                    >
+                    <p class="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
                         Ask admin to create an account for you.
                     </p>
                 </div>

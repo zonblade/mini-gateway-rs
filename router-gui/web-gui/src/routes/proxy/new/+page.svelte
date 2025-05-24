@@ -12,6 +12,7 @@
     import ProxyBasicInfo from "$lib/components/proxy/ProxyBasicInfo.svelte";
     import DomainConfiguration from "$lib/components/proxy/DomainConfiguration.svelte";
     import HighSpeedConfig from "$lib/components/proxy/HighSpeedConfig.svelte";
+    import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
     
     // Authentication check
     let isLoggedIn = false;
@@ -209,12 +210,10 @@
 </script>
 
 {#if isLoading}
-    <div class="flex items-center justify-center h-screen">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
-    </div>
+    <LoadingSpinner />
 {:else if isLoggedIn}
     <div class="container mx-auto max-w-3xl px-4 py-8">
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+        <div class="bg-white dark:bg-gray-800 border-1 border-gray-200 dark:border-gray-700 p-6">
             <div class="flex justify-between items-center mb-6">
                 <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Add New Proxy</h1>
                 <Button variant="secondary" onClick={cancel}>

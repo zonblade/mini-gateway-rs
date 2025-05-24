@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 // Define port (use environment variable PORT or default to 3000)
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3004;
 
 // Define a route for '/hello' endpoint
 app.get('/hello', (req, res) => {
@@ -29,6 +29,18 @@ app.post('/combine', (req, res) => {
 
   // Send the response as JSON
   res.json({ combinedLength });
+});
+
+// Define a catch-all route for search parameters
+app.get('/search', (req, res) => {
+  // Get all query parameters
+  const searchParams = req.query;
+  
+  // Send back the search parameters as JSON
+  res.json({
+    message: 'Search parameters received',
+    params: searchParams
+  });
 });
 
 // Start the server

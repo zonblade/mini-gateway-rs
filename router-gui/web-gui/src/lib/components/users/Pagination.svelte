@@ -32,7 +32,7 @@
         <div class="flex space-x-2">
             <button 
                 on:click={previousPage}
-                class="px-3 py-1 rounded-md border border-gray-300 dark:border-gray-600 
+                class="px-3 py-1 border border-gray-300 dark:border-gray-600 
                        {currentPage === 1 ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
                 disabled={currentPage === 1}
             >
@@ -47,7 +47,7 @@
                     (i >= currentPage - 2 && i <= currentPage + 2)}
                     <button 
                         on:click={() => goToPage(i + 1)}
-                        class="px-3 py-1 rounded-md 
+                        class="px-3 py-1 
                               {currentPage === i + 1 ? 
                                 'bg-blue-600 text-white' : 
                                 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
@@ -61,7 +61,7 @@
             
             <button 
                 on:click={nextPage}
-                class="px-3 py-1 rounded-md border border-gray-300 dark:border-gray-600 
+                class="px-3 py-1 border border-gray-300 dark:border-gray-600 
                        {currentPage === totalPages ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
                 disabled={currentPage === totalPages}
             >

@@ -192,13 +192,13 @@
 
 {#if showModal}
     <div
-        class="fixed inset-0 bg-black/30 backdrop-blur-md bg-opacity-50 flex items-center justify-center z-50"
+        class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
         transition:fade={{ duration: 200 }}
         on:keydown={handleKeydown}
         role="presentation"
     >
         <div
-            class="bg-white dark:bg-[#161b22] backdrop-blur-md rounded-lg shadow-xl max-w-md w-full mx-4"
+            class="bg-white dark:bg-[#161b22] backdrop-blur-md max-w-md w-full mx-4"
             on:click|stopPropagation
             on:keydown={handleModalKeyDown}
             role="dialog"
@@ -250,7 +250,7 @@
                             id="proxy_id"
                             value={gwnode.proxy_id}
                             on:change={handleProxyChange}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             required
                         >
                             <option value="">Select a proxy</option>
@@ -269,7 +269,7 @@
                                 id="domain_id"
                                 value={gwnode.domain_id}
                                 on:change={handleDomainChange}
-                                class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             >
                                 <option value="">No domain binding</option>
                                 {#each availableDomains as domain}
@@ -280,7 +280,7 @@
                     {/if}
 
                     {#if gwnode.proxy_id}
-                        <div class="rounded-md bg-gray-50 dark:bg-gray-800 p-3">
+                        <div class="bg-gray-50 dark:bg-gray-800 p-3">
                             <h3
                                 class="text-sm font-medium text-gray-700 dark:text-gray-300"
                             >

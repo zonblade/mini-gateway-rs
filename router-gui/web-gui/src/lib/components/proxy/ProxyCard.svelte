@@ -15,7 +15,7 @@
 </script>
 
 <div
-    class="rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-200 min-h-[220px]"
+    class="overflow-hidden border border-gray-200 dark:border-gray-700 hover:bg-white/40 hover:dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600 duration-200 min-h-[220px]"
 >
     <div class="p-4">
         <div class="flex justify-between items-start">

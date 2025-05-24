@@ -14,6 +14,7 @@
     import ProxyBasicInfo from "$lib/components/proxy/ProxyBasicInfo.svelte";
     import DomainConfiguration from "$lib/components/proxy/DomainConfiguration.svelte";
     import HighSpeedConfig from "$lib/components/proxy/HighSpeedConfig.svelte";
+    import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
 
     // Authentication check
     let isLoggedIn = false;
@@ -352,14 +353,10 @@
 </script>
 
 {#if isLoading || isLoadingProxy}
-    <div class="flex items-center justify-center h-screen">
-        <div
-            class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"
-        ></div>
-    </div>
+    <LoadingSpinner />
 {:else if loadError}
     <div class="container mx-auto max-w-3xl px-4 py-8">
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+        <div class="bg-white dark:bg-gray-800 border-1 border-gray-200 dark:border-gray-700 p-6">
             <div class="flex flex-col items-center justify-center">
                 <div
                     class="text-red-600 dark:text-red-400 mb-4 text-lg font-medium"
@@ -374,7 +371,7 @@
     </div>
 {:else if isLoggedIn}
     <div class="container mx-auto max-w-[900px] px-4 py-8">
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+        <div class="bg-white dark:bg-gray-800 border-1 border-gray-200 dark:border-gray-700 p-6">
             <div class="flex justify-between items-center mb-6">
                 <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
                     Edit Proxy
@@ -384,7 +381,7 @@
 
             {#if errorMessage}
                 <div
-                    class="mb-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-md text-sm"
+                    class="mb-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm"
                 >
                     {errorMessage}
                 </div>

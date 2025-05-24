@@ -261,7 +261,7 @@
     </div>
     
     <!-- Search input (show only when data is loaded and no errors) -->
-    {#if !isLoading && !loadError && gwnodeList.length > 0}
+    {#if !isLoading && !loadError}
         <div class="mb-6">
             <SearchInput 
                 bind:value={searchTerm} 

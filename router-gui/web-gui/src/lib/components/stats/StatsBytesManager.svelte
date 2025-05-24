@@ -28,14 +28,14 @@
 
 <div class="flex flex-col gap-4 h-full">
     <div class="flex justify-between items-center">
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100">Bytes Transferred</h2>
+        <h2 class="text-xl font-normal text-gray-900 dark:text-gray-100">Bytes Transferred</h2>
         <div class="flex items-center gap-2">
             <label for="target-select" class="text-gray-700 dark:text-gray-300">Data Source:</label>
             <select 
                 id="target-select" 
                 value={selectedTarget} 
                 on:change={handleTargetChange}
-                class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-200"
+                class="bg-transparent border-b border-gray-300 dark:border-gray-600 px-2 py-1 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-indigo-500"
             >
                 <option value="domain">By Gateway</option>
                 <option value="proxy">By Proxy</option>
@@ -47,17 +47,17 @@
         <StatsBytes />
     </div>
     
-    <div class="flex gap-4 mt-2">
+    <div class="flex gap-6 mt-2">
         <div class="flex items-center gap-2">
-            <span class="inline-block w-4 h-4 bg-[#4caf50] rounded"></span>
+            <span class="inline-block w-4 h-2 bg-[#4caf50]"></span>
             <span class="text-sm text-gray-700 dark:text-gray-300">High: Maximum bytes/s</span>
         </div>
         <div class="flex items-center gap-2">
-            <span class="inline-block w-4 h-4 bg-[#2196f3] rounded"></span>
+            <span class="inline-block w-4 h-2 bg-[#2196f3]"></span>
             <span class="text-sm text-gray-700 dark:text-gray-300">Average: Average bytes/s</span>
         </div>
         <div class="flex items-center gap-2">
-            <span class="inline-block w-4 h-4 bg-[#888] rounded"></span>
+            <span class="inline-block w-4 h-2 bg-[#888]"></span>
             <span class="text-sm text-gray-700 dark:text-gray-300">Low: Minimum bytes/s</span>
         </div>
     </div>

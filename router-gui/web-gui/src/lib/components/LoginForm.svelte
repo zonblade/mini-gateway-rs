@@ -9,7 +9,7 @@
 
 {#if errorMessage}
   <div
-    class="mb-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-md text-sm"
+    class="mb-4 p-3 bg-red-50 dark:bg-red-900/10 border-l-2 border-red-500 dark:border-red-700 text-red-700 dark:text-red-400 text-sm"
   >
     {errorMessage}
   </div>
@@ -17,27 +17,23 @@
 
 <form on:submit|preventDefault={onSubmit} class="space-y-6">
   <div>
-    <label for="username" class="block text-sm font-medium mb-1"
-      >Username</label
-    >
+    <label for="username" class="block text-sm mb-1">Username</label>
     <input
       type="text"
       id="username"
       bind:value={username}
-      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-[#0d1117] focus:outline-none focus:ring-2 focus:ring-[#1f6feb] focus:border-[#1f6feb] transition-colors"
+      class="w-full px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-transparent focus:outline-none focus:border-gray-500 dark:focus:border-gray-400 transition-colors"
       placeholder="Enter your username"
     />
   </div>
 
   <div>
-    <label for="password" class="block text-sm font-medium mb-1"
-      >Password</label
-    >
+    <label for="password" class="block text-sm mb-1">Password</label>
     <input
       type="password"
       id="password"
       bind:value={password}
-      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-[#0d1117] focus:outline-none focus:ring-2 focus:ring-[#1f6feb] focus:border-[#1f6feb] transition-colors"
+      class="w-full px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-transparent focus:outline-none focus:border-gray-500 dark:focus:border-gray-400 transition-colors"
       placeholder="Enter your password"
     />
   </div>
@@ -46,7 +42,7 @@
     <button
       type="submit"
       disabled={isSubmitting}
-      class="w-full py-2 px-4 bg-[#238636] hover:bg-[#2ea043] disabled:bg-[#238636]/70 disabled:cursor-not-allowed text-white rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#238636]"
+      class="w-full py-2 px-4 bg-gray-800 hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors focus:outline-none"
     >
       {#if isSubmitting}
         <span class="flex justify-center items-center">

@@ -64,7 +64,7 @@
         role="presentation"
     >
         <div 
-            class="bg-white dark:bg-[#161b22] rounded-lg shadow-xl max-w-md w-full mx-4"
+            class="bg-white dark:bg-[#161b22] shadow-xl max-w-md w-full mx-4"
             on:click|stopPropagation
             on:keydown={handleModalKeyDown}
             role="dialog"
@@ -88,7 +88,7 @@
                 </div>
                 
                 {#if errorMessage}
-                    <div class="mb-4 p-3 bg-red-100 text-red-700 rounded">
+                    <div class="mb-4 p-3 bg-red-100 text-red-700">
                         <p>{errorMessage}</p>
                     </div>
                 {/if}
@@ -102,7 +102,7 @@
                             type="text" 
                             id="username" 
                             bind:value={user.username}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                             required
                             disabled={isProcessing}
                         />
@@ -116,7 +116,7 @@
                             type="email" 
                             id="email" 
                             bind:value={user.email}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                             required
                             disabled={isProcessing}
                         />
@@ -132,7 +132,7 @@
                                 type="password" 
                                 id="password" 
                                 bind:value={password}
-                                class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                                class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                                 required
                                 disabled={isProcessing}
                                 placeholder="Enter a secure password"
@@ -142,8 +142,8 @@
                                 <div class="mt-1 text-sm">
                                     <div class="flex items-center">
                                         <span class="text-gray-600 dark:text-gray-400 mr-2">Strength:</span>
-                                        <div class="h-1.5 w-24 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                                            <div class="h-full rounded-full {passwordStrength === 'weak' ? 'w-1/3 bg-red-500' : passwordStrength === 'medium' ? 'w-2/3 bg-yellow-500' : 'w-full bg-green-500'}"></div>
+                                        <div class="h-1.5 w-24 bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                                            <div class="h-full {passwordStrength === 'weak' ? 'w-1/3 bg-red-500' : passwordStrength === 'medium' ? 'w-2/3 bg-yellow-500' : 'w-full bg-green-500'}"></div>
                                         </div>
                                         <span class="ml-2 {passwordStrength === 'weak' ? 'text-red-500' : passwordStrength === 'medium' ? 'text-yellow-500' : 'text-green-500'}">
                                             {passwordStrength}
@@ -161,7 +161,7 @@
                         <select 
                             id="role" 
                             bind:value={user.role}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                             disabled={isProcessing}
                         >
                             {#each roles as role}
@@ -175,7 +175,7 @@
                             type="checkbox" 
                             id="active" 
                             bind:checked={user.active}
-                            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                             disabled={isProcessing}
                         />
                         <label for="active" class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
@@ -187,14 +187,14 @@
                         <button 
                             type="button"
                             on:click={onClose}
-                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200"
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-sm font-medium text-gray-700 dark:text-gray-200 border border-transparent hover:border-gray-400 dark:hover:border-gray-500"
                             disabled={isProcessing}
                         >
                             Cancel
                         </button>
                         <button 
                             type="submit"
-                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium"
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium border border-transparent"
                             disabled={isProcessing}
                         >
                             {isEditMode ? 'Update' : 'Create'}

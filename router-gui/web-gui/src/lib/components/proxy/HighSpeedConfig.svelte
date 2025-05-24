@@ -39,7 +39,7 @@
             type="checkbox" 
             id="highSpeed" 
             bind:checked={highSpeed}
-            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 "
         />
         <label for="highSpeed" class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
             Enable High-Speed Mode
@@ -47,7 +47,7 @@
     </div>
     
     {#if showHighSpeedWarning}
-        <div class="pl-6 text-sm text-yellow-700 dark:text-yellow-500 bg-yellow-100 dark:bg-yellow-900/30 p-2 rounded">
+        <div class="pl-6 text-sm text-yellow-700 dark:text-yellow-500 bg-yellow-100 dark:bg-yellow-900/30 p-2 ">
             <p>No gateway nodes available for this proxy. High-speed mode will use the default target address.</p>
         </div>
     {/if}
@@ -71,7 +71,7 @@
                     id="highSpeedAddr"
                     value={highSpeedAddr}
                     on:change={selectGwNode}
-                    class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 {!highSpeedAddr && highSpeed ? 'border-red-500 dark:border-red-500' : ''}"
+                    class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 {!highSpeedAddr && highSpeed ? 'border-red-500 dark:border-red-500' : ''}"
                     required={highSpeed}
                 >
                     <option value="">Select a gateway node</option>
@@ -94,7 +94,7 @@
     {/if}
     
     {#if highSpeed && !highSpeedAddr && gwNodes.length > 0}
-        <div class="text-sm text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/20 p-2 rounded my-2">
+        <div class="text-sm text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/20 p-2 my-2">
             Please select a gateway node for high-speed mode or disable high-speed mode.
         </div>
     {/if}
