@@ -88,14 +88,14 @@
 
 <div class="flex flex-col gap-4 h-full">
     <div class="flex justify-between items-center flex-wrap">
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100">HTTP Status Code Statistics</h2>
+        <h2 class="text-xl font-normal text-gray-900 dark:text-gray-100">HTTP Status Code Statistics</h2>
         <div class="flex items-center gap-2 flex-wrap">
             <label for="status-select" class="text-gray-700 dark:text-gray-300">Status Code:</label>
             <select 
                 id="status-select" 
                 value={selectedStatusCode} 
                 on:change={handleStatusCodeChange}
-                class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-200"
+                class="bg-transparent border-b border-gray-300 dark:border-gray-600 px-2 py-1 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-indigo-500"
             >
                 {#each commonStatusCodes as status}
                     <option value={status.code}>{status.code} - {status.description}</option>
@@ -110,7 +110,7 @@
                     max="599" 
                     placeholder="Enter status code" 
                     on:change={handleCustomStatusCode}
-                    class="w-24 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-200"
+                    class="w-24 bg-transparent border-b border-gray-300 dark:border-gray-600 px-2 py-1 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-indigo-500"
                 />
             {/if}
             
@@ -119,7 +119,7 @@
                 id="target-select" 
                 value={selectedTarget} 
                 on:change={handleTargetChange}
-                class="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-200"
+                class="bg-transparent border-b border-gray-300 dark:border-gray-600 px-2 py-1 text-gray-700 dark:text-gray-200 focus:outline-none focus:border-indigo-500"
             >
                 <option value="domain">By Gateway</option>
                 <option value="proxy">By Proxy</option>
@@ -133,7 +133,7 @@
     
     <div class="flex gap-4 mt-2">
         <div class="flex items-center gap-2">
-            <span class="inline-block w-4 h-4 rounded" style="background-color: {getStatusCodeColor(selectedStatusCode)};"></span>
+            <span class="inline-block w-4 h-2" style="background-color: {getStatusCodeColor(selectedStatusCode)};"></span>
             <span class="text-sm text-gray-700 dark:text-gray-300">Status {selectedStatusCode} count per interval (15s)</span>
         </div>
     </div>

@@ -71,7 +71,7 @@
 {#if showModal}
     <!-- Modal backdrop -->
     <div 
-        class="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4"
+        class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex justify-center items-center p-4"
         on:click|self={closeModal}
         on:keydown={handleKeydown}
         tabindex="0"
@@ -80,7 +80,7 @@
     >
         <!-- Modal container -->
         <div 
-            class="bg-white dark:bg-[#1c2128] rounded-lg shadow-xl max-w-md w-full p-6"
+            class="bg-white dark:bg-[#1c2128] shadow-xl max-w-md w-full p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
@@ -119,7 +119,7 @@
                     <input 
                         type="text" 
                         id="pattern" 
-                        class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                        class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
                         placeholder="Path pattern (e.g., /api/users/* or ^/users/[0-9]+)" 
                         bind:value={localGateway.pattern}
                     />
@@ -135,7 +135,7 @@
                     <input 
                         type="text" 
                         id="target" 
-                        class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                        class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
                         placeholder="Target URL (e.g., /v2/api/ or /internal/)" 
                         bind:value={localGateway.target}
                     />
@@ -151,7 +151,7 @@
                     <input 
                         type="number" 
                         id="priority" 
-                        class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
+                        class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" 
                         placeholder="Priority (lower number = higher priority)" 
                         bind:value={localGateway.priority}
                     />

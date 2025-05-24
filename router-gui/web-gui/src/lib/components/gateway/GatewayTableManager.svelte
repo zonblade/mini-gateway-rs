@@ -183,7 +183,7 @@
                     {#each sortedGateways as gateway (gateway.id)}
                         <tr class="hover:bg-gray-50 dark:hover:bg-gray-800">
                             <td class="px-4 py-3 whitespace-nowrap text-sm font-medium">
-                                <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded">
+                                <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 ">
                                     {gateway.priority}
                                 </span>
                             </td>

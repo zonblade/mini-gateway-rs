@@ -10,6 +10,7 @@
     import type { Proxy, ProxyWithDomains, TlsDomain } from "$lib/types/proxy";
     import gwnodeActions from "$lib/actions/gwnodeActions";
     import Swal from "sweetalert2";
+    import DeleteConfirmationModal from "$lib/components/common/DeleteConfirmationModal.svelte";
 
     // For search functionality
     export let searchTerm = "";
@@ -18,6 +19,12 @@
     let proxiesWithDomains: ProxyWithDomains[] = [];
     let isLoading = true;
     let isLoadError = false;
+
+    // Add these variables
+    let showDeleteModal = false;
+    let proxyToDelete: { id: string; listen: string } | null = null;
+    let isProcessing = false;
+    let errorMessage: string | null = null;
 
     // Subscribe to the store
     const unsubProxy = proxyStore.subscribe((state) => {
@@ -90,43 +97,31 @@
     }
 
     // Function to delete a proxy
-    async function deleteProxy(id: string): Promise<void> {
-        const result = await Swal.fire({
-            title: 'Are you sure?',
-            text: "You won't be able to revert this!",
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
-        });
+    async function deleteProxy(id: string, listen: string) {
+        proxyToDelete = { id, listen };
+        showDeleteModal = true;
+    }
+
+    async function handleDeleteConfirm() {
+        if (!proxyToDelete) return;
         
-        if (result.isConfirmed) {
-            try {
-                await proxyStore.deleteProxy(id);
-                // Refetch the list after successful deletion
-                await proxyStore.fetchProxies();
-                
-                // Show success message
-                await Swal.fire({
-                    title: 'Deleted!',
-                    text: 'The proxy has been deleted.',
-                    icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-            } catch (error) {
-                console.error("Error deleting proxy:", error);
-                await Swal.fire({
-                    title: 'Error!',
-                    text: "Failed to delete proxy: " +
-                        (error instanceof Error
-                            ? error.message
-                            : String(error)),
-                    icon: 'error'
-                });
-            }
+        try {
+            isProcessing = true;
+            await proxyStore.deleteProxy(proxyToDelete.id);
+            await proxyStore.fetchProxies();
+            showDeleteModal = false;
+            proxyToDelete = null;
+        } catch (error) {
+            console.error('Error deleting proxy:', error);
+            errorMessage = `Failed to delete proxy: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+            isProcessing = false;
         }
+    }
+
+    function handleDeleteCancel() {
+        showDeleteModal = false;
+        proxyToDelete = null;
     }
 
     // Function to sync proxies with the server
@@ -134,31 +129,32 @@
         try {
             // Show loading state
             Swal.fire({
-                title: 'Syncing...',
-                text: 'Please wait while we sync your proxies',
+                title: "Syncing...",
+                text: "Please wait while we sync your proxies",
                 allowOutsideClick: false,
                 didOpen: () => {
                     Swal.showLoading();
-                }
+                },
             });
-            
+
             const result = await proxyStore.syncProxies();
             await gwnodeActions.syncGatewayNodes();
-            
+
             await Swal.fire({
-                title: 'Success!',
+                title: "Success!",
                 text: result.message,
-                icon: 'success',
+                icon: "success",
                 timer: 2000,
-                showConfirmButton: false
+                showConfirmButton: false,
             });
         } catch (error) {
             console.error("Error syncing proxies:", error);
             await Swal.fire({
-                title: 'Sync Failed',
-                text: "Failed to sync proxies: " +
+                title: "Sync Failed",
+                text:
+                    "Failed to sync proxies: " +
                     (error instanceof Error ? error.message : String(error)),
-                icon: 'error'
+                icon: "error",
             });
         }
     }
@@ -178,7 +174,7 @@
     </div>
 
     <!-- Search input -->
-    {#if visibleProxies.length > 0}
+    {#if !isLoading && !isLoadError}
         <div class="mb-6">
             <SearchInput
                 bind:value={searchTerm}
@@ -192,25 +188,32 @@
         <LoadingSpinner />
     {:else if isLoadError}
         <!-- Error state -->
-        <div class="flex flex-col items-center justify-center py-12 text-center">
+        <div
+            class="flex flex-col items-center justify-center py-12 text-center"
+        >
             <div class="text-red-500 mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-12 w-12 mx-auto mb-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
                 </svg>
                 <h3 class="text-lg font-medium">Failed to load proxy nodes</h3>
                 <p class="text-sm mt-1">{isLoadError}</p>
             </div>
             <div class="flex space-x-4">
-                <Button 
-                    variant="secondary" 
-                    onClick={retryLoading}
-                >
+                <Button variant="secondary" onClick={retryLoading}>
                     Retry
                 </Button>
-                <Button 
-                    variant="primary" 
-                    onClick={addProxy}
-                >
+                <Button variant="primary" onClick={addProxy}>
                     Create Proxy
                 </Button>
             </div>
@@ -229,6 +232,15 @@
                         Create your first proxy
                     </Button>
                 </div>
+            {:else}
+                <div class="mt-4">
+                    <Button
+                        variant="secondary"
+                        onClick={() => (searchTerm = "")}
+                    >
+                        Clear Search
+                    </Button>
+                </div>
             {/if}
         </div>
     {:else}
@@ -239,7 +251,7 @@
                         proxy={proxyWithDomains.proxy}
                         domains={proxyWithDomains.domains || []}
                         onEdit={() => editProxy(proxyWithDomains.proxy.id)}
-                        onDelete={() => deleteProxy(proxyWithDomains.proxy.id)}
+                        onDelete={() => deleteProxy(proxyWithDomains.proxy.id, proxyWithDomains.proxy.addr_listen)}
                     />
                 </div>
             {/each}
@@ -254,4 +266,14 @@
             </div>
         {/if}
     {/if}
+
+    <!-- Delete confirmation modal -->
+    <DeleteConfirmationModal
+        showModal={showDeleteModal}
+        type="proxy"
+        addressToVerify={proxyToDelete?.listen || ''}
+        {isProcessing}
+        on:confirm={handleDeleteConfirm}
+        on:cancel={handleDeleteCancel}
+    />
 </div>

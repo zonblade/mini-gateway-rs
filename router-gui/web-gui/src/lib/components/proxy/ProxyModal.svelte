@@ -141,7 +141,7 @@ function handleSubmit(): void {
         role="presentation"
     >
         <div 
-            class="bg-white dark:bg-[#161b22] rounded-lg shadow-xl max-w-md w-full mx-4 max-h-screen overflow-y-auto"
+            class="bg-white dark:bg-[#161b22] shadow-xl max-w-md w-full mx-4 max-h-screen overflow-y-auto"
             on:click|stopPropagation
             on:keydown={handleModalKeyDown}
             role="dialog"
@@ -173,7 +173,7 @@ function handleSubmit(): void {
                             type="text" 
                             id="title" 
                             bind:value={proxy.title}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                             required
                         />
                     </div>
@@ -186,7 +186,7 @@ function handleSubmit(): void {
                             type="text" 
                             id="listen" 
                             bind:value={proxy.listen}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                             required
                             placeholder="Example: 0.0.0.0:8080"
                         />
@@ -200,7 +200,7 @@ function handleSubmit(): void {
                             type="text" 
                             id="domain" 
                             bind:value={proxy.domain}
-                            class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                            class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                             placeholder="Example: example.com"
                         />
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -248,7 +248,7 @@ function handleSubmit(): void {
                                 <textarea 
                                     id="certPem" 
                                     bind:value={proxy.certPem}
-                                    class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                                    class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
                                     placeholder="this is cert"
                                     rows="4"
                                     disabled={certFieldsDisabled}
@@ -262,7 +262,7 @@ function handleSubmit(): void {
                                 <textarea 
                                     id="certKey" 
                                     bind:value={proxy.certKey}
-                                    class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
+                                    class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 font-mono text-sm"
                                     placeholder="this is cert"
                                     rows="4"
                                     disabled={certFieldsDisabled}
@@ -311,7 +311,7 @@ function handleSubmit(): void {
                                     <select
                                         id="highSpeedAddr"
                                         bind:value={proxy.highSpeedAddr}
-                                        class="w-full p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 {!proxy.highSpeedAddr && 'border-red-500 dark:border-red-500'}"
+                                        class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 {!proxy.highSpeedAddr && 'border-red-500 dark:border-red-500'}"
                                         required={proxy.highSpeed}
                                     >
                                         <option value="">Select a gateway node</option>
@@ -333,7 +333,7 @@ function handleSubmit(): void {
                                 
                                 <!-- Debug information - Always visible during development -->
                                 {#if import.meta.env.DEV}
-                                    <div class="mt-4 p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-800">
+                                    <div class="mt-4 p-2 border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800">
                                         <h4 class="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Debug Info:</h4>
                                         <pre class="text-xs text-gray-600 dark:text-gray-300 overflow-auto max-h-32">
 Loading GW Nodes: {loadingGwNodes}
@@ -352,7 +352,7 @@ showHighSpeedWarning: {showHighSpeedWarning}
                     </div>
                     
                     {#if proxy.highSpeed && !proxy.highSpeedAddr && gwNodes.length > 0}
-                        <div class="text-sm text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/20 p-2 rounded my-2">
+                        <div class="text-sm text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/20 p-2 my-2">
                             Please select a gateway node for high-speed mode or disable high-speed mode.
                         </div>
                     {/if}
@@ -361,13 +361,13 @@ showHighSpeedWarning: {showHighSpeedWarning}
                         <button 
                             type="button"
                             on:click={onClose}
-                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-200"
+                            class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-sm font-medium text-gray-700 dark:text-gray-200"
                         >
                             Cancel
                         </button>
                         <button 
                             type="submit"
-                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium"
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
                             disabled={proxy.highSpeed && !proxy.highSpeedAddr}
                         >
                             {isEditMode ? 'Update' : 'Create'}

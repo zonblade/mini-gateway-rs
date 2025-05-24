@@ -8,9 +8,9 @@
     
     // Compute classes based on props
     $: variantClasses = {
-        primary: "bg-blue-600 hover:bg-blue-700 text-white",
-        secondary: "bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200",
-        danger: "bg-red-600 hover:bg-red-700 text-white",
+        primary: "bg-blue-600 hover:bg-blue-700 text-white border-transparent",
+        secondary: "bg-white hover:bg-gray-50 text-gray-700 border-gray-300",
+        danger: "bg-red-600 hover:bg-red-700 text-white border-transparent",
         ghost: "bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
     }[variant];
     
@@ -27,7 +27,7 @@
 
 <button
     {type}
-    class="{variantClasses} {sizeClasses} {widthClass} {disabledClasses} rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+    class="flex gap-1 {variantClasses} {sizeClasses} {widthClass} {disabledClasses} rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
     on:click={onClick}
     {disabled}
 >

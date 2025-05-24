@@ -5,6 +5,7 @@
     import SearchBar from "$lib/components/users/SearchBar.svelte";
     import Pagination from "$lib/components/users/Pagination.svelte";
     import ProxyManager from "$lib/components/proxy/ProxyManager.svelte";
+    import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
     
     // Authentication and loading states
     let isLoggedIn = false;
@@ -42,9 +43,7 @@
 </script>
 
 {#if isLoading}
-    <div class="flex items-center justify-center h-screen">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
-    </div>
+    <LoadingSpinner />
 {:else if isLoggedIn}
     <div class="px-4 flex flex-col items-center">
         <div class="rounded-lg py-8 w-full max-w-[900px]">

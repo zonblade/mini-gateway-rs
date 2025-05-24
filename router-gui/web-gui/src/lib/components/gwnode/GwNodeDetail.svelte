@@ -37,7 +37,7 @@
     }
 </script>
 
-<div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+<div class="bg-white dark:bg-gray-800 border-1 border-gray-200 dark:border-gray-700 overflow-hidden">
     <div class="p-6">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {gwnode.title}
@@ -49,14 +49,14 @@
                 <h3 class="text-lg font-medium text-gray-700 dark:text-gray-300">
                     Proxy Information
                 </h3>
-                <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
+                <div class="bg-gray-50 dark:bg-gray-700 p-4 ">
                     <div class="mb-1">
                         <span class="font-medium">Name:</span>
                         {proxyTitle || 'Not specified'}
                     </div>
                     <div class="mb-1">
                         <span class="font-medium">Listen:</span>
-                        <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
+                        <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 "
                             >{proxyListen}</code>
                     </div>
                     {#if proxyTls}
@@ -68,7 +68,7 @@
                     {#if proxyDomain}
                         <div>
                             <span class="font-medium">Domain:</span>
-                            <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
+                            <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 "
                                 >{proxyDomain}</code>
                         </div>
                     {/if}
@@ -80,10 +80,10 @@
                 <h3 class="text-lg font-medium text-gray-700 dark:text-gray-300">
                     Target Information
                 </h3>
-                <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
+                <div class="bg-gray-50 dark:bg-gray-700 p-4 ">
                     <div>
                         <span class="font-medium">Address:</span>
-                        <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded"
+                        <code class="text-sm bg-gray-200 dark:bg-gray-600 px-1 py-0.5 "
                             >{gwnode.alt_target}</code>
                     </div>
                 </div>
