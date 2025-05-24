@@ -265,149 +265,166 @@ impl ProxyApp {
     }
 
     // Regex-based HTTP request line parser and rewriter
-    fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> (usize, bool) {
-        // First convert the buffer to a string for processing
-        let request_str = match std::str::from_utf8(&buffer[..length]) {
-            Ok(s) => s,
-            Err(_) => return (length, false), // Not valid UTF-8, return unchanged
-        };
+fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> (usize, bool) {
+    // First convert the buffer to a string for processing
+    let request_str = match std::str::from_utf8(&buffer[..length]) {
+        Ok(s) => s,
+        Err(_) => return (length, false), // Not valid UTF-8, return unchanged
+    };
 
-        // Flag to track if this is a WebSocket upgrade request
-        let is_websocket = request_str.contains("Upgrade: websocket")
-            || request_str.contains("Upgrade: WebSocket");
+    // Flag to track if this is a WebSocket upgrade request
+    let is_websocket = request_str.contains("Upgrade: websocket")
+        || request_str.contains("Upgrade: WebSocket");
 
-        // Check if this looks like an HTTP request
-        if !request_str.starts_with("GET ")
-            && !request_str.starts_with("POST ")
-            && !request_str.starts_with("PUT ")
-            && !request_str.starts_with("DELETE ")
-            && !request_str.starts_with("CONNECT ")
-            && !request_str.starts_with("OPTIONS ")
-        {
-            return (length, is_websocket);
+    // Check if this looks like an HTTP request
+    if !request_str.starts_with("GET ")
+        && !request_str.starts_with("POST ")
+        && !request_str.starts_with("PUT ")
+        && !request_str.starts_with("DELETE ")
+        && !request_str.starts_with("CONNECT ")
+        && !request_str.starts_with("OPTIONS ")
+    {
+        return (length, is_websocket);
+    }
+
+    // First check for configuration changes at regular intervals
+    self.check_and_reload_config_if_needed();
+
+    // Check if we already have this request in the cache
+    if let Some(cached_request) = self.rewrite_cache.get(&request_str.to_string()) {
+        debug!("Cache hit for request rewrite");
+        let new_bytes = cached_request.as_bytes();
+        let new_len = new_bytes.len();
+
+        // Make sure we don't overflow the buffer
+        if new_len <= buffer.len() {
+            buffer[..new_len].copy_from_slice(new_bytes);
+            return (new_len, is_websocket);
+        } else {
+            debug!("Cached rewritten request too large for buffer");
+            return (length, false);
+        }
+    }
+
+    debug!("Cache miss for request rewrite");
+
+    // Find the first line of the request (the request line)
+    let line_end = match request_str.find("\r\n") {
+        Some(pos) => pos,
+        None => return (length, is_websocket), // Not a complete HTTP request line
+    };
+
+    let request_line = &request_str[..line_end];
+    let rest_of_request = &request_str[line_end..];
+
+    // Log the full request line for debugging
+    debug!("Received request line: '{}'", request_line);
+
+    // Parse the request line to extract Method, Path, and Protocol
+    let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
+    if parts.len() < 3 {
+        debug!("Malformed request line: '{}'", request_line);
+        return (length, is_websocket); // Malformed, return original
+    }
+    let method = parts[0];
+    let request_path_with_query = parts[1];
+    let protocol = parts[2];
+    
+    // CRITICAL FIX: Separate path and query string
+    let (request_path, query_string) = match request_path_with_query.find('?') {
+        Some(pos) => {
+            let (path, query) = request_path_with_query.split_at(pos);
+            (path, Some(query)) // query includes the '?' character
+        }
+        None => (request_path_with_query, None)
+    };
+    
+    debug!("Parsed request path: '{}', query: '{:?}'", request_path, query_string);
+
+    // Try each rewrite rule
+    let rules_guard = match self.path_rewrites.read() {
+        Ok(guard) => guard,
+        Err(e) => {
+            error!("Failed to acquire read lock on path_rewrites: {}", e);
+            return (length, is_websocket); // Return original length and websocket flag if lock acquisition fails
+        }
+    };
+    for rule in rules_guard.iter() {
+        // Find all matches in the PATH ONLY (not including query)
+        let mut matches = Vec::new();
+        let mut captures = Vec::new();
+
+        log::debug!("Checking rewrite rule pattern for request_path: '{}'", request_path);
+
+        // Use regex-automata to find matches in the path (excluding query)
+        for mat in rule.pattern.find_iter(request_path.as_bytes()) {
+            matches.push((mat.start(), mat.end()));
+
+            // Extract capture groups
+            // This is simplified since regex-automata's Match doesn't directly provide captures
+            // In a real implementation, you'd need to extract captures based on the match bounds
+            let matched_text = &request_path[mat.start()..mat.end()];
+            captures.push(matched_text);
         }
 
-        // First check for configuration changes at regular intervals
-        self.check_and_reload_config_if_needed();
+        // If we have a match, perform the rewrite
+        if let Some((start, end)) = matches.first() {
+            debug!("Matched regex pattern for rewrite");
 
-        // Check if we already have this request in the cache
-        if let Some(cached_request) = self.rewrite_cache.get(&request_str.to_string()) {
-            debug!("Cache hit for request rewrite");
-            let new_bytes = cached_request.as_bytes();
+            // Get parts of the *path* before and after the match
+            let before = &request_path[..*start];
+            let after = &request_path[*end..];
+
+            // Process replacement template with capture references
+            let replacement = self.process_replacement(
+                &captures.iter().map(|s| *s).collect::<Vec<&str>>(),
+                &rule.replacement,
+            );
+
+            // Create the new *path* without query, then add query if present
+            let new_request_path_only = format!("{}{}{}", before, replacement, after);
+            
+            // Reconstruct the full path with query string if it was present
+            let new_request_path = match query_string {
+                Some(q) => format!("{}{}", new_request_path_only, q), // q already includes '?'
+                None => new_request_path_only,
+            };
+            
+            let new_request_line = format!("{} {} {}", method, new_request_path, protocol);
+            let new_request = format!("{}{}", new_request_line, rest_of_request);
+
+            // Log rewrite information with special note for WebSocket upgrades
+            if is_websocket {
+                debug!("Rewrote WebSocket upgrade request: {} -> {}", request_line, new_request_line);
+            } else {
+                debug!("Rewrote request: {} -> {}", request_line, new_request_line);
+            }
+
+            // Store the rewritten request in the cache
+            self.rewrite_cache.insert(request_str.to_string(), new_request.clone());
+            debug!("Stored rewritten request in cache");
+
+            // Convert back to bytes and copy to the buffer
+            let new_bytes = new_request.as_bytes();
             let new_len = new_bytes.len();
 
             // Make sure we don't overflow the buffer
             if new_len <= buffer.len() {
+                // Copy the new request into the buffer
                 buffer[..new_len].copy_from_slice(new_bytes);
                 return (new_len, is_websocket);
             } else {
-                debug!("Cached rewritten request too large for buffer");
-                return (length, false);
+                debug!("Rewritten request too large for buffer");
+                return (length, is_websocket); // Return original length if new request is too large
             }
         }
-
-        debug!("Cache miss for request rewrite");
-
-        // Find the first line of the request (the request line)
-        let line_end = match request_str.find("\r\n") {
-            Some(pos) => pos,
-            None => return (length, is_websocket), // Not a complete HTTP request line
-        };
-
-        let request_line = &request_str[..line_end];
-        let rest_of_request = &request_str[line_end..];
-
-        // Log the full request line for debugging
-        debug!("Received request line: '{}'", request_line);
-
-        // Parse the request line to extract Method, Path, and Protocol
-        let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
-        if parts.len() < 3 {
-            debug!("Malformed request line: '{}'", request_line);
-            return (length, is_websocket); // Malformed, return original
-        }
-        let method = parts[0];
-        let request_path = parts[1];
-        let protocol = parts[2];
-        debug!("Parsed request path: '{}'", request_path);
-
-        // Try each rewrite rule
-        let rules_guard = match self.path_rewrites.read() {
-            Ok(guard) => guard,
-            Err(e) => {
-                error!("Failed to acquire read lock on path_rewrites: {}", e);
-                return (length, is_websocket); // Return original length and websocket flag if lock acquisition fails
-            }
-        };
-        for rule in rules_guard.iter() {
-            // Find all matches in the request line
-            let mut matches = Vec::new();
-            let mut captures = Vec::new();
-
-            log::debug!("Checking rewrite rule pattern for request_path: '{}'", request_path);
-
-            // Use regex-automata to find matches in the path
-            for mat in rule.pattern.find_iter(request_path.as_bytes()) {
-                matches.push((mat.start(), mat.end()));
-
-                // Extract capture groups
-                // This is simplified since regex-automata's Match doesn't directly provide captures
-                // In a real implementation, you'd need to extract captures based on the match bounds
-                let matched_text = &request_path[mat.start()..mat.end()];
-                captures.push(matched_text);
-            }
-
-            // If we have a match, perform the rewrite
-            if let Some((start, end)) = matches.first() {
-                debug!("Matched regex pattern for rewrite");
-
-                // Get parts of the *path* before and after the match
-                let before = &request_path[..*start];
-                let after = &request_path[*end..];
-
-                // Process replacement template with capture references
-                let replacement = self.process_replacement(
-                    &captures.iter().map(|s| *s).collect::<Vec<&str>>(),
-                    &rule.replacement,
-                );
-
-                // Create the new *path* and then the new request line
-                let new_request_path = format!("{}{}{}", before, replacement, after);
-                let new_request_line = format!("{} {} {}", method, new_request_path, protocol);
-                let new_request = format!("{}{}", new_request_line, rest_of_request);
-
-                // Log rewrite information with special note for WebSocket upgrades
-                if is_websocket {
-                    debug!("Rewrote WebSocket upgrade request: {} -> {}", request_line, new_request_line);
-                } else {
-                    debug!("Rewrote request: {} -> {}", request_line, new_request_line);
-                }
-
-                // Store the rewritten request in the cache
-                self.rewrite_cache.insert(request_str.to_string(), new_request.clone());
-                debug!("Stored rewritten request in cache");
-
-                // Convert back to bytes and copy to the buffer
-                let new_bytes = new_request.as_bytes();
-                let new_len = new_bytes.len();
-
-                // Make sure we don't overflow the buffer
-                if new_len <= buffer.len() {
-                    // Copy the new request into the buffer
-                    buffer[..new_len].copy_from_slice(new_bytes);
-                    return (new_len,is_websocket);
-                } else {
-                    debug!("Rewritten request too large for buffer");
-                    return (length,is_websocket); // Return original length if new request is too large
-                }
-            }
-        }
-
-        // No rewrite performed
-        debug!("No rewrite rule matched for request path: {}", request_path);
-        // should close if no match
-        (0,is_websocket)
     }
+
+    // No rewrite performed
+    debug!("No rewrite rule matched for request path: {}", request_path);
+    // should close if no match
+    (0, is_websocket)
+}
 
     /// Checks if the configuration should be reloaded based on time interval.
     fn check_and_reload_config_if_needed(&self) {
