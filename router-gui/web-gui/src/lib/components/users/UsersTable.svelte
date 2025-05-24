@@ -1,10 +1,40 @@
 <script lang="ts">
     import type { User } from '$lib/types/userTypes';
+    import DeleteConfirmationModal from "$lib/components/common/DeleteConfirmationModal.svelte";
     
     export let users: User[] = [];
     export let onEdit: (user: User) => void;
     export let onDelete: (id: string) => void;
     export let disabled: boolean = false;
+
+    let showDeleteModal = false;
+    let userToDelete: { id: string; email: string } | null = null;
+    let isProcessing = false;
+
+    function handleDeleteClick(id: string, email: string) {
+        userToDelete = { id, email };
+        showDeleteModal = true;
+    }
+
+    async function handleDeleteConfirm() {
+        if (!userToDelete) return;
+        
+        try {
+            isProcessing = true;
+            await onDelete(userToDelete.id);
+            showDeleteModal = false;
+            userToDelete = null;
+        } catch (error) {
+            console.error('Error deleting user:', error);
+        } finally {
+            isProcessing = false;
+        }
+    }
+
+    function handleDeleteCancel() {
+        showDeleteModal = false;
+        userToDelete = null;
+    }
 </script>
 
 <div class="overflow-x-auto">
@@ -61,7 +91,7 @@
                                 </svg>
                             </button>
                             <button 
-                                on:click={() => onDelete(user.id)}
+                                on:click={() => handleDeleteClick(user.id, user.email)}
                                 aria-label="Delete user"
                                 class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-200"
                                 disabled={disabled}
@@ -80,3 +110,12 @@
         </tbody>
     </table>
 </div>
+
+<DeleteConfirmationModal
+    showModal={showDeleteModal}
+    type="user"
+    addressToVerify={userToDelete?.email || ''}
+    {isProcessing}
+    on:confirm={handleDeleteConfirm}
+    on:cancel={handleDeleteCancel}
+/>

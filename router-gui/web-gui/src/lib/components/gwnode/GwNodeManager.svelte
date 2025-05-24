@@ -12,6 +12,7 @@
     import EmptyState from "$lib/components/common/EmptyState.svelte";
     import Button from "$lib/components/common/Button.svelte";
     import Swal from "sweetalert2";
+    import DeleteConfirmationModal from "$lib/components/common/DeleteConfirmationModal.svelte";
     
     // For search functionality
     export let searchTerm = "";
@@ -21,6 +22,12 @@
     let proxyList: Proxy[] = [];
     let isLoading = true;
     let loadError: string | null = null;
+    
+    // Add these variables
+    let showDeleteModal = false;
+    let gwnodeToDelete: { id: string; target: string } | null = null;
+    let isProcessing = false;
+    let errorMessage: string | null = null;
     
     // Subscribe to stores
     const unsubGwNodes = gwNodes.subscribe(nodes => {
@@ -156,38 +163,31 @@
     }
     
     // Function to delete a gwnode
-    async function deleteGwNode(id: string): Promise<void> {
-        const result = await Swal.fire({
-            title: 'Are you sure?',
-            text: "You won't be able to revert this!",
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
-        });
+    async function deleteGwNode(id: string, target: string) {
+        gwnodeToDelete = { id, target };
+        showDeleteModal = true;
+    }
+    
+    async function handleDeleteConfirm() {
+        if (!gwnodeToDelete) return;
         
-        if (result.isConfirmed) {
-            try {
-                await gwnodeActions.deleteGwNode(id);
-                
-                // Show success message
-                await Swal.fire({
-                    title: 'Deleted!',
-                    text: 'The gateway node has been deleted.',
-                    icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-            } catch (error: unknown) {
-                console.error("Error deleting gateway node:", error);
-                await Swal.fire({
-                    title: 'Error!',
-                    text: `Failed to delete gateway node: ${error instanceof Error ? error.message : String(error)}`,
-                    icon: 'error'
-                });
-            }
+        try {
+            isProcessing = true;
+            await gwnodeActions.deleteGwNode(gwnodeToDelete.id);
+            await loadData();
+            showDeleteModal = false;
+            gwnodeToDelete = null;
+        } catch (error) {
+            console.error('Error deleting gateway node:', error);
+            errorMessage = `Failed to delete gateway node: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+            isProcessing = false;
         }
+    }
+    
+    function handleDeleteCancel() {
+        showDeleteModal = false;
+        gwnodeToDelete = null;
     }
     
     // Function to sync gateway nodes with the server
@@ -333,7 +333,11 @@
         <!-- Card grid layout -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each visibleGwNodes as gwnode (gwnode.id)}
-                <GwNodeCard {gwnode} onEdit={editGwNode} onDelete={deleteGwNode} />
+                <GwNodeCard 
+                    {gwnode} 
+                    onEdit={editGwNode} 
+                    onDelete={(id) => deleteGwNode(id, gwnode.alt_target)} 
+                />
             {/each}
         </div>
         
@@ -358,5 +362,15 @@
         proxies={proxyList}
         onSave={saveGwNode}
         onClose={closeModal}
+    />
+    
+    <!-- Delete Confirmation Modal component -->
+    <DeleteConfirmationModal
+        showModal={showDeleteModal}
+        type="gwnode"
+        addressToVerify={gwnodeToDelete?.target || ''}
+        {isProcessing}
+        on:confirm={handleDeleteConfirm}
+        on:cancel={handleDeleteCancel}
     />
 </div>

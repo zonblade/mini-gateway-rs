@@ -10,6 +10,7 @@
     import type { Proxy, ProxyWithDomains, TlsDomain } from "$lib/types/proxy";
     import gwnodeActions from "$lib/actions/gwnodeActions";
     import Swal from "sweetalert2";
+    import DeleteConfirmationModal from "$lib/components/common/DeleteConfirmationModal.svelte";
 
     // For search functionality
     export let searchTerm = "";
@@ -18,6 +19,12 @@
     let proxiesWithDomains: ProxyWithDomains[] = [];
     let isLoading = true;
     let isLoadError = false;
+
+    // Add these variables
+    let showDeleteModal = false;
+    let proxyToDelete: { id: string; listen: string } | null = null;
+    let isProcessing = false;
+    let errorMessage: string | null = null;
 
     // Subscribe to the store
     const unsubProxy = proxyStore.subscribe((state) => {
@@ -90,44 +97,31 @@
     }
 
     // Function to delete a proxy
-    async function deleteProxy(id: string): Promise<void> {
-        const result = await Swal.fire({
-            title: "Are you sure?",
-            text: "You won't be able to revert this!",
-            icon: "warning",
-            showCancelButton: true,
-            confirmButtonColor: "#3085d6",
-            cancelButtonColor: "#d33",
-            confirmButtonText: "Yes, delete it!",
-        });
+    async function deleteProxy(id: string, listen: string) {
+        proxyToDelete = { id, listen };
+        showDeleteModal = true;
+    }
 
-        if (result.isConfirmed) {
-            try {
-                await proxyStore.deleteProxy(id);
-                // Refetch the list after successful deletion
-                await proxyStore.fetchProxies();
-
-                // Show success message
-                await Swal.fire({
-                    title: "Deleted!",
-                    text: "The proxy has been deleted.",
-                    icon: "success",
-                    timer: 2000,
-                    showConfirmButton: false,
-                });
-            } catch (error) {
-                console.error("Error deleting proxy:", error);
-                await Swal.fire({
-                    title: "Error!",
-                    text:
-                        "Failed to delete proxy: " +
-                        (error instanceof Error
-                            ? error.message
-                            : String(error)),
-                    icon: "error",
-                });
-            }
+    async function handleDeleteConfirm() {
+        if (!proxyToDelete) return;
+        
+        try {
+            isProcessing = true;
+            await proxyStore.deleteProxy(proxyToDelete.id);
+            await proxyStore.fetchProxies();
+            showDeleteModal = false;
+            proxyToDelete = null;
+        } catch (error) {
+            console.error('Error deleting proxy:', error);
+            errorMessage = `Failed to delete proxy: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+            isProcessing = false;
         }
+    }
+
+    function handleDeleteCancel() {
+        showDeleteModal = false;
+        proxyToDelete = null;
     }
 
     // Function to sync proxies with the server
@@ -257,7 +251,7 @@
                         proxy={proxyWithDomains.proxy}
                         domains={proxyWithDomains.domains || []}
                         onEdit={() => editProxy(proxyWithDomains.proxy.id)}
-                        onDelete={() => deleteProxy(proxyWithDomains.proxy.id)}
+                        onDelete={() => deleteProxy(proxyWithDomains.proxy.id, proxyWithDomains.proxy.addr_listen)}
                     />
                 </div>
             {/each}
@@ -272,4 +266,14 @@
             </div>
         {/if}
     {/if}
+
+    <!-- Delete confirmation modal -->
+    <DeleteConfirmationModal
+        showModal={showDeleteModal}
+        type="proxy"
+        addressToVerify={proxyToDelete?.listen || ''}
+        {isProcessing}
+        on:confirm={handleDeleteConfirm}
+        on:cancel={handleDeleteCancel}
+    />
 </div>
