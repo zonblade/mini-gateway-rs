@@ -27,8 +27,8 @@
 
 <button
     {type}
-    class="{variantClasses} {sizeClasses} {widthClass} {disabledClasses} rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-    on:click={onClick}
+    class="flex gap-1 {variantClasses} {sizeClasses} {widthClass} {disabledClasses} rounded-md font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+    on:click|stopPropagation|preventDefault={()=>onClick()}
     {disabled}
 >
     <slot />

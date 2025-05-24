@@ -1,5 +1,7 @@
 <script lang="ts">
     import type { Proxy, TlsDomain } from "$lib/types/proxy";
+    import { Edit, Trash2 } from "lucide-svelte";
+    import Button from "../common/Button.svelte";
 
     export let proxy: Proxy;
     export let domains: TlsDomain[] = [];
@@ -17,65 +19,25 @@
 <div
     class="overflow-hidden border border-gray-200 dark:border-gray-700 hover:bg-white/40 hover:dark:bg-gray-800/40 hover:border-gray-300 dark:hover:border-gray-600 duration-200 min-h-[220px]"
 >
-    <div class="p-4">
-        <div class="flex justify-between items-start">
+    <div>
+        <div class="flex justify-end items-start px-4 py-2">
+            <div class="flex space-x-2">
+                <Button variant="secondary" size="sm" onClick={onEdit}>
+                    <Edit size={16} />
+                    Modify
+                </Button>
+                <Button variant="danger" size="sm" onClick={onDelete}>
+                    <Trash2 size={16} />
+                    Delete
+                </Button>
+            </div>
+        </div>
+        <div class="text-sm text-gray-600 dark:text-gray-400 pb-4 px-4">
             <h3
                 class="text-lg font-medium text-gray-900 dark:text-white truncate"
             >
                 {proxy.title}
             </h3>
-            <div class="flex space-x-1">
-                <button
-                    on:click|preventDefault={onEdit}
-                    class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 p-1"
-                    aria-label="Edit proxy"
-                >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path
-                            d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
-                        ></path>
-                        <path
-                            d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
-                        ></path>
-                    </svg>
-                </button>
-                <button
-                    on:click={onDelete}
-                    class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
-                    aria-label="Delete proxy"
-                >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path
-                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                        ></path>
-                        <line x1="10" y1="11" x2="10" y2="17"></line>
-                        <line x1="14" y1="11" x2="14" y2="17"></line>
-                    </svg>
-                </button>
-            </div>
-        </div>
-        <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
             <table class="w-full">
                 <tbody>
                     <tr>
@@ -186,12 +148,23 @@
                     </tr>
                     <tr>
                         <td class="py-1 text-sm italic w-1/3 pl-[20px]">TLS</td>
-                        <td class="py-1">:&ensp;<span class="text-gray-500">{tlsEnabledCount} Domain{tlsEnabledCount>1 ? 's' : ''}</span> </td>
+                        <td class="py-1"
+                            >:&ensp;<span class="text-gray-500"
+                                >{tlsEnabledCount} Domain{tlsEnabledCount > 1
+                                    ? "s"
+                                    : ""}</span
+                            >
+                        </td>
                     </tr>
                     <tr>
                         <td class="py-1 text-sm italic w-1/3 pl-[20px]">TCP</td>
                         <td class="py-1"
-                            >:&ensp;<span class="text-gray-500">{tlsDisabledCount} Domain{tlsDisabledCount>1 ? 's' : ''}</span> {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}<span
+                            >:&ensp;<span class="text-gray-500"
+                                >{tlsDisabledCount} Domain{tlsDisabledCount > 1
+                                    ? "s"
+                                    : ""}</span
+                            >
+                            {#if tlsEnabledCount > 0 && tlsDisabledCount > 0}<span
                                     class="text-red-600 dark:text-red-400 font-semibold"
                                     >(ignored)</span
                                 >{/if}
