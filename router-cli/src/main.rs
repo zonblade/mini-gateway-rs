@@ -15,9 +15,9 @@ use std::{
 #[command(name = "gwrs")]
 #[command(about = "CLI tool for Mini-Gateway Router API", long_about = None)]
 struct Cli {
-    /// Subcommand to execute
-    #[command(subcommand)]
-    command: Commands,
+    /// Path to the configuration file
+    #[arg(long, required = true)]
+    config: PathBuf,
 
     /// Use credentials from OS environment variables (GWRS_USER, GWRS_PASS)
     #[arg(long, global = true)]
@@ -31,19 +31,9 @@ struct Cli {
     #[arg(short, long, global = true)]
     pass: Option<String>,
 
-    /// API base URL (default: http://localhost:3000)
+    /// API base URL (default: http://localhost:24042)
     #[arg(long, global = true, default_value = "http://localhost:24042")]
     api_url: String,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Upload a configuration file to the router
-    Config {
-        /// Path to the configuration file
-        #[arg(long, required = true)]
-        config: PathBuf,
-    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -94,12 +84,8 @@ fn main() -> Result<()> {
     let token = authenticate(&client, &cli.api_url, &username, &password)?;
     debug!("Authentication successful, token received");
 
-    // Process command
-    match &cli.command {
-        Commands::Config { config } => {
-            upload_config(&client, &cli.api_url, &token, config)?;
-        }
-    }
+    // Upload config
+    upload_config(&client, &cli.api_url, &token, &cli.config)?;
 
     Ok(())
 }
@@ -168,7 +154,7 @@ fn upload_config(client: &Client, base_url: &str, token: &str, config_path: &Pat
     }
 
     // Prepare request
-    let upload_url = format!("{}/api/v1/auto-config", base_url);
+    let upload_url = format!("{}/api/v1/settings/auto-config", base_url);
     let mut headers = header::HeaderMap::new();
     headers.insert(
         header::AUTHORIZATION,

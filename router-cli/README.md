@@ -71,7 +71,7 @@ proxy:
 - `-u, --user`: Username for API authentication
 - `-p, --pass`: Password for API authentication
 - `--osenv`: Use credentials from environment variables
-- `--api-url`: API base URL (default: http://localhost:3000)
+- `--api-url`: API base URL (default: http://localhost:24042)
 - `--config`: Path to the configuration file
 
 ## Examples

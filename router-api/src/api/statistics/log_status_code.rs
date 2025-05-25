@@ -1,5 +1,6 @@
 use actix_web::{get, web, HttpResponse, Responder};
 use serde::Deserialize;
+use serde_json;
 
 use crate::module::temporary_log::{tlog_gateway, tlog_proxy};
 
@@ -15,7 +16,9 @@ pub async fn init(path: web::Path<String>, query: web::Query<Params>) -> impl Re
         Ok(status) => status,
         Err(_) => {
             log::error!("Invalid status code provided");
-            return HttpResponse::BadRequest().body("Invalid status code");
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Invalid status code"
+            }));
         }
     };
 

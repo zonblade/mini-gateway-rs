@@ -19,8 +19,8 @@ export const userActions = {
         try {
             const apiUsers = await userService.getAllUsers();
             return apiUsers.map(formatUser);
-        } catch (error) {
-            console.error('Failed to fetch users [2]:', error);
+        } catch (error:any) {
+            console.error('Failed to fetch users [2]:', error.error??error);
             return []; // Return an empty array on error
         }
     },
@@ -30,9 +30,9 @@ export const userActions = {
         try {
             const apiUser = await userService.getUserById(userId);
             return formatUser(apiUser);
-        } catch (error) {
-            console.error(`Failed to fetch user ${userId}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to fetch user ${userId}:`, error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -41,9 +41,9 @@ export const userActions = {
         try {
             const apiUser = await userService.createUser(userData);
             return formatUser(apiUser);
-        } catch (error) {
-            console.error('Failed to create user:', error);
-            throw error;
+        } catch (error:any) {
+            console.error('Failed to create user:', error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -52,9 +52,9 @@ export const userActions = {
         try {
             const apiUser = await userService.updateUser(userId, userData);
             return formatUser(apiUser);
-        } catch (error) {
-            console.error(`Failed to update user ${userId}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to update user ${userId}:`, error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -65,9 +65,9 @@ export const userActions = {
             // According to API docs, a successful delete returns a message
             // If no exception is thrown, we assume success
             return true;
-        } catch (error) {
-            console.error(`Failed to delete user ${userId}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to delete user ${userId}:`, error.error??error);
+            throw error.error??error;
         }
     }
 };

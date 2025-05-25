@@ -32,10 +32,14 @@ pub async fn get_proxy(path: web::Path<String>) -> impl Responder {
                 }
             }
         },
-        Ok(None) => HttpResponse::NotFound().body(format!("Proxy with ID {} not found", id)),
+        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
+            "error": format!("Proxy with ID {} not found", id)
+        })),
         Err(e) => {
             log::error!("Error fetching proxy {}: {}", id, e);
-            HttpResponse::InternalServerError().body("Failed to fetch proxy")
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Failed to fetch proxy"
+            }))
         }
     }
 }

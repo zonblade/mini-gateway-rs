@@ -156,9 +156,9 @@ export const gwnodeActions = {
             gwNodes.update(nodes => nodes.filter(node => node.id !== id));
             
             return result.message;
-        } catch (error) {
-            console.error(`Failed to delete gateway node ${id}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to delete gateway node ${id}:`, error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -174,9 +174,9 @@ export const gwnodeActions = {
             await gwnodeActions.loadAllGwNodes();
             
             return result;
-        } catch (error) {
-            console.error("Failed to sync gateway nodes:", error);
-            throw error;
+        } catch (error:any) {
+            console.error("Failed to sync gateway nodes:", error.error??error);
+            throw error.error??error;
         }
     }
 };

@@ -151,7 +151,9 @@ pub async fn set_proxy(
         },
         Err(e) => {
             log::error!("Error checking for duplicate listen addresses: {}", e);
-            return HttpResponse::BadRequest().body("Failed to check for duplicate listen addresses");
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Failed to check for duplicate listen addresses"
+            }));
         }
     }
     
@@ -180,7 +182,9 @@ pub async fn set_proxy(
                             },
                             Err(e) => {
                                 log::error!("Error retrieving gateway node {}: {}", gwid, e);
-                                return HttpResponse::BadRequest().body("Failed to retrieve gateway node for high-speed mode");
+                                return HttpResponse::BadRequest().json(serde_json::json!({
+                                    "error": "Failed to retrieve gateway node for high-speed mode"
+                                }));
                             }
                         }
                     }
@@ -214,8 +218,7 @@ pub async fn set_proxy(
                     _ => format!("Failed to save proxy {}: {}", proxy.id, e)
                 };
                 return HttpResponse::BadRequest().json(serde_json::json!({
-                    "error": error_message,
-                    "proxy_id": proxy.id
+                    "error": error_message
                 }));
             }
             
@@ -300,9 +303,7 @@ pub async fn set_proxy(
                         };
                         
                         return HttpResponse::BadRequest().json(serde_json::json!({
-                            "error": error_message,
-                            "domain_id": domain.id,
-                            "proxy_id": domain.proxy_id
+                            "error": error_message
                         }));
                     }
                     
@@ -356,7 +357,9 @@ pub async fn set_proxy(
         },
         Err(e) => {
             log::error!("Error generating target address: {}", e);
-            HttpResponse::BadRequest().body("Failed to generate target address")
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Failed to generate target address"
+            }));
         }
     }
 }
@@ -453,7 +456,9 @@ pub async fn delete_proxy(
         Ok(count) => count,
         Err(e) => {
             log::error!("Error deleting proxy domains for proxy {}: {}", id, e);
-            return HttpResponse::BadRequest().body(format!("Failed to delete proxy domains for '{}'", proxy_name));
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Failed to delete proxy domains for '{}'", proxy_name)
+            }));
         }
     };
     
@@ -496,8 +501,7 @@ pub async fn delete_proxy(
                         _ => format!("Failed to delete proxy '{}': {}", proxy_name, e)
                     };
                     HttpResponse::BadRequest().json(serde_json::json!({
-                        "error": error_message,
-                        "proxy_id": id
+                        "error": error_message
                     }))
                 }
             }
@@ -519,8 +523,7 @@ pub async fn delete_proxy(
                 _ => format!("Failed to  unbind proxy nodes for '{}': {}", proxy_name, e)
             };
             HttpResponse::BadRequest().json(serde_json::json!({
-                "error": error_message,
-                "proxy_id": id
+                "error": error_message
             }))
         }
     }
