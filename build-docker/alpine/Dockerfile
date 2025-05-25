@@ -10,12 +10,13 @@ RUN apk add --no-cache \
     perl \
     perl-utils \
     perl-dev \
+    sqlite-dev \
     openssl-dev
 
 COPY . .
+RUN cargo build -p router-cli --release
 RUN cargo build -p router-core --release
 RUN cargo build -p router-api --release
-RUN cargo build -p router-cli --release
 
 # Runtime image stage
 FROM alpine:latest
@@ -24,7 +25,8 @@ WORKDIR /app
 # Install minimal runtime dependencies
 RUN apk add --no-cache \
     ca-certificates \
-    bash
+    bash \
+    sqlite-libs
 
 # Copy binaries from builder
 COPY --from=builder /app/target/release/router-core /usr/local/bin/router-core
