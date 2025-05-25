@@ -12,6 +12,7 @@ use super::{
     Proxy, ProxyDomain, GatewayNode, Gateway,
     proxy_queries, proxydomain_queries, gwnode_queries, gateway_queries
 };
+use crate::sync;
 
 /// Structure representing a domain in the YAML configuration
 #[derive(Debug, Serialize, Deserialize)]
@@ -304,6 +305,22 @@ pub async fn upload_config(
                 }
             }
         }
+    }
+    
+    // Add sync calls after successful configuration
+    match sync::proxy_node_tcp::sync_proxy_nodes_to_registry().await {
+        Ok(_) => log::info!("Successfully synced proxy nodes to registry"),
+        Err(e) => log::warn!("Failed to sync proxy nodes to registry: {}. Continuing anyway.", e),
+    }
+
+    match sync::gateway_node_tcp::sync_gateway_nodes_to_registry().await {
+        Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
+        Err(e) => log::warn!("Failed to sync gateway nodes to registry: {}. Continuing anyway.", e),
+    }
+
+    match sync::gateway_node_tcp::sync_gateway_paths_to_registry().await {
+        Ok(_) => log::info!("Successfully synced gateway paths to registry"),
+        Err(e) => log::warn!("Failed to sync gateway paths to registry: {}. Continuing anyway.", e),
     }
     
     HttpResponse::Ok().json(serde_json::json!({

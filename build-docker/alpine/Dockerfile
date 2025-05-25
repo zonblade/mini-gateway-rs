@@ -9,7 +9,8 @@ RUN apk add --no-cache \
     musl-dev\
     perl \
     perl-utils \
-    perl-dev
+    perl-dev \
+    openssl-dev
 
 COPY . .
 RUN cargo build -p router-core --release
