@@ -402,6 +402,21 @@ pub fn delete_proxy_by_id(id: &str) -> Result<bool, DatabaseError> {
     Ok(affected_rows > 0)
 }
 
+/// Deletes all proxy configurations from the database
+///
+/// This function removes all proxy records from the database.
+/// It should be used with caution as it will remove all proxy configurations.
+///
+/// # Returns
+///
+/// * `Ok(())` - If all proxies were successfully deleted
+/// * `Err(DatabaseError)` - If there was an error deleting the proxies
+pub fn delete_all_proxies() -> Result<(), DatabaseError> {
+    let db = get_connection()?;
+    db.execute("DELETE FROM proxies", [])?;
+    Ok(())
+}
+
 /// Generates a target address with a random available port
 ///
 /// This function creates a localhost address (127.0.0.1) with a randomly selected

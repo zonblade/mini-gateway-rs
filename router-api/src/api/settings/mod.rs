@@ -18,6 +18,7 @@ mod gwnode_set;
 mod proxy_get;
 mod proxy_list;
 mod proxy_set;
+mod auto_config;
 
 pub mod gateway_queries;
 pub mod gwnode_queries;
@@ -264,6 +265,10 @@ pub struct Gateway {
 /// - GET /settings/gateway/{id} - Get a specific gateway by ID
 /// - POST /settings/gateway/set - Create or update a gateway
 /// - POST /settings/gateway/delete - Delete a gateway
+///
+/// ## Auto-Config endpoints:
+/// - POST /auto-config/upload - Upload a YAML configuration file
+/// - GET /auto-config/download - Download current configuration as YAML
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/settings")
@@ -285,6 +290,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(gateway_list::list_gateways_by_gwnode)
             .service(gateway_get::get_gateway)
             .service(gateway_set::set_gateway)
-            .service(gateway_set::delete_gateway), // ProxyDomain endpoints - REMOVED, functionality now in proxy endpoints
+            .service(gateway_set::delete_gateway) // ProxyDomain endpoints - REMOVED, functionality now in proxy endpoints
+            // config
+            .service(auto_config::upload_config)
+            .service(auto_config::download_config),
     );
 }

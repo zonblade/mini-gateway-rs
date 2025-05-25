@@ -15,9 +15,9 @@ export const gatewayActions = {
             const loadedGateways = await gatewayService.getAllGateways();
             gateways.set(loadedGateways);
             return loadedGateways;
-        } catch (error) {
-            console.error("Failed to load gateways:", error);
-            throw error;
+        } catch (error:any) {
+            console.error("Failed to load gateways:", error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -31,9 +31,9 @@ export const gatewayActions = {
             const loadedGateways = await gatewayService.getGatewaysByGwNodeId(gwnodeId);
             gateways.set(loadedGateways);
             return loadedGateways;
-        } catch (error) {
-            console.error(`Failed to load gateways for node ${gwnodeId}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to load gateways for node ${gwnodeId}:`, error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -45,9 +45,9 @@ export const gatewayActions = {
     async getGatewayById(id: string): Promise<Gateway | null> {
         try {
             return await gatewayService.getGatewayById(id);
-        } catch (error) {
-            console.error(`Failed to get gateway ${id}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to get gateway ${id}:`, error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -64,9 +64,9 @@ export const gatewayActions = {
             gateways.update(items => [...items, createdGateway]);
             
             return createdGateway;
-        } catch (error) {
-            console.error("Failed to create gateway:", error);
-            throw error;
+        } catch (error:any) {
+            console.error("Failed to create gateway:", error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -85,9 +85,9 @@ export const gatewayActions = {
             );
             
             return updatedGateway;
-        } catch (error) {
-            console.error(`Failed to update gateway ${gateway.id}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to update gateway ${gateway.id}:`, error.error??error);
+            throw error.error??error;
         }
     },
 
@@ -104,9 +104,9 @@ export const gatewayActions = {
             gateways.update(items => items.filter(item => item.id !== id));
             
             return result.message;
-        } catch (error) {
-            console.error(`Failed to delete gateway ${id}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to delete gateway ${id}:`, error.error??error);
+            throw error.error??error;
         }
     }
 };

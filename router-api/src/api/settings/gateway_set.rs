@@ -117,19 +117,25 @@ pub async fn set_gateway(
                 Ok(_) => HttpResponse::Ok().json(gateway),
                 Err(err) => {
                     log::error!("Failed to save gateway: {}", err);
-                    HttpResponse::InternalServerError().json(format!("Error: {}", err))
+                    HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": format!("Error: {}", err)
+                    }))
                 }
             }
         },
         Ok(None) => {
             // Gateway node does not exist
             log::error!("Cannot create gateway: Gateway Node ID {} not found", gateway.gwnode_id);
-            HttpResponse::BadRequest().json(format!("Error: Gateway Node ID {} not found", gateway.gwnode_id))
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Gateway Node ID {} not found", gateway.gwnode_id)
+            }))
         },
         Err(err) => {
             // Error retrieving gateway node
             log::error!("Failed to check gateway node existence: {}", err);
-            HttpResponse::InternalServerError().json(format!("Error: {}", err))
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Error: {}", err)
+            }))
         }
     }
 }
@@ -194,11 +200,17 @@ pub async fn delete_gateway(
     let id = &req_body.id;
     
     match gateway_queries::delete_gateway_by_id(id) {
-        Ok(true) => HttpResponse::Ok().json("Gateway deleted successfully"),
-        Ok(false) => HttpResponse::NotFound().json("Gateway not found"),
+        Ok(true) => HttpResponse::Ok().json(serde_json::json!({
+            "message": "Gateway deleted successfully"
+        })),
+        Ok(false) => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Gateway not found"
+        })),
         Err(err) => {
             log::error!("Failed to delete gateway: {}", err);
-            HttpResponse::InternalServerError().json(format!("Error: {}", err))
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Error: {}", err)
+            }))
         }
     }
 }

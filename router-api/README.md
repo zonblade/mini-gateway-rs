@@ -1131,3 +1131,92 @@ Retrieves statistics about bytes transferred.
   }
 ]
 ```
+
+## Auto-Configuration
+
+The Auto-Configuration API provides endpoints for bulk importing and exporting gateway configurations using YAML files. This allows for easier setup, backup, and migration of configuration across environments.
+
+### Upload Configuration
+
+Uploads a YAML configuration file and applies it to the system by creating the corresponding proxy, domain, gateway node, and gateway configurations.
+
+**Endpoint:** `POST /api/v1/auto-config`
+
+**Request:** The request body should be a YAML document conforming to the following structure:
+
+```yaml
+proxy:
+  - name: "proxy1"
+    listen: "127.0.0.1:8080"
+    domains:
+      - domain: "example.com"
+        tls: false
+        tls_cert: |
+          -----BEGIN CERTIFICATE-----
+          cert
+          -----END CERTIFICATE-----
+        tls_key: |
+          -----BEGIN PRIVATE KEY-----
+          key
+          -----END PRIVATE KEY-----
+    highspeed:
+      enabled: true
+      target: "gateway1"
+    gateway:
+      - name: "gateway1"
+        domain: "example.com"
+        target: "127.0.0.1:8080"
+        path:
+          - priority: 1
+            pattern: "^(.*)$"
+            target: "/$1"
+```
+
+The configuration follows this structure:
+- `proxy`: Array of proxy configurations
+  - `name`: Human-readable name for the proxy
+  - `listen`: Address where the proxy listens (format: "ip:port")
+  - `domains`: Array of domain configurations
+    - `domain`: Domain name (SNI value)
+    - `tls`: Whether TLS is enabled
+    - `tls_cert`: TLS certificate content (optional)
+    - `tls_key`: TLS private key content (optional)
+  - `highspeed`: High-speed mode configuration (optional)
+    - `enabled`: Whether high-speed mode is enabled
+    - `target`: Target gateway name for high-speed mode
+  - `gateway`: Array of gateway configurations
+    - `name`: Human-readable name for the gateway
+    - `domain`: Domain associated with this gateway
+    - `target`: Target address for the gateway node
+    - `path`: Array of path configurations
+      - `priority`: Priority level (lower numbers = higher priority)
+      - `pattern`: URL matching pattern
+      - `target`: Target URL where matching requests should be routed
+
+**Response:**
+
+| Field    | Type    | Description                                 |
+|----------|---------|---------------------------------------------|
+| success  | boolean | Whether the operation was successful        |
+| created  | object  | Summary of created resources                |
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "created": {
+    "proxies": 1,
+    "domains": 1,
+    "gwnodes": 1,
+    "gateways": 1
+  }
+}
+```
+
+### Download Configuration
+
+Downloads the current configuration as a YAML file. This exports all proxy, domain, gateway node, and gateway configurations into a format that can be uploaded back through the upload endpoint.
+
+**Endpoint:** `GET /api/v1/auto-config`
+
+**Response:** Returns a YAML document containing the full configuration in the same format as described in the Upload Configuration section. The response includes a `Content-Disposition` header set to `attachment; filename="gateway-config.yaml"` to prompt the browser to download the file.

@@ -799,7 +799,7 @@ impl ProxyHttp for GatewayApp {
         // );
         let header = &_session.req_header().headers;
         
-        let header_str = header
+        let _header_str = header
             .iter()
             .map(|(k, v)| format!("{}: {}", k, v.to_str().unwrap_or("")))
             .collect::<Vec<_>>()

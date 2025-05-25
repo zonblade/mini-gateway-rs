@@ -120,12 +120,12 @@ function createProxyStore() {
                 });
                 
                 return savedProxyWithDomains;
-            } catch (err) {
+            } catch (err:any) {
                 console.error('Error saving proxy:', err);
                 update(state => ({ 
                     ...state, 
                     loading: false, 
-                    error: err instanceof Error ? err.message : 'An unknown error occurred',
+                    error: err ?? 'An unknown error occurred',
                     loadError: true
                 }));
                 throw err;
@@ -150,14 +150,14 @@ function createProxyStore() {
                 
                 return [success, ""];
             } catch (err: any) {
-                console.error('Error deleting proxy:', err.error as unknown as {error:string});
+                console.error('Error deleting proxy:', err);
                 update(state => ({ 
                     ...state, 
                     loading: false, 
                     loadError: true,
-                    error: err.error ? err.error : 'An unknown error occurred' 
+                    error: err ?? 'An unknown error occurred' 
                 }));
-                return [false, err.error ? err.error : 'An unknown error occurred' ];
+                return [false, err ??  'An unknown error occurred' ];
             }
         },
         

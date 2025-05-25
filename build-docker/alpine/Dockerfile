@@ -9,11 +9,13 @@ RUN apk add --no-cache \
     musl-dev\
     perl \
     perl-utils \
-    perl-dev
+    perl-dev \
+    openssl-dev
 
 COPY . .
 RUN cargo build -p router-core --release
 RUN cargo build -p router-api --release
+RUN cargo build -p router-cli --release
 
 # Runtime image stage
 FROM alpine:latest
@@ -27,14 +29,12 @@ RUN apk add --no-cache \
 # Copy binaries from builder
 COPY --from=builder /app/target/release/router-core /usr/local/bin/router-core
 COPY --from=builder /app/target/release/router-api /usr/local/bin/router-api
+COPY --from=builder /app/target/release/router-cli /usr/local/bin/gwrs
 
 COPY build-docker/alpine/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Make everything executable
 RUN chmod +x /usr/local/bin/*
-
-# Expose API port
-EXPOSE 24042
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

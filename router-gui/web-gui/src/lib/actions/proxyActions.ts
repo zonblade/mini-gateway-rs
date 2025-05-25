@@ -8,8 +8,8 @@ export const proxyActions = {
     getProxies: async (): Promise<ProxyWithDomains[]|null> => {
         try {
             return await proxyService.getAllProxies();
-        } catch (error) {
-            console.error('Failed to fetch proxies:', error);
+        } catch (error:any) {
+            console.error('Failed to fetch proxies:', error.error??error);
             return null; // Return null on error
         }
     },
@@ -18,9 +18,9 @@ export const proxyActions = {
     getProxyById: async (proxyId: string): Promise<ProxyWithDomains> => {
         try {
             return await proxyService.getProxyById(proxyId);
-        } catch (error) {
-            console.error(`Failed to fetch proxy ${proxyId}:`, error);
-            throw error;
+        } catch (error:any) {
+            console.error(`Failed to fetch proxy ${proxyId}:`, error.error??error);
+            throw error.error??error;
         }
     },
     
@@ -70,9 +70,9 @@ export const proxyActions = {
         try {
             await proxyService.deleteProxy(proxyId);
             return true;
-        } catch (error) {
-            console.error(`Failed to delete proxy ${proxyId}:`, error);
-            throw error;
+        } catch (error: any) {
+            console.error(`Failed to delete proxy ${proxyId}:`, error.error??error);
+            throw error.error??error;
         }
     },
     
@@ -80,9 +80,9 @@ export const proxyActions = {
     syncProxies: async (): Promise<{ status: string, message: string }> => {
         try {
             return await proxyService.syncProxyNodes();
-        } catch (error) {
-            console.error('Failed to sync proxy nodes:', error);
-            throw error;
+        } catch (error:any) {
+            console.error('Failed to sync proxy nodes:', error.error??error);
+            throw error.error??error;
         }
     }
 };

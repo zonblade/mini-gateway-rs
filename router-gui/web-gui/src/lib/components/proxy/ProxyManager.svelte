@@ -125,9 +125,9 @@
                 proxyToDelete = null;
                 errorMessage = null; // Reset error message
             }
-        } catch (error) {
-            console.error("Error deleting proxy:", error);
-            errorMessage = error instanceof Error ? error.message : String(error);
+        } catch (error:any) {
+            console.error("Error deleting proxy:", error.error??error);
+            errorMessage = error.error??error;
         } finally {
             isProcessing = false;
         }
@@ -236,7 +236,7 @@
                 icon="search"
             />
             {#if !searchTerm}
-                <div class="mt-4">
+                <div class="mt-4 flex justify-center">
                     <Button variant="primary" onClick={addProxy}>
                         Create your first proxy
                     </Button>
