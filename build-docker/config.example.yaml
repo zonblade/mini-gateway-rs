@@ -1,0 +1,26 @@
+proxy:
+  - name: "proxy1"
+    listen: "127.0.0.1:8080"
+    domains:
+      - domain: "example.com"
+        tls: false
+        tls_cert: |
+          -----BEGIN CERTIFICATE-----
+          cert
+          -----END CERTIFICATE-----
+        tls_key: |
+          -----BEGIN PRIVATE KEY-----
+          key
+          -----END PRIVATE KEY-----
+    highspeed:
+      enabled: true
+      target: "gateway1"
+    gateway:
+      - name: "gateway1"
+        domain: "example.com"
+        target: "127.0.0.1:8080"
+        path:
+          - priority: 1
+            pattern: "^(.*)$"
+            target: "/$1"
+  

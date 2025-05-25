@@ -117,7 +117,7 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
             }
         };
 
-        let header_inner = {
+        let _header_inner = {
             if message_vector.len() > 2 {
                 message_vector[2]
             } else {
