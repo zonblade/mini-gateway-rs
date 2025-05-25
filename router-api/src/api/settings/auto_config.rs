@@ -138,6 +138,35 @@ pub async fn upload_config(
             )
         }
     };
+
+    // Delete all existing configurations
+    // First delete all gateways
+    if let Err(e) = gateway_queries::delete_all_gateways() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to delete existing gateways: {}", e)
+        }));
+    }
+
+    // Then delete all gateway nodes
+    if let Err(e) = gwnode_queries::delete_all_gateway_nodes() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to delete existing gateway nodes: {}", e)
+        }));
+    }
+
+    // Then delete all proxy domains
+    if let Err(e) = proxydomain_queries::delete_all_proxy_domains() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to delete existing proxy domains: {}", e)
+        }));
+    }
+
+    // Finally delete all proxies
+    if let Err(e) = proxy_queries::delete_all_proxies() {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": format!("Failed to delete existing proxies: {}", e)
+        }));
+    }
     
     // Process each proxy in the configuration
     let mut created_proxies = Vec::new();

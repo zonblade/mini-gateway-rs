@@ -375,6 +375,21 @@ pub fn delete_gateway_by_id(id: &str) -> Result<bool, DatabaseError> {
     Ok(affected_rows > 0)
 }
 
+/// Deletes all gateway configurations from the database
+///
+/// This function removes all gateway records from the database.
+/// It should be used with caution as it will remove all routing rules.
+///
+/// # Returns
+///
+/// * `Ok(())` - If all gateways were successfully deleted
+/// * `Err(DatabaseError)` - If there was an error deleting the gateways
+pub fn delete_all_gateways() -> Result<(), DatabaseError> {
+    let db = get_connection()?;
+    db.execute("DELETE FROM gateways", [])?;
+    Ok(())
+}
+
 /// Generates a new unique identifier for a gateway
 ///
 /// This function creates a UUID v4 (random) string that can be used as the ID

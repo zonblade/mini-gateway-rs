@@ -347,3 +347,18 @@ pub fn delete_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<usize, Databas
     
     Ok(affected_rows)
 }
+
+/// Deletes all proxy domain configurations from the database
+///
+/// This function removes all proxy domain records from the database.
+/// It should be used with caution as it will remove all domain configurations.
+///
+/// # Returns
+///
+/// * `Ok(())` - If all proxy domains were successfully deleted
+/// * `Err(DatabaseError)` - If there was an error deleting the proxy domains
+pub fn delete_all_proxy_domains() -> Result<(), DatabaseError> {
+    let db = get_connection()?;
+    db.execute("DELETE FROM proxy_domains", [])?;
+    Ok(())
+}

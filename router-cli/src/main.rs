@@ -1,14 +1,9 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use log::{debug, error, info};
 use reqwest::{blocking::Client, header};
 use serde::{Deserialize, Serialize};
-use std::{
-    env,
-    fs::File,
-    io::Read,
-    path::PathBuf,
-};
+use std::{env, fs::File, io::Read, path::PathBuf};
 
 /// Mini-Gateway Router CLI Tool
 #[derive(Parser)]
@@ -33,7 +28,7 @@ struct Cli {
 
     /// API base URL (default: http://localhost:24042)
     #[arg(long, global = true, default_value = "http://localhost:24042")]
-    api_url: String,
+    url: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -74,18 +69,18 @@ fn main() -> Result<()> {
     // Get credentials
     let (username, password) = get_credentials(&cli)?;
 
-    debug!("Using API URL: {}", cli.api_url);
+    debug!("Using API URL: {}", cli.url);
     debug!("Using username: {}", username);
 
     // Create HTTP client
     let client = Client::new();
 
     // Authenticate and get token
-    let token = authenticate(&client, &cli.api_url, &username, &password)?;
+    let token = authenticate(&client, &cli.url, &username, &password)?;
     debug!("Authentication successful, token received");
 
     // Upload config
-    upload_config(&client, &cli.api_url, &token, &cli.config)?;
+    upload_config(&client, &cli.url, &token, &cli.config)?;
 
     Ok(())
 }
@@ -138,7 +133,12 @@ fn authenticate(client: &Client, base_url: &str, username: &str, password: &str)
     }
 }
 
-fn upload_config(client: &Client, base_url: &str, token: &str, config_path: &PathBuf) -> Result<()> {
+fn upload_config(
+    client: &Client,
+    base_url: &str,
+    token: &str,
+    config_path: &PathBuf,
+) -> Result<()> {
     info!("Uploading configuration from: {}", config_path.display());
 
     // Read the configuration file
@@ -176,7 +176,9 @@ fn upload_config(client: &Client, base_url: &str, token: &str, config_path: &Pat
     // Check status
     let status = response.status();
     if !status.is_success() {
-        let error_text = response.text().unwrap_or_else(|_| "Unknown error".to_string());
+        let error_text = response
+            .text()
+            .unwrap_or_else(|_| "Unknown error".to_string());
         error!("Upload failed with status {}: {}", status, error_text);
         anyhow::bail!("Upload failed with status {}: {}", status, error_text);
     }

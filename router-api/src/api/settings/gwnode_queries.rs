@@ -484,3 +484,18 @@ pub fn unbind_gateway_nodes_by_proxy_id(proxy_id: &str) -> Result<usize, Databas
 
     Ok(affected_rows)
 }
+
+/// Deletes all gateway node configurations from the database
+///
+/// This function removes all gateway node records from the database.
+/// It should be used with caution as it will remove all gateway nodes and their associated gateways.
+///
+/// # Returns
+///
+/// * `Ok(())` - If all gateway nodes were successfully deleted
+/// * `Err(DatabaseError)` - If there was an error deleting the gateway nodes
+pub fn delete_all_gateway_nodes() -> Result<(), DatabaseError> {
+    let db = get_connection()?;
+    db.execute("DELETE FROM gateway_nodes", [])?;
+    Ok(())
+}
