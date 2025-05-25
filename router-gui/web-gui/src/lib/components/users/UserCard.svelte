@@ -8,7 +8,7 @@
     export let disabled: boolean = false;
 </script>
 
-<div class="bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
+<div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
     <div class="flex items-start justify-between">
         <div class="flex-1">
             <div class="flex items-center gap-2 mb-2">

@@ -54,7 +54,7 @@
 <div class="flex justify-center items-center space-x-1 mt-4">
     <!-- Previous button -->
     <button 
-        class="px-3 py-1 rounded text-sm border dark:border-gray-700 {currentPage === 1 ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+        class="px-3 py-1 text-sm border dark:border-gray-700 {currentPage === 1 ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
         disabled={currentPage === 1}
         on:click={() => changePage(currentPage - 1)}
     >
@@ -68,7 +68,7 @@
             <span class="px-3 py-1 text-gray-500">...</span>
         {:else}
             <button 
-                class="px-3 py-1 rounded text-sm {pageNum === currentPage ? 'bg-blue-500 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800 border dark:border-gray-700'}"
+                class="px-3 py-1 text-sm {pageNum === currentPage ? 'bg-blue-500 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800 border dark:border-gray-700'}"
                 on:click={() => changePage(pageNum)}
             >
                 {pageNum}
@@ -78,7 +78,7 @@
     
     <!-- Next button -->
     <button 
-        class="px-3 py-1 rounded text-sm border dark:border-gray-700 {currentPage === totalPages ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+        class="px-3 py-1 text-sm border dark:border-gray-700 {currentPage === totalPages ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
         disabled={currentPage === totalPages}
         on:click={() => changePage(currentPage + 1)}
     >

@@ -148,16 +148,16 @@ function createProxyStore() {
                     }));
                 }
                 
-                return success;
-            } catch (err) {
-                console.error('Error deleting proxy:', err);
+                return [success, ""];
+            } catch (err: any) {
+                console.error('Error deleting proxy:', err.error as unknown as {error:string});
                 update(state => ({ 
                     ...state, 
                     loading: false, 
                     loadError: true,
-                    error: err instanceof Error ? err.message : 'An unknown error occurred' 
+                    error: err.error ? err.error : 'An unknown error occurred' 
                 }));
-                return false;
+                return [false, err.error ? err.error : 'An unknown error occurred' ];
             }
         },
         

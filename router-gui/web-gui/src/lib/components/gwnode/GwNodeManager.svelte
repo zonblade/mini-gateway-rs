@@ -28,6 +28,7 @@
     let gwnodeToDelete: { id: string; target: string } | null = null;
     let isProcessing = false;
     let errorMessage: string | null = null;
+    let modalErrorMessage: string | null = null;
     
     // Subscribe to stores
     const unsubGwNodes = gwNodes.subscribe(nodes => {
@@ -117,6 +118,7 @@
     // Function to save gwnode (create or update)
     async function saveGwNode(): Promise<void> {
         try {
+            modalErrorMessage = null;
             if (isEditMode) {
                 // Update existing gwnode
                 const updateRequest: UpdateGwNodeRequest = {
@@ -141,24 +143,11 @@
                 await gwnodeActions.createGwNode(createRequest);
             }
             
-            // Show success message
-            await Swal.fire({
-                title: isEditMode ? 'Updated!' : 'Created!',
-                text: `Gateway node successfully ${isEditMode ? 'updated' : 'created'}.`,
-                icon: 'success',
-                timer: 2000,
-                showConfirmButton: false
-            });
-            
             // Close the modal
             showGwNodeModal = false;
-        } catch (error: unknown) {
+        } catch (error: any) {
             console.error("Error saving gateway node:", error);
-            await Swal.fire({
-                title: 'Error!',
-                text: `Failed to save gateway node: ${error instanceof Error ? error.message : String(error)}`,
-                icon: 'error'
-            });
+            modalErrorMessage = error.error??error;
         }
     }
     
@@ -238,6 +227,7 @@
     // Close modal
     function closeModal(): void {
         showGwNodeModal = false;
+        modalErrorMessage = null;
     }
 </script>
 
@@ -362,6 +352,7 @@
         proxies={proxyList}
         onSave={saveGwNode}
         onClose={closeModal}
+        errorMessage={modalErrorMessage}
     />
     
     <!-- Delete Confirmation Modal component -->

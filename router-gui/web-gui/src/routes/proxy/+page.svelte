@@ -46,7 +46,7 @@
     <LoadingSpinner />
 {:else if isLoggedIn}
     <div class="px-4 flex flex-col items-center">
-        <div class="rounded-lg py-8 w-full max-w-[900px]">
+        <div class="py-8 w-full max-w-[900px]">
             <!-- Proxy Manager component -->
             <ProxyManager 
                 {searchTerm}

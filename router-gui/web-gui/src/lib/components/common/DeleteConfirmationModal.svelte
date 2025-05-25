@@ -5,6 +5,7 @@
     export let showModal = false;
     export let type: 'proxy' | 'gwnode' | 'user' = 'proxy';
     export let addressToVerify = '';
+    export let errorMessage: null | string = null;
     export let isProcessing = false;
 
     const dispatch = createEventDispatcher<{
@@ -34,6 +35,14 @@
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                 Confirm Deletion
             </h2>
+            
+            {#if errorMessage}
+                <div class="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-3 mb-4">
+                    <p class="text-sm text-red-700 dark:text-red-300">
+                        {errorMessage}
+                    </p>
+                </div>
+            {/if}
             
             <p class="text-gray-600 dark:text-gray-300 mb-4">
                 This action cannot be undone. To confirm deletion, please type the {
