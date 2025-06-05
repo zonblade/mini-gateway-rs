@@ -46,6 +46,12 @@ enum Commands {
         /// Path to the configuration file
         config: PathBuf,
     },
+    /// Export configuration from the router
+    Export {
+        /// Output file location (default: ./gateway-config.yaml)
+        #[arg(value_name = "OUTPUT")]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -89,10 +95,10 @@ fn main() -> Result<()> {
         }
         Some(Commands::Config { config }) => {
             // Get credentials
-            let (username, password) = get_credentials(&Credentials { 
-                osenv: cli.osenv, 
-                user: cli.user, 
-                pass: cli.pass 
+            let (username, password) = get_credentials(&Credentials {
+                osenv: cli.osenv,
+                user: cli.user,
+                pass: cli.pass
             })?;
 
             debug!("Using API URL: {}", cli.url);
@@ -105,11 +111,32 @@ fn main() -> Result<()> {
             // Upload config
             upload_config(&cli.url, &token, &config)?;
         }
+        Some(Commands::Export { output }) => {
+            // Get credentials
+            let (username, password) = get_credentials(&Credentials {
+                osenv: cli.osenv,
+                user: cli.user,
+                pass: cli.pass
+            })?;
+
+            let output_path = output.unwrap_or_else(|| PathBuf::from("gateway-config.yaml"));
+
+            debug!("Using API URL: {}", cli.url);
+            debug!("Using username: {}", username);
+            debug!("Exporting configuration to {}", output_path.display());
+
+            // Authenticate and get token
+            let token = authenticate(&cli.url, &username, &password)?;
+            debug!("Authentication successful, token received");
+
+            // Download config
+            download_config(&cli.url, &token, &output_path)?;
+        }
         None => {
             if let Some(config) = cli.config {
                 // Get credentials
-                let (username, password) = get_credentials(&Credentials { 
-                    osenv: cli.osenv, 
+                let (username, password) = get_credentials(&Credentials {
+                    osenv: cli.osenv,
                     user: cli.user, 
                     pass: cli.pass 
                 })?;
@@ -317,6 +344,50 @@ fn upload_config(
         info!("Configuration uploaded successfully!");
         println!("Configuration uploaded successfully!");
     }
+
+    Ok(())
+}
+
+fn download_config(
+    base_url: &str,
+    token: &str,
+    output_path: &PathBuf,
+) -> Result<()> {
+    info!("Downloading configuration to: {}", output_path.display());
+
+    let download_url = format!("{}/api/v1/settings/auto-config", base_url);
+
+    let response = ureq::get(&download_url)
+        .set("Authorization", &format!("Bearer {}", token))
+        .call()
+        .context("Failed to send configuration download request")?;
+
+    let status = response.status();
+    if status >= 400 {
+        let error_text = response
+            .into_string()
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        error!("Download failed with status {}: {}", status, error_text);
+        anyhow::bail!("Download failed with status {}: {}", status, error_text);
+    }
+
+    let contents = response
+        .into_string()
+        .context("Failed to read download response")?;
+
+    // Validate YAML format
+    if let Err(e) = serde_yaml::from_str::<serde_yaml::Value>(&contents) {
+        error!("Invalid YAML format in response: {}", e);
+        anyhow::bail!("Invalid YAML format in response: {}", e);
+    }
+
+    let mut file = File::create(output_path)
+        .context("Failed to create output file")?;
+    file.write_all(contents.as_bytes())
+        .context("Failed to write output file")?;
+
+    info!("Configuration downloaded successfully");
+    println!("Configuration downloaded successfully to {}", output_path.display());
 
     Ok(())
 }
