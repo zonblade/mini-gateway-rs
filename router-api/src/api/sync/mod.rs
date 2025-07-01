@@ -51,7 +51,7 @@ use serde::{Deserialize, Serialize};
 use super::users::{JwtAuth, RoleAuth};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TCPDefaultResponse {
+pub struct HTTPCResponse {
     pub status: String,
     pub message: String,
 }

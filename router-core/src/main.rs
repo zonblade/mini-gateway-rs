@@ -60,7 +60,7 @@ async fn main() {
     eprintln!("[----] Starting protocol server...");
     // Initialize custom protocol server for control and management interface
     {
-        system::protocol::start_interface();
+        system::prottp::init();
     }
     
     eprintln!("[----] Starting service registry...");

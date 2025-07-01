@@ -4,8 +4,10 @@ import { browser } from '$app/environment';
 export interface Connection {
     id: string;
     name: string;
+    protocol: 'http' | 'https';
     host: string;
     port: number;
+    subpath: string;
 }
 
 const storedConnections = browser ? localStorage.getItem('connections') : null;
@@ -13,8 +15,10 @@ const initialConnections: Connection[] = storedConnections ? JSON.parse(storedCo
     {
         id: '1',
         name: 'Default Connection',
+        protocol: 'http' as const,
         host: 'localhost',
-        port: 24042
+        port: 24042,
+        subpath: ''
     }
 ];
 

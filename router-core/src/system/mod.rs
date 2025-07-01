@@ -18,11 +18,11 @@
 //! managing network connections, server lifecycle, and system-level protocols.
 
 pub mod default_page;
-pub mod protocol;
 pub mod server;
 pub mod terminator;
 pub mod writer;
 pub mod memory_log;
+pub mod prottp;
 
 // unused
 // pub mod netlisten;

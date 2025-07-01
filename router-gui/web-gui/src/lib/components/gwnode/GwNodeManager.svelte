@@ -143,6 +143,15 @@
                 await gwnodeActions.createGwNode(createRequest);
             }
             
+            // Show success message
+            await Swal.fire({
+                title: isEditMode ? 'Updated!' : 'Created!',
+                text: `Gateway node successfully ${isEditMode ? 'updated' : 'created'}.`,
+                icon: 'success',
+                timer: 2000,
+                showConfirmButton: false
+            });
+            
             // Close the modal
             showGwNodeModal = false;
         } catch (error: any) {

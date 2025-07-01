@@ -1,11 +1,12 @@
-use crate::config;
-use crate::client::{Client, ClientError};
-use super::{proxy_node_queries, TCPDefaultResponse};
+
+use std::sync::{Arc, Mutex};
+
+use crate::module::httpc::HttpC;
+
+use super::{proxy_node_queries, HTTPCResponse};
 use log::{error, info, warn};
 
-pub type TCPResult<T> = Result<T, ClientError>;
-
-pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
+pub async fn sync_proxy_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<HTTPCResponse, HTTPCResponse> {
     log::info!("Syncing proxy nodes to registry...");
 
     // Get the proxy nodes from the database using our JOIN query
@@ -13,7 +14,10 @@ pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
         Ok(nodes) => nodes,
         Err(e) => {
             error!("Failed to retrieve proxy nodes from database: {}", e);
-            return Err(ClientError::ProtocolError(format!("Database error: {}", e)));
+            return Err(HTTPCResponse{
+                status: "error".to_string(),
+                message: format!("Database error: {}", e),
+            });
         }
     };
 
@@ -25,42 +29,33 @@ pub async fn sync_proxy_nodes_to_registry() -> TCPResult<TCPDefaultResponse> {
 
     // Create the payload with the nodes
     let payload = proxy_nodes.clone();
-
-    // Create a new client instance
-    let mut client = Client::new();
-
-    let server_address = config::Api::TCPAddress.get_str();
-    
-    // Connect to the server without timeout
-    match client.connect(server_address).await {
-        Ok(_) => info!("Connected to registry server at {}", server_address),
+    let payload_str = match serde_json::to_string(&payload) {
+        Ok(json) => json,
         Err(e) => {
-            error!("Failed to connect to registry server: {}", e);
-            return Err(e);
+            error!("Failed to serialize proxy nodes to JSON: {}", e);
+            return Err(HTTPCResponse{
+                status: "error".to_string(),
+                message: format!("Serialization error: {}", e),
+            });
         }
-    }
+    };
 
-    // Create a new client with the service set using builder pattern
-    let mut client = client.service("registry");
+    let _ = match client.lock() {
+        Ok(client)=>{
+            let _ = client.post_text("/proxy/node", &payload_str);
+            info!("Successfully sent proxy nodes to registry");
+        },
+        Err(e)=>{
+            error!("Failed to lock HTTP client: {}", e);
+            return Err(HTTPCResponse{
+                status: "error".to_string(),
+                message: format!("Client lock error: {}", e),
+            });
+        }
+    };
 
-    // Send the payload to the "proxy" endpoint without timeout
-    match client.action::<_, TCPDefaultResponse>("proxy", &payload).await {
-        Ok(data) => {
-            info!(
-                "Successfully sent {} proxy nodes to registry",
-                proxy_nodes.len()
-            );
-            if let Err(e) = client.close().await {
-                warn!("Error while closing client connection: {}", e);
-            }
-            Ok(data)
-        }
-        Err(e) => {
-            error!("Failed to send proxy nodes to registry: {}", e);
-            if let Err(close_err) = client.close().await {
-                warn!("Error while closing client connection: {}", close_err);
-            }
-            Err(e)
-        }
-    }
+    Ok(HTTPCResponse {
+        status: "success".to_string(),
+        message: format!("Successfully sync proxy nodes"),
+    })
 }

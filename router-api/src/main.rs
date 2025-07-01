@@ -44,7 +44,6 @@
 //! This can be configured through environment variables or config files.
 
 mod api;
-mod client;
 mod config;
 mod module;
 
@@ -52,9 +51,10 @@ use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpServer};
 use api::sync;
-use client::Client;
 use module::memory_log;
 use std::sync::{Arc, Mutex};
+
+use crate::config::Api;
 
 /// Main entry point for the Router API server.
 ///
@@ -97,10 +97,11 @@ use std::sync::{Arc, Mutex};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
-        std::env::set_var("RUST_LOG", "debug");
+        std::env::set_var("RUST_LOG", "info");
         env_logger::init();
         config::init();
     }
+
 
     {
         log::info!("Starting memory log spawner...");
@@ -138,24 +139,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a thread-safe client wrapped in Arc<Mutex<>> to safely share
     // across multiple threads and request handlers
-    let client = Arc::new(Mutex::new(Client::new()));
+    let (u_address, u_port) = {
+        let address = Api::TCPAddress.get_str();
+        let parts: Vec<&str> = address.split(':').collect();
+        if parts.len() != 2 {
+            log::error!("Invalid TCP address format: {}", address);
+            return Err("Invalid TCP address format".into());
+        }
+        (parts[0].to_string(), parts[1].parse::<u16>().unwrap_or(24042))
+    };
+
+    let client = module::httpc::HttpC::new(&u_address, u_port);
+    let client = Arc::new(Mutex::new(client));
 
     log::info!("Initializing sync...");
     {
         // Try to sync with registry but don't fail startup if it doesn't work
-        match sync::proxy_node_tcp::sync_proxy_nodes_to_registry().await {
+        match sync::proxy_node_tcp::sync_proxy_nodes_to_registry(&client).await {
             Ok(_) => log::info!("Successfully synced proxy nodes to registry"),
-            Err(e) => log::warn!("Failed to sync proxy nodes to registry: {}. Continuing startup anyway.", e),
+            Err(e) => log::warn!("Failed to sync proxy nodes to registry: {:?}. Continuing startup anyway.", e),
         }
         
-        match sync::gateway_node_tcp::sync_gateway_nodes_to_registry().await {
+        match sync::gateway_node_tcp::sync_gateway_nodes_to_registry(&client).await {
             Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
-            Err(e) => log::warn!("Failed to sync gateway nodes to registry: {}. Continuing startup anyway.", e),
+            Err(e) => log::warn!("Failed to sync gateway nodes to registry: {:?}. Continuing startup anyway.", e),
         }
 
-        match sync::gateway_node_tcp::sync_gateway_paths_to_registry().await {
+        match sync::gateway_node_tcp::sync_gateway_paths_to_registry(&client).await {
             Ok(_) => log::info!("Successfully synced gateway paths to registry"),
-            Err(e) => log::warn!("Failed to sync gateway paths to registry: {}. Continuing startup anyway.", e),
+            Err(e) => log::warn!("Failed to sync gateway paths to registry: {:?}. Continuing startup anyway.", e),
         }
     }
 
