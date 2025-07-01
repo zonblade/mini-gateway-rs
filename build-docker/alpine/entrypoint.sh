@@ -25,9 +25,42 @@ start_core() {
 # Start API service
 start_api() {
     log "Starting router-api..."
+    
+    # First start the API service
     nohup /usr/local/bin/router-api > "$LOG_DIR/api.log" 2> "$LOG_DIR/api.error" &
-    echo $! > "$PID_DIR/api.pid"
-    log "router-api started (PID: $!)"
+    local api_pid=$!
+    echo $api_pid > "$PID_DIR/api.pid"
+    log "router-api started (PID: $api_pid)"
+    
+    # Wait a moment to check if API started successfully
+    sleep 2
+    
+    # Check if API is still running
+    if kill -0 $api_pid 2>/dev/null; then
+        # Check for config files in order of priority
+        local config_file=""
+        if [ -f "/data/config.yaml" ]; then
+            config_file="/data/config.yaml"
+        elif [ -f "$HOME/config.yaml" ]; then
+            config_file="$HOME/config.yaml"
+        elif [ -f "/app/config.yaml" ]; then
+            config_file="/app/config.yaml"
+        elif [ ! -z "$CONFIG_FILE" ]; then
+            config_file="$CONFIG_FILE"
+        fi
+        
+        if [ ! -z "$config_file" ]; then
+            log "API running successfully, starting gwrs with config: $config_file"
+            nohup gwrs --osenv --config "$config_file" > "$LOG_DIR/gwrs.log" 2> "$LOG_DIR/gwrs.error" &
+            echo $! > "$PID_DIR/gwrs.pid"
+            log "gwrs started (PID: $!)"
+        else
+            log "API running successfully but no config file found, skipping gwrs"
+        fi
+    else
+        log "API failed to start, not running gwrs"
+        rm -f "$PID_DIR/api.pid"
+    fi
 }
 
 # Stop a service
