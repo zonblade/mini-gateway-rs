@@ -189,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bind server to the specified address and port
     .bind(&bind_address)?
     // Set number of worker threads to 2 for handling concurrent requests
-    .workers(2)
+    .workers(1)
     // Start the HTTP server and keep it running until terminated
     .run()
     .await?;

@@ -4,12 +4,45 @@ use std::mem;
 use std::ptr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
+// Architecture detection
+#[cfg(target_arch = "x86_64")]
+const ARCH_NAME: &str = "x86_64";
+#[cfg(target_arch = "aarch64")]
+const ARCH_NAME: &str = "aarch64";
+
 // Constants for shared memory
 pub const MAX_MEMORY_SIZE: usize = 50 * 1024 * 1024; // 50MB max memory (for larger buffer)
 pub const ENTRY_MAX_SIZE: usize = 4096; // Maximum 4KB per entry
 pub const SHM_METADATA_SIZE: usize = 2048; // Space for metadata at the beginning (2KB)
 pub const PROXY_LOGGER_NAME: &str = "/gwrs-proxy";
 pub const GATEWAY_LOGGER_NAME: &str = "/gwrs-gateway";
+
+// Architecture-specific memory ordering helpers
+#[inline(always)]
+fn acquire_ordering() -> Ordering {
+    // Both architectures support Acquire ordering efficiently
+    Ordering::Acquire
+}
+
+#[inline(always)]
+fn release_ordering() -> Ordering {
+    // Both architectures support Release ordering efficiently
+    Ordering::Release
+}
+
+#[inline(always)]
+fn memory_fence_release() {
+    // On ARM64, this compiles to DMB ISH instruction
+    // On x86_64, this is often a no-op due to strong memory model
+    std::sync::atomic::fence(Ordering::Release);
+}
+
+#[inline(always)]
+fn memory_fence_acquire() {
+    // On ARM64, this compiles to DMB ISH instruction
+    // On x86_64, this is often a no-op due to strong memory model
+    std::sync::atomic::fence(Ordering::Acquire);
+}
 
 // Control structure at the beginning of shared memory
 #[repr(C, align(64))]
@@ -21,6 +54,8 @@ pub struct QueueControl {
     read_index: AtomicUsize,
     count: AtomicUsize,
     capacity: AtomicUsize,
+    // Overflow tracking
+    overflow_count: AtomicUsize,
     // Slots for future metadata
     _reserved: [u8; 2048], // Increased to 2KB for future expansion
 }
@@ -35,30 +70,59 @@ impl QueueControl {
             read_index: AtomicUsize::new(0),
             count: AtomicUsize::new(0),
             capacity: AtomicUsize::new(capacity),
+            overflow_count: AtomicUsize::new(0),
             _reserved: [0; 2048],
         }
     }
 
-    pub fn lock(&self) {
-        // Simple spin lock
+    pub fn lock(&self) -> Result<(), io::Error> {
+        // Add a timeout to prevent indefinite spinning
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(500); // 500ms max wait
+
+        // Use Acquire ordering for the lock to ensure all subsequent reads
+        // see values written before the lock was released
         while self
             .lock
-            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange_weak(0, 1, acquire_ordering(), Ordering::Relaxed)
             .is_err()
         {
+            // Check for timeout
+            if start.elapsed() > timeout {
+                return Err(Error::new(
+                    ErrorKind::TimedOut,
+                    "Failed to acquire lock within timeout",
+                ));
+            }
+            // This is architecture-aware and will use appropriate pause instruction
             std::hint::spin_loop();
         }
+
+        // Memory fence to ensure lock acquisition is visible
+        memory_fence_acquire();
+        
+        Ok(()) // Successfully acquired lock
     }
 
     pub fn unlock(&self) {
-        self.lock.store(0, Ordering::Release);
+        // Memory fence before unlock to ensure all writes are visible
+        memory_fence_release();
+        
+        // Use Release ordering to ensure all previous writes are visible
+        // to the next thread that acquires the lock
+        self.lock.store(0, release_ordering());
     }
+
     pub fn dequeue_item(&self, read_idx: usize, capacity: usize) {
         // Update read index with Release ordering
         self.read_index
-            .store((read_idx + 1) % capacity, Ordering::Release);
+            .store((read_idx + 1) % capacity, release_ordering());
+        
+        // Memory fence to ensure index update is visible before count update
+        memory_fence_release();
+        
         // Update count with Release ordering
-        self.count.fetch_sub(1, Ordering::Release);
+        self.count.fetch_sub(1, release_ordering());
     }
 }
 
@@ -72,21 +136,45 @@ pub struct SharedMemoryConsumer {
     _shm_name: CString,
 }
 
+// Safety: SharedMemoryConsumer operations are not thread-safe by default
+// Users must ensure proper synchronization when sharing between threads
+unsafe impl Send for SharedMemoryConsumer {}
+
 // Implementing consumer
 impl SharedMemoryConsumer {
     // Open existing shared memory
     pub fn open(name: &str, expected_size: usize) -> io::Result<Self> {
+        // Log architecture for debugging
+        eprintln!("[-LO-] Opening shared memory consumer on {} architecture", ARCH_NAME);
+        
         // Create a C-style string for the name
         let c_name =
             CString::new(name).map_err(|_| Error::new(ErrorKind::InvalidInput, "Invalid name"))?;
 
         // Open shared memory object
         let fd = unsafe {
-            libc::shm_open(
-                c_name.as_ptr(),
-                libc::O_RDWR, // We need write access for the control structure
-                0o600,
-            )
+            let mut attempts = 0;
+            let max_attempts = 3;
+            
+            loop {
+                let result = libc::shm_open(
+                    c_name.as_ptr(),
+                    libc::O_RDWR, // We need write access for the control structure
+                    0o600,
+                );
+                
+                if result >= 0 {
+                    break result;
+                }
+                
+                attempts += 1;
+                if attempts >= max_attempts {
+                    break -1;
+                }
+                
+                // Small delay between attempts
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
         };
 
         if fd < 0 {
@@ -114,6 +202,22 @@ impl SharedMemoryConsumer {
         let control_ptr = ptr as *mut QueueControl;
         let data_start = unsafe { (ptr as *mut u8).add(SHM_METADATA_SIZE) };
 
+        // Verify the control structure looks valid
+        unsafe {
+            // Memory fence to ensure we see the latest values
+            memory_fence_acquire();
+            
+            let capacity = (*control_ptr).capacity.load(acquire_ordering());
+            if capacity == 0 {
+                libc::munmap(ptr, expected_size);
+                libc::close(fd);
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "Shared memory appears uninitialized (capacity is 0)",
+                ));
+            }
+        }
+
         Ok(SharedMemoryConsumer {
             ptr: ptr as *mut u8,
             size: expected_size,
@@ -128,85 +232,99 @@ impl SharedMemoryConsumer {
     pub fn dequeue(&self) -> io::Result<Option<Vec<u8>>> {
         unsafe {
             // Lock the queue
-            (*self.control).lock();
+            match (*self.control).lock() {
+                Ok(()) => {
+                    // We got the lock, now use a defer-like pattern to ensure unlock
+                    struct LockGuard<'a> {
+                        control: &'a QueueControl,
+                    }
+                    
+                    impl<'a> Drop for LockGuard<'a> {
+                        fn drop(&mut self) {
+                            self.control.unlock();
+                        }
+                    }
+                    
+                    // Create a guard that will automatically unlock when it goes out of scope
+                    let _guard = LockGuard { control: &*self.control };
 
-            // Use explicit Acquire ordering for cross-process visibility
-            let count = (*self.control).count.load(Ordering::Acquire);
-            if count == 0 {
-                (*self.control).unlock();
-                return Ok(None);
-            }
+                    // Use explicit Acquire ordering for cross-process visibility
+                    let count = (*self.control).count.load(acquire_ordering());
+                    if count == 0 {
+                        return Ok(None);
+                    }
 
-            // Get current read position with explicit Acquire ordering
-            let read_idx = (*self.control).read_index.load(Ordering::Acquire);
-            let capacity = (*self.control).capacity.load(Ordering::Acquire);
+                    // Get current read position with explicit Acquire ordering
+                    let read_idx = (*self.control).read_index.load(acquire_ordering());
+                    let capacity = (*self.control).capacity.load(acquire_ordering());
 
-            // Safety check - if read index is out of bounds, something is wrong
-            if read_idx >= capacity {
-                (*self.control).unlock();
-                return Err(Error::new(
-                    ErrorKind::InvalidData,
-                    format!("Invalid read index: {} (capacity: {})", read_idx, capacity),
-                ));
-            }
+                    // Safety check - if read index is out of bounds, something is wrong
+                    if read_idx >= capacity {
+                        return Err(Error::new(
+                            ErrorKind::InvalidData,
+                            format!("Invalid read index: {} (capacity: {})", read_idx, capacity),
+                        ));
+                    }
 
-            // Calculate offset in buffer
-            let offset = read_idx * ENTRY_MAX_SIZE;
+                    // Calculate offset in buffer
+                    let offset = read_idx * ENTRY_MAX_SIZE;
 
-            // Verify that offset is within bounds of allocated memory
-            if offset >= self.size - SHM_METADATA_SIZE {
-                (*self.control).unlock();
-                return Err(Error::new(
-                    ErrorKind::InvalidData,
-                    format!(
-                        "Buffer offset out of bounds: {} (max: {})",
-                        offset,
-                        self.size - SHM_METADATA_SIZE
-                    ),
-                ));
-            }
+                    // Verify that offset is within bounds of allocated memory
+                    if offset >= self.size - SHM_METADATA_SIZE {
+                        return Err(Error::new(
+                            ErrorKind::InvalidData,
+                            format!(
+                                "Buffer offset out of bounds: {} (max: {})",
+                                offset,
+                                self.size - SHM_METADATA_SIZE
+                            ),
+                        ));
+                    }
 
-            // Get pointer to position
-            let entry_ptr = self.data_start.add(offset);
+                    // Get pointer to position
+                    let entry_ptr = self.data_start.add(offset);
 
-            // Read entry size first
-            let entry_size = *(entry_ptr as *const usize);
+                    // Memory fence to ensure we see the latest data
+                    memory_fence_acquire();
 
-            // Check entry size is sensible
-            if entry_size == 0 || entry_size > ENTRY_MAX_SIZE - mem::size_of::<usize>() {
-                // Skip this entry by advancing read index
-                let capacity = (*self.control).capacity.load(Ordering::Acquire);
-                (*self.control)
-                    .read_index
-                    .store((read_idx + 1) % capacity, Ordering::Release);
-                (*self.control).count.fetch_sub(1, Ordering::Release);
+                    // Read entry size first
+                    let entry_size = ptr::read(entry_ptr as *const usize);
 
-                (*self.control).unlock();
-                return Err(Error::new(
-                    ErrorKind::InvalidData,
-                    format!(
-                        "Invalid entry size: {} (max: {}), skipping entry",
+                    // Check entry size is sensible
+                    if entry_size == 0 || entry_size > ENTRY_MAX_SIZE - mem::size_of::<usize>() {
+                        // Skip this entry by advancing read index
+                        (*self.control).dequeue_item(read_idx, capacity);
+
+                        return Err(Error::new(
+                            ErrorKind::InvalidData,
+                            format!(
+                                "Invalid entry size: {} (max: {}), skipping entry",
+                                entry_size,
+                                ENTRY_MAX_SIZE - mem::size_of::<usize>()
+                            ),
+                        ));
+                    }
+
+                    // Memory fence before reading data to ensure size is read before data
+                    memory_fence_acquire();
+
+                    // Read the actual data
+                    let mut data = vec![0u8; entry_size];
+                    ptr::copy_nonoverlapping(
+                        entry_ptr.add(mem::size_of::<usize>()),
+                        data.as_mut_ptr(),
                         entry_size,
-                        ENTRY_MAX_SIZE - mem::size_of::<usize>()
-                    ),
-                ));
+                    );
+
+                    // Update read index and count
+                    (*self.control).dequeue_item(read_idx, capacity);
+
+                    // Note: Unlock happens automatically via LockGuard drop
+
+                    Ok(Some(data))
+                },
+                Err(e) => Err(e),
             }
-
-            // Read the actual data
-            let mut data = vec![0u8; entry_size];
-            ptr::copy_nonoverlapping(
-                entry_ptr.add(mem::size_of::<usize>()),
-                data.as_mut_ptr(),
-                entry_size,
-            );
-
-            // Update read index and count
-            (*self.control).dequeue_item(read_idx, capacity);
-
-            // Unlock
-            (*self.control).unlock();
-
-            Ok(Some(data))
         }
     }
 
@@ -220,10 +338,15 @@ impl SharedMemoryConsumer {
                 Ok(Some(data)) => return Ok(Some(data)),
                 Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
                 Err(e) => {
-                    // Log the error
-                    // log::error!("Error in dequeue: {}", e);
+                    // Log the error if it's not a timeout
+                    if e.kind() != ErrorKind::TimedOut {
+                        eprintln!("[-LO-] Error in dequeue on {}: {}", ARCH_NAME, e);
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(10));
-                    return Err(e);
+                    // Continue trying unless it's a fatal error
+                    if e.kind() == ErrorKind::InvalidData {
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -233,16 +356,22 @@ impl SharedMemoryConsumer {
 
     // Get number of items in queue
     pub fn queue_size(&self) -> usize {
-        unsafe { (*self.control).count.load(Ordering::Relaxed) }
+        unsafe { (*self.control).count.load(acquire_ordering()) }
     }
 
     // Get maximum capacity of queue
     pub fn capacity(&self) -> usize {
-        unsafe { (*self.control).capacity.load(Ordering::Relaxed) }
+        unsafe { (*self.control).capacity.load(acquire_ordering()) }
+    }
+
+    // Get overflow count (if available)
+    pub fn overflow_count(&self) -> usize {
+        unsafe { (*self.control).overflow_count.load(Ordering::Relaxed) }
     }
 
     // Clean up shared memory resources but don't unlink (the producer/router-core owns the shared memory)
     pub fn cleanup(&self) -> io::Result<()> {
+        eprintln!("[-LO-] Cleaning up consumer on {}...", ARCH_NAME);
         // Consumer should not call shm_unlink as it would remove the shared memory
         // that may still be in use by other processes.
         // Only unmap memory and close file descriptor in Drop implementation.
@@ -254,9 +383,16 @@ impl Drop for SharedMemoryConsumer {
     fn drop(&mut self) {
         unsafe {
             // Unmap memory
-            libc::munmap(self.ptr as *mut libc::c_void, self.size);
+            let unmap_result = libc::munmap(self.ptr as *mut libc::c_void, self.size);
+            if unmap_result != 0 {
+                eprintln!("[-LO-] Failed to unmap memory: {}", Error::last_os_error());
+            }
+            
             // Close file descriptor
-            libc::close(self.shm_fd);
+            let close_result = libc::close(self.shm_fd);
+            if close_result != 0 {
+                eprintln!("[-LO-] Failed to close file descriptor: {}", Error::last_os_error());
+            }
             // Note: We don't unlink here unless explicitly requested
         }
     }
@@ -277,8 +413,13 @@ pub struct LogConsumer {
     shm: SharedMemoryConsumer,
 }
 
+// Safety: LogConsumer operations are not thread-safe by default
+// Users must ensure proper synchronization when sharing between threads
+unsafe impl Send for LogConsumer {}
+
 impl LogConsumer {
     pub fn new(name: &str, size: usize) -> io::Result<Self> {
+        eprintln!("[-LO-] Creating log consumer for {} on {}", name, ARCH_NAME);
         let shm = SharedMemoryConsumer::open(name, size)?;
         Ok(LogConsumer { shm })
     }
@@ -353,6 +494,11 @@ impl LogConsumer {
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.shm.capacity()
+    }
+
+    #[allow(dead_code)]
+    pub fn overflow_count(&self) -> usize {
+        self.shm.overflow_count()
     }
 
     #[allow(dead_code)]

@@ -2,21 +2,26 @@
 FROM rust:alpine AS builder
 WORKDIR /app
 
-# Install build dependencies
+# Better build environment for Rust + musl
 RUN apk add --no-cache \
     build-base \
     cmake \
-    musl-dev\
+    musl-dev \
+    pkgconfig \
     perl \
-    perl-utils \
-    perl-dev \
     sqlite-dev \
-    openssl-dev
+    openssl-dev \
+    openssl-libs-static
+
+# Optimize Rust compilation for musl
+ENV RUSTFLAGS="-C target-feature=-crt-static -C link-arg=-s"
+ENV CARGO_BUILD_TARGET="x86_64-unknown-linux-musl"
+RUN rustup target add x86_64-unknown-linux-musl
 
 COPY . .
-RUN cargo build -p router-cli --release
-RUN cargo build -p router-core --release
-RUN cargo build -p router-api --release
+RUN cargo build -p router-cli --release --target x86_64-unknown-linux-musl
+RUN cargo build -p router-core --release --target x86_64-unknown-linux-musl
+RUN cargo build -p router-api --release --target x86_64-unknown-linux-musl
 
 # Runtime image stage
 FROM alpine:latest

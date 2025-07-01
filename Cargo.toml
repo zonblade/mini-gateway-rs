@@ -30,6 +30,7 @@ panic = "abort"          # Remove panic unwinding code
 strip = true             # Strip symbols from binary
 debug = false            # No debug symbols
 
+
 # Use faster memory allocator
 [profile.release.package."*"]
 codegen-units = 1

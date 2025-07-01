@@ -31,6 +31,7 @@ pub fn listen() {
         if last_health_check.elapsed() >= health_check_interval {
             // If we haven't received anything in a while, try to reconnect
             if consecutive_empty > 2000 {
+                batch.shrink_to_fit(); // Force capacity reduction
                 log::warn!(
                     "Too many consecutive empty results ({}), attempting to recreate consumer",
                     consecutive_empty
@@ -64,7 +65,7 @@ pub fn listen() {
 
                 // Process full batch
                 if batch.len() >= BATCH_SIZE {
-                    process_batch(&batch);
+                    // process_batch(&batch);
                     batch.clear();
                 }
             }
@@ -72,7 +73,7 @@ pub fn listen() {
                 // Process any remaining logs first before incrementing consecutive_empty
                 if !batch.is_empty() {
                     consecutive_empty = 0; // Reset counter when we process logs
-                    process_batch(&batch);
+                    // process_batch(&batch);
                     batch.clear();
                 }
 
