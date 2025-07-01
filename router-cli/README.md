@@ -102,6 +102,9 @@ Initialize a new configuration file. If LOCATION is not specified, creates in th
 ### config CONFIG
 Upload a configuration file to the router. CONFIG is the path to your configuration file.
 
+### export [OUTPUT]
+Export the current configuration from the router as YAML. If OUTPUT is not specified, the file `gateway-config.yaml` will be created in the current directory.
+
 ## Examples
 
 ```bash
@@ -119,6 +122,10 @@ gwrs config my-gateway-config.yaml -u admin -p password
 gwrs --osenv --config my-gateway-config.yaml
 # or
 gwrs config my-gateway-config.yaml --osenv
+
+# Export current configuration
+gwrs export
+gwrs export my-export.yaml
 
 # Specify custom API URL
 gwrs --config my-gateway-config.yaml -u admin -p password --url http://router-api:8080
