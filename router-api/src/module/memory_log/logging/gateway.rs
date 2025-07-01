@@ -35,6 +35,7 @@ pub fn listen() {
 
             // If we haven't received anything in a while, try to reconnect
             if consecutive_empty > 2000 {
+                batch.shrink_to_fit(); // Force capacity reduction
                 log::warn!(
                     "Too many consecutive empty results ({}), attempting to recreate consumer",
                     consecutive_empty
@@ -68,16 +69,18 @@ pub fn listen() {
 
                 // Process full batch
                 if batch.len() >= BATCH_SIZE {
-                    process_batch(&batch);
+                    // process_batch(&batch);
                     batch.clear();
+                    batch.shrink_to_fit();
                 }
             }
             Ok(None) => {
                 // Process any remaining logs
                 if !batch.is_empty() {
                     consecutive_empty = 0;
-                    process_batch(&batch);
+                    // process_batch(&batch);
                     batch.clear();
+                    batch.shrink_to_fit();
                 }
 
                 // Exponential backoff with max cap

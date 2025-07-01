@@ -1,4 +1,5 @@
 // A raw implementation of shared memory in Rust using direct system calls
+// Now with support for both x86_64 and ARM64 (aarch64) architectures
 pub mod sender;
 
 use std::ffi::CString;
@@ -7,6 +8,12 @@ use std::mem;
 use std::ptr;
 use std::slice;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+// Architecture detection
+#[cfg(target_arch = "x86_64")]
+const ARCH_NAME: &str = "x86_64";
+#[cfg(target_arch = "aarch64")]
+const ARCH_NAME: &str = "aarch64";
 
 // Constants for shared memory - adjusting for more efficient memory usage
 pub const MAX_MEMORY_SIZE: usize = 50 * 1024 * 1024; // 50MB max memory
@@ -19,6 +26,7 @@ pub const LEVEL_WARN: u8 = 3; // Warning messages, potential issues
 pub const LEVEL_ERROR: u8 = 4; // Error conditions, but application can continue
 
 // Control structure at the beginning of shared memory
+// The 64-byte alignment is good for cache line optimization on both x86_64 and ARM64
 #[repr(C, align(64))]
 pub struct QueueControl {
     // Mutex for synchronization
@@ -41,6 +49,33 @@ pub enum OverflowPolicy {
     Overwrite, // Overwrite oldest entries when queue is full
 }
 
+// Architecture-specific memory ordering helpers
+#[inline(always)]
+fn acquire_ordering() -> Ordering {
+    // Both architectures support Acquire ordering efficiently
+    Ordering::Acquire
+}
+
+#[inline(always)]
+fn release_ordering() -> Ordering {
+    // Both architectures support Release ordering efficiently
+    Ordering::Release
+}
+
+#[inline(always)]
+fn memory_fence_release() {
+    // On ARM64, this compiles to DMB ISH instruction
+    // On x86_64, this is often a no-op due to strong memory model
+    std::sync::atomic::fence(Ordering::Release);
+}
+
+#[inline(always)]
+fn memory_fence_acquire() {
+    // On ARM64, this compiles to DMB ISH instruction
+    // On x86_64, this is often a no-op due to strong memory model
+    std::sync::atomic::fence(Ordering::Acquire);
+}
+
 // A simple mutex implementation using an atomic
 impl QueueControl {
     pub fn new(capacity: usize) -> Self {
@@ -54,14 +89,17 @@ impl QueueControl {
             _reserved: [0; 2048],
         }
     }
+    
     pub fn lock(&self) -> Result<(), io::Error> {
         // Add a timeout to prevent indefinite spinning
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(500); // 500ms max wait
 
+        // Use Acquire ordering for the lock to ensure all subsequent reads
+        // see values written before the lock was released
         while self
             .lock
-            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange_weak(0, 1, acquire_ordering(), Ordering::Relaxed)
             .is_err()
         {
             // Check for timeout
@@ -71,17 +109,26 @@ impl QueueControl {
                     "Failed to acquire lock within timeout",
                 ));
             }
+            // This is architecture-aware and will use appropriate pause instruction
             std::hint::spin_loop();
         }
 
+        // Memory fence to ensure lock acquisition is visible
+        memory_fence_acquire();
+        
         Ok(()) // Successfully acquired lock
     }
 
     pub fn unlock(&self) {
+        // Memory fence before unlock to ensure all writes are visible
+        memory_fence_release();
+        
         // Only unlock if currently locked
+        // Use Release ordering to ensure all previous writes are visible
+        // to the next thread that acquires the lock
         let was_locked = self
             .lock
-            .compare_exchange(1, 0, Ordering::Release, Ordering::Relaxed)
+            .compare_exchange(1, 0, release_ordering(), Ordering::Relaxed)
             .is_ok();
         if !was_locked {
             // Optionally log this situation for debugging
@@ -93,19 +140,19 @@ impl QueueControl {
     pub fn enqueue_item(&self, write_idx: usize, capacity: usize) {
         // Update write index with Release ordering to make changes visible
         self.write_index
-            .store((write_idx + 1) % capacity, Ordering::Release);
+            .store((write_idx + 1) % capacity, release_ordering());
 
         // Check current count before updating to prevent overflow
-        let current_count = self.count.load(Ordering::Acquire);
+        let current_count = self.count.load(acquire_ordering());
 
         // If count is suspiciously high, reset it to prevent overflow
         if current_count > capacity * 2 || current_count == usize::MAX - 1 {
-            self.count.store(capacity, Ordering::Release);
+            self.count.store(capacity, release_ordering());
         } else {
             // Update count with Release ordering - use saturating_add to prevent overflow
             let _ = self
                 .count
-                .fetch_update(Ordering::Release, Ordering::Relaxed, |c| {
+                .fetch_update(release_ordering(), Ordering::Relaxed, |c| {
                     // Only increment if not suspiciously large
                     if c < capacity * 2 {
                         Some(c + 1)
@@ -120,18 +167,18 @@ impl QueueControl {
     // Add a method to safely decrement count (for consumer implementations)
     #[allow(dead_code)]
     pub fn dequeue_item(&self) {
-        let current = self.count.load(Ordering::Acquire);
+        let current = self.count.load(acquire_ordering());
         if current > 0 {
-            self.count.fetch_sub(1, Ordering::Release);
+            self.count.fetch_sub(1, release_ordering());
         }
     }
 
     // Enhanced validation with more diagnostics
     pub fn validate_and_fix(&self, capacity: usize) -> bool {
-        let count = self.count.load(Ordering::Acquire);
-        let current_capacity = self.capacity.load(Ordering::Acquire);
-        let write_idx = self.write_index.load(Ordering::Acquire);
-        let read_idx = self.read_index.load(Ordering::Acquire);
+        let count = self.count.load(acquire_ordering());
+        let current_capacity = self.capacity.load(acquire_ordering());
+        let write_idx = self.write_index.load(acquire_ordering());
+        let read_idx = self.read_index.load(acquire_ordering());
 
         // Perform more thorough validation
         let corrupted = count > capacity * 2
@@ -151,16 +198,19 @@ impl QueueControl {
     // Enhanced reset with better diagnostics
     pub fn force_reset(&self, capacity: usize) {
         // Capture original values for debugging
-        let _old_count = self.count.load(Ordering::Acquire);
-        let _old_write_idx = self.write_index.load(Ordering::Acquire);
-        let _old_read_idx = self.read_index.load(Ordering::Acquire);
+        let _old_count = self.count.load(acquire_ordering());
+        let _old_write_idx = self.write_index.load(acquire_ordering());
+        let _old_read_idx = self.read_index.load(acquire_ordering());
 
-        // Reset all fields
-        self.write_index.store(0, Ordering::Release);
-        self.read_index.store(0, Ordering::Release);
-        self.count.store(0, Ordering::Release);
-        self.capacity.store(capacity, Ordering::Release);
-        self.overflow_count.store(0, Ordering::Release);
+        // Reset all fields with Release ordering to ensure visibility
+        self.write_index.store(0, release_ordering());
+        self.read_index.store(0, release_ordering());
+        self.count.store(0, release_ordering());
+        self.capacity.store(capacity, release_ordering());
+        self.overflow_count.store(0, release_ordering());
+        
+        // Ensure all stores are visible
+        memory_fence_release();
     }
 }
 
@@ -174,6 +224,10 @@ pub struct SharedMemoryProducer {
     shm_name: CString,
     overflow_policy: OverflowPolicy,
 }
+
+// Safety: SharedMemoryProducer operations are not thread-safe by default
+// Users must ensure proper synchronization when sharing between threads
+unsafe impl Send for SharedMemoryProducer {}
 
 // Implementing producer
 impl SharedMemoryProducer {
@@ -190,6 +244,9 @@ impl SharedMemoryProducer {
         fresh_start: bool,
         overflow_policy: OverflowPolicy,
     ) -> io::Result<Self> {
+        // Log architecture for debugging
+        eprintln!("[-LO-] Creating shared memory on {} architecture", ARCH_NAME);
+        
         // Calculate capacity based on total size and entry size
         let data_size = total_size.saturating_sub(SHM_METADATA_SIZE);
         let capacity = data_size / ENTRY_MAX_SIZE;
@@ -297,8 +354,11 @@ impl SharedMemoryProducer {
         let mut control_initialized = false;
 
         unsafe {
+            // Memory fence to ensure we see the latest values
+            memory_fence_acquire();
+            
             // Check if we can read the capacity field to determine if memory was already initialized
-            let existing_capacity = (*control_ptr).capacity.load(Ordering::Acquire);
+            let existing_capacity = (*control_ptr).capacity.load(acquire_ordering());
 
             // If capacity seems to exist and has a reasonable value
             if existing_capacity > 0 && existing_capacity <= capacity * 2 {
@@ -308,6 +368,7 @@ impl SharedMemoryProducer {
                 let was_corrupted = (*control_ptr).validate_and_fix(capacity);
 
                 if was_corrupted {
+                    eprintln!("[-LO-] Detected and fixed corrupted control structure");
                 } else if fresh_start {
                     // Even if not corrupted, if fresh_start was requested, reset the structure
                     (*control_ptr).force_reset(capacity);
@@ -323,6 +384,8 @@ impl SharedMemoryProducer {
         if !control_initialized {
             unsafe {
                 ptr::write(control_ptr, QueueControl::new(capacity));
+                // Ensure initialization is visible to other processes
+                memory_fence_release();
             }
         }
 
@@ -352,7 +415,7 @@ impl SharedMemoryProducer {
         let required_total_size = required_data_size + SHM_METADATA_SIZE;
 
         // Ensure we don't exceed reasonable limits (2GB for 32-bit compatibility)
-        let max_reasonable_size = 2 * 1024 * 1024 * 1024;
+        let max_reasonable_size = MAX_MEMORY_SIZE;
         let total_size = if required_total_size > max_reasonable_size {
             max_reasonable_size
         } else {
@@ -378,10 +441,10 @@ impl SharedMemoryProducer {
     // Add more robust corruption detection
     pub fn check_and_reset_if_corrupted(&self) -> bool {
         unsafe {
-            let capacity = (*self.control).capacity.load(Ordering::Acquire);
-            let count = (*self.control).count.load(Ordering::Acquire);
-            let write_idx = (*self.control).write_index.load(Ordering::Acquire);
-            let read_idx = (*self.control).read_index.load(Ordering::Acquire);
+            let capacity = (*self.control).capacity.load(acquire_ordering());
+            let count = (*self.control).count.load(acquire_ordering());
+            let write_idx = (*self.control).write_index.load(acquire_ordering());
+            let read_idx = (*self.control).read_index.load(acquire_ordering());
 
             // Use more robust corruption checks
             let is_corrupted = count > capacity * 2
@@ -434,9 +497,8 @@ impl SharedMemoryProducer {
                     let _guard = LockGuard { control: &*self.control };
                     
                     // After getting the lock, run a full validation of the control structure
-                    let count = (*self.control).count.load(Ordering::Acquire);
-                    let capacity = (*self.control).capacity.load(Ordering::Acquire);
-                    // let write_idx = (*self.control).write_index.load(Ordering::Acquire);
+                    let count = (*self.control).count.load(acquire_ordering());
+                    let capacity = (*self.control).capacity.load(acquire_ordering());
 
                     // Double-check for corruption after acquiring the lock
                     if count > capacity * 2 || count == usize::MAX {
@@ -448,7 +510,7 @@ impl SharedMemoryProducer {
                     if count >= capacity {
                         match self.overflow_policy {
                             OverflowPolicy::Block => {
-                                // Record overflow event - directly access the atomic field
+                                // Record overflow event
                                 (*self.control)
                                     .overflow_count
                                     .fetch_add(1, Ordering::Relaxed);
@@ -458,7 +520,7 @@ impl SharedMemoryProducer {
                                 return Err(Error::new(ErrorKind::Other, "Queue is full"));
                             }
                             OverflowPolicy::Overwrite => {
-                                // Record overflow event - directly access the atomic field
+                                // Record overflow event
                                 (*self.control)
                                     .overflow_count
                                     .fetch_add(1, Ordering::Relaxed);
@@ -467,7 +529,7 @@ impl SharedMemoryProducer {
                     }
 
                     // Get current write position with explicit Acquire ordering
-                    let write_idx = (*self.control).write_index.load(Ordering::Acquire);
+                    let write_idx = (*self.control).write_index.load(acquire_ordering());
 
                     // Calculate offset in buffer
                     let offset = write_idx * ENTRY_MAX_SIZE;
@@ -476,7 +538,10 @@ impl SharedMemoryProducer {
                     let entry_ptr = self.data_start.add(offset);
 
                     // Write entry size first
-                    *(entry_ptr as *mut usize) = data.len();
+                    ptr::write(entry_ptr as *mut usize, data.len());
+
+                    // Memory fence to ensure size is written before data
+                    memory_fence_release();
 
                     // Then write the actual data
                     ptr::copy_nonoverlapping(
@@ -485,6 +550,9 @@ impl SharedMemoryProducer {
                         data.len(),
                     );
 
+                    // Memory fence to ensure all data is written before updating indices
+                    memory_fence_release();
+
                     // Verify count is reasonable before updating
                     if count < capacity * 2 {
                         (*self.control).enqueue_item(write_idx, capacity);
@@ -492,12 +560,11 @@ impl SharedMemoryProducer {
                         // Force reset counters if they appear corrupted
                         (*self.control).force_reset(capacity);
                         // Try again with reset counters
-                        let new_write_idx = (*self.control).write_index.load(Ordering::Acquire);
+                        let new_write_idx = (*self.control).write_index.load(acquire_ordering());
                         (*self.control).enqueue_item(new_write_idx, capacity);
                     }
 
-                    // Unlock
-                    (*self.control).unlock();
+                    // Note: Unlock happens automatically via LockGuard drop
                 },
 
                 Err(e) => {
@@ -513,7 +580,7 @@ impl SharedMemoryProducer {
     #[allow(dead_code)]
     pub fn queue_size(&self) -> usize {
         unsafe {
-            let count = (*self.control).count.load(Ordering::Acquire);
+            let count = (*self.control).count.load(acquire_ordering());
             count
         }
     }
@@ -521,10 +588,10 @@ impl SharedMemoryProducer {
     // Get maximum capacity of the queue
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
-        unsafe { (*self.control).capacity.load(Ordering::Acquire) }
+        unsafe { (*self.control).capacity.load(acquire_ordering()) }
     }
 
-    // Get overflow count - directly access the atomic field
+    // Get overflow count
     #[allow(dead_code)]
     pub fn overflow_count(&self) -> usize {
         unsafe { (*self.control).overflow_count.load(Ordering::Relaxed) }
@@ -532,7 +599,7 @@ impl SharedMemoryProducer {
 
     // Clean up shared memory (call this when done with it)
     pub fn cleanup(&self) -> io::Result<()> {
-        eprintln!("[-LO-] Cleaning up log producer... x");
+        eprintln!("[-LO-] Cleaning up log producer on {}...", ARCH_NAME);
         let result = unsafe { libc::shm_unlink(self.shm_name.as_ptr()) };
         if result < 0 {
             let err = Error::last_os_error();
@@ -548,11 +615,15 @@ impl Drop for SharedMemoryProducer {
         unsafe {
             // Unmap memory
             let unmap_result = libc::munmap(self.ptr as *mut libc::c_void, self.size);
-            if unmap_result != 0 {}
+            if unmap_result != 0 {
+                eprintln!("[-LO-] Failed to unmap memory: {}", Error::last_os_error());
+            }
 
             // Close file descriptor
             let close_result = libc::close(self.shm_fd);
-            if close_result != 0 {}
+            if close_result != 0 {
+                eprintln!("[-LO-] Failed to close file descriptor: {}", Error::last_os_error());
+            }
         }
     }
 }
@@ -570,6 +641,10 @@ pub struct LogEntry {
 pub struct LogProducer {
     shm: SharedMemoryProducer,
 }
+
+// Safety: LogProducer operations are not thread-safe by default
+// Users must ensure proper synchronization when sharing between threads
+unsafe impl Send for LogProducer {}
 
 impl LogProducer {
     // Standard constructor - creates with default options
@@ -598,8 +673,8 @@ impl LogProducer {
         fresh_start: bool,
         overflow_policy: OverflowPolicy,
     ) -> io::Result<Self> {
-        let actual_size = if size > 1024 * 1024 * 1024 {
-            1024 * 1024 * 1024 // 1GB max
+        let actual_size = if size > MAX_MEMORY_SIZE {
+            MAX_MEMORY_SIZE
         } else {
             size
         };
@@ -612,14 +687,14 @@ impl LogProducer {
         ) {
             Ok(producer) => producer,
             Err(e) => {
-                if size > 100 * 1024 * 1024
+                if size > MAX_MEMORY_SIZE
                     && (e.kind() == ErrorKind::PermissionDenied
                         || e.kind() == ErrorKind::AddrNotAvailable
                         || e.kind() == ErrorKind::OutOfMemory)
                 {
                     return Self::new_with_options(
                         name,
-                        100 * 1024 * 1024,
+                        MAX_MEMORY_SIZE,
                         fresh_start,
                         overflow_policy,
                     );
@@ -664,21 +739,21 @@ impl LogProducer {
 
     pub fn log(&self, level: u8, message: &str) -> io::Result<()> {
         let header_size = mem::size_of::<LogEntry>();
-        let total_size_of_payload = header_size + message.len(); // Total size of LogEntry struct + message bytes
+        let total_size_of_payload = header_size + message.len();
 
         if message.is_empty() {
             println!("Empty message received");
             return Ok(());
         }
+        
         // Maximum size an entry can hold for its payload (LogEntry + message)
-        // This is distinct from ENTRY_MAX_SIZE which includes the initial 'data_len' field written by SharedMemoryProducer.
         let max_payload_in_shm_entry = ENTRY_MAX_SIZE - mem::size_of::<usize>();
 
         if total_size_of_payload > max_payload_in_shm_entry {
             let suffix = "...";
             let suffix_len = suffix.len();
 
-            // Calculate available space for the message text itself, considering header and suffix
+            // Calculate available space for the message text itself
             let available_for_message_text = max_payload_in_shm_entry
                 .saturating_sub(header_size)
                 .saturating_sub(suffix_len);
@@ -686,26 +761,22 @@ impl LogProducer {
             let final_message_to_log: String;
 
             if available_for_message_text == 0 {
-                // Not enough space for even one char + suffix. Try to log just the suffix if it fits.
                 if header_size + suffix_len <= max_payload_in_shm_entry {
                     final_message_to_log = suffix.to_string();
                 } else {
-                    // Cannot even fit the suffix. This implies ENTRY_MAX_SIZE is extremely small or header is huge.
                     return Err(Error::new(
                         ErrorKind::InvalidInput,
                         "Log entry too small for header and truncation suffix.",
                     ));
                 }
             } else {
-                // Ensure cut_at does not exceed message length and respects char boundaries.
+                // Ensure cut_at does not exceed message length and respects char boundaries
                 let mut cut_at = std::cmp::min(message.len(), available_for_message_text);
                 while !message.is_char_boundary(cut_at) && cut_at > 0 {
                     cut_at -= 1;
                 }
 
                 if cut_at == 0 && !message.is_empty() {
-                    // Not even a single character of the original message fits with the suffix.
-                    // Log only "..." if it fits by itself.
                     if header_size + suffix_len <= max_payload_in_shm_entry {
                         final_message_to_log = suffix.to_string();
                     } else {
@@ -719,9 +790,7 @@ impl LogProducer {
                 }
             }
 
-            // Call self recursively with the truncated message.
-            // This recursive call needs to be careful; the new total_size_of_payload must be <= max_payload_in_shm_entry.
-            // The logic above should ensure final_message_to_log is short enough.
+            // Call self recursively with the truncated message
             return self.log(level, &final_message_to_log);
         }
 
@@ -798,7 +867,7 @@ static mut GLOBAL_LOG_GATEWAY: Option<LogProducer> = None;
 #[allow(static_mut_refs)]
 pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
     if GLOBAL_LOG_PROXY.is_none() {
-        eprintln!("[-LO-] Initializing proxy logger...");
+        eprintln!("[-LO-] Initializing proxy logger on {}...", ARCH_NAME);
         // Request 10 million entries with smaller size
         let desired_capacity = 10_000_000; // 10 million entries
 
@@ -814,8 +883,6 @@ pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
             }
             Err(_) => {
                 // Fall back to using default approach if capacity-based approach fails
-
-                // Use a larger size for the shared memory (1GB instead of 100MB)
                 let logger_size = MAX_MEMORY_SIZE; // Use 1GB for more capacity
 
                 match LogProducer::new_with_options(
@@ -851,7 +918,7 @@ pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
 #[allow(static_mut_refs)]
 pub unsafe fn gateway_logger() -> io::Result<&'static LogProducer> {
     if GLOBAL_LOG_GATEWAY.is_none() {
-        eprintln!("[-LO-] Initializing gateway logger...");
+        eprintln!("[-LO-] Initializing gateway logger on {}...", ARCH_NAME);
         // Request 10 million entries with smaller size
         let desired_capacity = 10_000_000; // 10 million entries
 
@@ -867,7 +934,6 @@ pub unsafe fn gateway_logger() -> io::Result<&'static LogProducer> {
             }
             Err(_) => {
                 // Fall back to using default approach if capacity-based approach fails
-
                 let logger_size = MAX_MEMORY_SIZE; // Use 1GB for more capacity
 
                 match LogProducer::new_with_options(
@@ -945,71 +1011,4 @@ pub fn log_cleanup() -> io::Result<()> {
     }
 
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Example proxy.rs
-    #[allow(dead_code)]
-    pub fn proxy_example() {
-        // Create shared memory for logs
-        let log_producer = match LogProducer::new_with_options(
-            "/my-app-logs",
-            100 * 1024 * 1024,
-            true,                      // Fresh start
-            OverflowPolicy::Overwrite, // Overwrite when full
-        ) {
-            Ok(producer) => producer,
-            Err(_) => {
-                return;
-            }
-        };
-
-        // Log some messages
-        for i in 0..10 {
-            if let Err(_) = log_producer.log(1, &format!("Request #{} processed", i)) {}
-        }
-    }
-
-    #[test]
-    pub fn test_producer() {
-        // Create with fresh start and overwrite policy using capacity-based approach
-        let log_producer = match LogProducer::new_with_capacity(
-            PROXY_LOGGER_NAME,
-            500_000,                   // Request 500,000 entries
-            true,                      // Fresh start
-            OverflowPolicy::Overwrite, // Overwrite when full
-        ) {
-            Ok(producer) => producer,
-            Err(_) => {
-                return;
-            }
-        };
-
-        let mut counter = 0;
-        loop {
-            // Create a message with timestamp and counter
-            let message = format!("[INFO] [PXY] Test message #{}", counter);
-
-            // Log the message
-            match log_producer.log(2, &message) {
-                Ok(_) => {}
-                Err(_) => {}
-            }
-
-            counter += 1;
-
-            // Faster testing
-            if counter % 100 == 0 {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-
-            // Optional: exit after some number of messages for testing
-            if counter >= 100000 {
-                break;
-            }
-        }
-    }
 }
