@@ -14,8 +14,10 @@
   let isAddingConnection = false;
   let newConnection = {
     name: "",
+    protocol: "http" as "http" | "https",
     host: "",
-    port: 8080
+    port: 8080,
+    subpath: ""
   };
   
   function handleAddConnection() {
@@ -24,7 +26,7 @@
     }
     
     connections.addConnection(newConnection);
-    newConnection = { name: "", host: "", port: 8080 };
+    newConnection = { name: "", protocol: "http", host: "", port: 8080, subpath: "" };
     isAddingConnection = false;
   }
   
@@ -63,7 +65,9 @@
           <div class="flex justify-between items-start">
             <div>
               <div class="font-normal">{connection.name}</div>
-              <div class="text-sm text-gray-500 dark:text-gray-400">{connection.host}:{connection.port}</div>
+              <div class="text-sm text-gray-500 dark:text-gray-400">
+                {connection.protocol}://{connection.host}{connection.port ? `:${connection.port}` : ''}{connection.subpath || '/api/v1'}
+              </div>
             </div>
             {#if $connections.length > 1}
               <button 
@@ -124,6 +128,17 @@
             />
           </div>
           <div>
+            <label for="protocol" class="block text-sm mb-1">Protocol</label>
+            <select
+              id="protocol"
+              bind:value={newConnection.protocol}
+              class="w-full px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-transparent focus:outline-none focus:border-gray-500 dark:focus:border-gray-400"
+            >
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS</option>
+            </select>
+          </div>
+          <div>
             <label for="host" class="block text-sm mb-1">Host</label>
             <input
               type="text"
@@ -141,6 +156,16 @@
               bind:value={newConnection.port}
               class="w-full px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-transparent focus:outline-none focus:border-gray-500 dark:focus:border-gray-400"
               placeholder="8080"
+            />
+          </div>
+          <div>
+            <label for="subpath" class="block text-sm mb-1">Subpath</label>
+            <input
+              type="text"
+              id="subpath"
+              bind:value={newConnection.subpath}
+              class="w-full px-3 py-2 border-b border-gray-300 dark:border-gray-700 bg-transparent focus:outline-none focus:border-gray-500 dark:focus:border-gray-400"
+              placeholder="/api/v1"
             />
           </div>
           <div class="flex justify-end space-x-3 mt-6">

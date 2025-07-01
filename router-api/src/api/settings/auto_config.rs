@@ -4,10 +4,12 @@
 //! It allows for bulk operations through a single API call, making it easier to set up and manage
 //! gateway configurations.
 
+use std::sync::{Arc, Mutex};
+
 use actix_web::{post, get, web, HttpResponse, Responder, HttpRequest};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
+use crate::{api::users::helper::{is_staff_or_admin, ClaimsFromRequest}, module::httpc::HttpC};
 use super::{
     Proxy, ProxyDomain, GatewayNode, Gateway,
     proxy_queries, proxydomain_queries, gwnode_queries, gateway_queries
@@ -112,7 +114,9 @@ pub struct YamlConfig {
 pub async fn upload_config(
     req: HttpRequest,
     body: web::Bytes,
+    client: web::Data<Arc<Mutex<HttpC>>>
 ) -> impl Responder {
+    let client = client.as_ref();
     // Extract authenticated user's claims
     let claims = match req.get_claims() {
         Some(claims) => claims,
@@ -308,19 +312,19 @@ pub async fn upload_config(
     }
     
     // Add sync calls after successful configuration
-    match sync::proxy_node_tcp::sync_proxy_nodes_to_registry().await {
-        Ok(_) => log::info!("Successfully synced proxy nodes to registry"),
-        Err(e) => log::warn!("Failed to sync proxy nodes to registry: {}. Continuing anyway.", e),
-    }
-
-    match sync::gateway_node_tcp::sync_gateway_nodes_to_registry().await {
-        Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
-        Err(e) => log::warn!("Failed to sync gateway nodes to registry: {}. Continuing anyway.", e),
-    }
-
-    match sync::gateway_node_tcp::sync_gateway_paths_to_registry().await {
+    match sync::gateway_node_tcp::sync_gateway_paths_to_registry(client).await {
         Ok(_) => log::info!("Successfully synced gateway paths to registry"),
-        Err(e) => log::warn!("Failed to sync gateway paths to registry: {}. Continuing anyway.", e),
+        Err(e) => log::warn!("Failed to sync gateway paths to registry: {:?}. Continuing anyway.", e),
+    }
+    
+    match sync::proxy_node_tcp::sync_proxy_nodes_to_registry(client).await {
+        Ok(_) => log::info!("Successfully synced proxy nodes to registry"),
+        Err(e) => log::warn!("Failed to sync proxy nodes to registry: {:?}. Continuing anyway.", e),
+    }
+
+    match sync::gateway_node_tcp::sync_gateway_nodes_to_registry(client).await {
+        Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
+        Err(e) => log::warn!("Failed to sync gateway nodes to registry: {:?}. Continuing anyway.", e),
     }
     
     HttpResponse::Ok().json(serde_json::json!({

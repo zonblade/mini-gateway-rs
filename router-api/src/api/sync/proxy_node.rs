@@ -5,8 +5,12 @@
 //! Proxy Nodes are serialized and sent to the registry service to sync
 //! configuration across the distributed system.
 
-use actix_web::{post, HttpResponse};
+use std::sync::{Arc, Mutex};
+
+use actix_web::{post, web, HttpResponse};
 use serde::{Deserialize, Serialize};
+
+use crate::module::httpc::HttpC;
 
 use super::proxy_node_tcp::sync_proxy_nodes_to_registry;
 
@@ -71,14 +75,13 @@ pub struct ProxyDomain {
 }
 
 #[post("/proxy")]
-pub async fn gateway() -> HttpResponse {
-    
-    let result = sync_proxy_nodes_to_registry().await;
+pub async fn gateway(client: web::Data<Arc<Mutex<HttpC>>>) -> HttpResponse {
+    let result = sync_proxy_nodes_to_registry(client.as_ref()).await;
 
     match result {
         Ok(data)=> HttpResponse::Ok().json(data),
         Err(e) => {
-            log::error!("Failed to sync gateway nodes: {}", e);
+            log::error!("Failed to sync gateway nodes: {:?}", e);
             HttpResponse::BadRequest().body("Failed to sync gateway nodes")
         }
     }

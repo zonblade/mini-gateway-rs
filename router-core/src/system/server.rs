@@ -317,7 +317,7 @@ pub fn init() {
                     tls_settings
                         .deref_mut()
                         .deref_mut()
-                        .set_max_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_2))
+                        .set_max_proto_version(Some(pingora::tls::ssl::SslVersion::TLS1_3))
                         .unwrap();
 
                     tls_settings.enable_h2();

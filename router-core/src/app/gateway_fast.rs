@@ -55,6 +55,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 use std::time::{Duration, Instant};
 // lazy_static is not used anymore
 use lru::LruCache; // Use the standard LRU crate
+use dns_lookup::{self, lookup_host};
 
 // Assuming these are correctly defined in your project structure
 use crate::config::{self, GatewayPath, DEFAULT_PORT};
@@ -353,7 +354,17 @@ impl GatewayApp {
             // Create the target peer (use Arc for cheap sharing).
             // BasicPeer::new takes &str, so clone addr_target if needed or pass reference
             log::debug!("Creating target peer for address: {}", node.addr_target);
-            let target_peer = Arc::new(BasicPeer::new(&node.addr_target));
+            let mut addr_target = node.addr_target.clone();
+            let is_ip = node.addr_target.bytes().filter(|&b| b == b'.').count() == 4;
+            if !is_ip {
+                let ipx = lookup_host(&node.addr_target);
+                if let Ok(ipx) = ipx {
+                    if let Some(ip) = ipx.first() {
+                        addr_target = ip.to_string()
+                    }
+                }
+            }
+            let target_peer = Arc::new(BasicPeer::new(&addr_target));
 
             applicable_rules.push(RedirectRule {
                 pattern,
@@ -552,17 +563,6 @@ impl ProxyHttp for GatewayApp {
             }
         };
 
-        if _ctx.websocket {
-            info!(
-                "[GWX] | ID:{:?}, TYPE:INIT, CONN:{:?}, SIZE:{}, STAT:N/A, SRC:{:?}, DST:{:?} |",
-                _ctx.conn_id,
-                Some("WS"),
-                0,
-                _ctx.src_addr,
-                _ctx.peer
-            );
-        }
-
         let http_peer = HttpPeer::new(peer, false, String::new());
         return Ok(Box::new(http_peer));
     }
@@ -607,8 +607,40 @@ impl ProxyHttp for GatewayApp {
         };
 
         if upgrade_conn == "websocket" {
-            _ctx.websocket = true;
-            _ctx.conn_type = Some("WS".into());
+
+            let uri_query = session.req_header().uri.query();
+            let query_id = match uri_query {
+                Some(q) => {
+                    // get after id= before & (if exists    )
+                    let id_start = q.find("id=");
+                    match id_start {
+                        Some(start) => {
+                            let id_end = q[start + 3..].find('&');
+                            let id_str = if let Some(end) = id_end {
+                                &q[start + 3..start + 3 + end]
+                            } else {
+                                &q[start + 3..]
+                            };
+                            id_str.to_string()
+                        },
+                        None => atomic_id()
+                    }
+                },
+                None => atomic_id()
+            };
+
+            _ctx.conn_id    = Some(query_id.to_string());
+            _ctx.websocket  = true;
+            _ctx.conn_type  = Some("WS".into());
+
+            info!(
+                "[GWX] | ID:{}, TYPE:INIT, CONN:{}, SIZE:{}, STAT:101, SRC:{}, DST:{} |",
+                _ctx.conn_id.clone().unwrap_or("-".into()),
+                "WS",
+                0,
+                _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+                _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+            );
         } else {
             _ctx.conn_type = Some("HTTP".into());
         }

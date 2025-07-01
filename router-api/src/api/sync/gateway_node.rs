@@ -1,7 +1,8 @@
-use actix_web::{post, HttpResponse};
+use std::sync::{Arc, Mutex};
+use actix_web::{post, web, HttpResponse};
 use serde::{Deserialize, Serialize};
 
-use crate::api::sync::gateway_node_tcp::{sync_gateway_nodes_to_registry, sync_gateway_paths_to_registry};
+use crate::{api::sync::gateway_node_tcp::{sync_gateway_nodes_to_registry, sync_gateway_paths_to_registry}, module::httpc::HttpC};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNode {
@@ -22,25 +23,25 @@ pub struct GatewayNode {
 }
 
 #[post("/gateway")]
-pub async fn gateway() -> HttpResponse {
+pub async fn gateway(client: web::Data<Arc<Mutex<HttpC>>>) -> HttpResponse {
     
-    let result = match sync_gateway_nodes_to_registry().await {
+    let result = match sync_gateway_nodes_to_registry(client.as_ref()).await {
         Ok(data) => {
             log::info!("Successfully synced gateway nodes to registry");
-            let path_result = sync_gateway_paths_to_registry().await;
+            let path_result = sync_gateway_paths_to_registry(client.as_ref()).await;
             match path_result {
                 Ok(_paths) => {
                     log::info!("Successfully synced gateway paths to registry");
                     data
                 }
                 Err(e) => {
-                    log::error!("Failed to sync gateway paths: {}", e);
+                    log::error!("Failed to sync gateway paths: {:?}", e);
                     return HttpResponse::BadRequest().body("Failed to sync gateway paths");
                 }
             }
         }
         Err(e) => {
-            log::error!("Failed to sync gateway nodes: {}", e);
+            log::error!("Failed to sync gateway nodes: {:?}", e);
             return HttpResponse::BadRequest().body("Failed to sync gateway nodes");
         }
     };

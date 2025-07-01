@@ -68,7 +68,7 @@
             }
 
             // Set API base URL based on the selected connection
-            const API_BASE_URL = `http://${connection.host}:${connection.port}/api/v1`;
+            const API_BASE_URL = `${connection.protocol}://${connection.host}${connection.port ? `:${connection.port}` : ''}${connection.subpath || '/api/v1'}`;
             
             // Mock API call - replace with actual API integration
             await new Promise(resolve => setTimeout(resolve, 500));
