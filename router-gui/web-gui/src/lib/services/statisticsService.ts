@@ -111,5 +111,71 @@ export const statisticsService = {
             console.error('Error fetching bytes statistics:', error);
             throw error;
         }
+    },
+
+    /**
+     * Create SSE connection for real-time statistics updates
+     * @param statsType Type of statistics: "default", "bytes", or "status"
+     * @param target Optional data source: "domain" (default) or "proxy"
+     * @param status Optional HTTP status code (required when statsType is "status")
+     * @param onData Callback function to handle incoming data
+     * @param onError Callback function to handle errors
+     * @returns Function to close the SSE connection
+     */
+    createSSEConnection(
+        statsType: string,
+        target?: StatisticsTarget,
+        status?: string,
+        onData?: (data: StatisticsDataPoint) => void,
+        onError?: (error: Event) => void
+    ): () => void {
+        const baseUrl = getApiBaseUrl();
+        const targetParam = target ? `&target=${target}` : '';
+        const statusParam = status ? `&status=${status}` : '';
+        
+        // Validate required parameters
+        if (statsType === 'status' && !status) {
+            throw new Error('Status parameter is required for status statistics');
+        }
+        
+        const url = `${baseUrl}/statistics/events?type=${statsType}${targetParam}${statusParam}`;
+        
+        // Create EventSource with auth headers if available
+        const token = getAuthToken();
+        const eventSource = new EventSource(url);
+        
+        // Add auth header if token exists (Note: EventSource doesn't support custom headers directly)
+        // We'll need to handle auth via query parameter or cookies in production
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const parsed = JSON.parse(event.data);
+                if (parsed.type === 'statistics_update' && parsed.data && onData) {
+                    onData(parsed.data);
+                }
+            } catch (error) {
+                console.error('Error parsing SSE data:', error);
+                if (onError) {
+                    onError(event);
+                }
+            }
+        };
+
+        eventSource.onerror = (event) => {
+            console.error('SSE connection error:', event);
+            if (onError) {
+                onError(event);
+            }
+        };
+
+        eventSource.onopen = () => {
+            console.log(`SSE connected for ${statsType} statistics`);
+        };
+
+        // Return cleanup function
+        return () => {
+            console.log(`Closing SSE connection for ${statsType} statistics`);
+            eventSource.close();
+        };
     }
 };

@@ -17,6 +17,10 @@ pub fn init() {
             println!("[-PT-] Received request: {} {}", request.method, request.path);
 
             match (request.method.as_str(), request.path.as_str()) {
+                ("GWRX", "/version") => {
+                    let version_info = "Mini Gateway";
+                    let _ =  request.send_200(version_info);
+                }
                 ("GWRX", "/gateway/node") => {
                     let res = match app::gateway_node::init(body_string) {
                         Ok(_) => request.send_200("Gateway node data updated successfully"),

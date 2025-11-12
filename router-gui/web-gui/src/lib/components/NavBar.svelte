@@ -1,6 +1,6 @@
 <!-- Desktop Sidebar Navigation Component -->
 <script lang="ts">
-    import { Home, BarChart2, Users, Server, Share2, Menu } from 'lucide-svelte';
+    import { Home, BarChart2, Users, Server, Share2, Database, Menu } from 'lucide-svelte';
     export let username: string;
     
     // Function to handle logout - will be passed from parent

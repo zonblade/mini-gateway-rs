@@ -72,6 +72,12 @@ pub struct ProxyDomain {
     
     /// Server Name Indication value for TLS
     pub sni: Option<String>,
+    
+    /// Whether automatic certificate generation is enabled
+    pub tls_autron: bool,
+    
+    /// Expected renewal date for automatic certificates (ISO 8601 format)
+    pub expected_renew: Option<String>,
 }
 
 #[post("/proxy")]

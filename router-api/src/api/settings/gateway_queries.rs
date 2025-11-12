@@ -64,7 +64,7 @@ pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
             pattern TEXT NOT NULL,
             target TEXT NOT NULL,
             priority INTEGER NOT NULL,
-            FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id)
+            FOREIGN KEY(gwnode_id) REFERENCES gateway_nodes(id) ON DELETE CASCADE
         )",
         [],
     )?;
@@ -316,7 +316,7 @@ pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
     
     // Insert or replace the gateway
     db.execute(
-        "INSERT OR REPLACE INTO gateways (id, gwnode_id, pattern, target, priority) 
+        "INSERT OR REPLACE INTO gateways (id, gwnode_id, pattern, target, priority)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         [
             &gateway.id,

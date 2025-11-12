@@ -12,6 +12,19 @@ export const currentStatusCode = writable<string>('');
 // Store for current target (domain or proxy)
 export const currentTarget = writable<'domain' | 'proxy'>('domain');
 
+// Store for connection status (for debugging/monitoring)
+export const connectionStatus = writable<{
+    sseConnected: boolean;
+    fallbackActive: boolean;
+    lastUpdate: Date | null;
+    errorCount: number;
+}>({
+    sseConnected: false,
+    fallbackActive: false,
+    lastUpdate: null,
+    errorCount: 0
+});
+
 // Helper function to find the max value in the data set
 export function getMaxValue(data: StatisticsDataPoint[]): number {
     if (data.length === 0) return 0;

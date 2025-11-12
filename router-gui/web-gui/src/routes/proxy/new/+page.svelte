@@ -40,6 +40,7 @@
         domain: string;
         useTls: boolean;
         autoTls: boolean;
+        prodMode: boolean;
         certPem: string;
         certKey: string;
     }

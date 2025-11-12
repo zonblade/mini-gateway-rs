@@ -23,6 +23,9 @@ use uuid::Uuid;
 /// - `tls_pem`: TEXT - PEM certificate content
 /// - `tls_key`: TEXT - Private key content
 /// - `sni`: TEXT - Server Name Indication value
+/// - `tls_autron`: BOOLEAN NOT NULL DEFAULT 0 - Whether automatic certificate generation is enabled
+/// - `tls_mode`: TEXT - TLS mode for certbot when tls_autron is true ("staging" or "prod")
+/// - `expected_renew`: TEXT - Expected renewal date for automatic certificates (ISO 8601 format)
 ///
 /// # Returns
 ///
@@ -37,8 +40,8 @@ use uuid::Uuid;
 pub fn ensure_proxy_domains_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
     
-    // Define the expected columns
-    let expected_columns = ["id", "proxy_id", "tls", "tls_pem", "tls_key", "sni"];
+    // Define the expected columns including new certificate automation fields
+    let expected_columns = ["id", "proxy_id", "tls", "tls_pem", "tls_key", "sni", "tls_autron", "tls_mode", "expected_renew"];
     
     // Check if the table exists with the expected columns and is not corrupted
     if db.table_exists_with_columns("proxy_domains", &expected_columns)? {
@@ -51,7 +54,7 @@ pub fn ensure_proxy_domains_table() -> Result<(), DatabaseError> {
     // Drop the table if it exists but is corrupted or missing columns
     db.execute("DROP TABLE IF EXISTS proxy_domains", [])?;
     
-    // Create the table with the full correct structure
+    // Create the table with the full correct structure including certificate automation fields
     db.execute(
         "CREATE TABLE proxy_domains (
             id TEXT PRIMARY KEY,
@@ -59,7 +62,11 @@ pub fn ensure_proxy_domains_table() -> Result<(), DatabaseError> {
             tls BOOLEAN NOT NULL DEFAULT 0,
             tls_pem TEXT,
             tls_key TEXT,
-            sni TEXT
+            sni TEXT,
+            tls_autron BOOLEAN NOT NULL DEFAULT 0,
+            tls_mode TEXT DEFAULT 'staging',
+            expected_renew TEXT,
+            FOREIGN KEY(proxy_id) REFERENCES proxies(id) ON DELETE CASCADE
         )",
         [],
     )?;
@@ -107,7 +114,7 @@ pub fn get_all_proxy_domains() -> Result<Vec<ProxyDomain>, DatabaseError> {
 
     // Query all proxy domains
     let domains = db.query(
-        "SELECT id, proxy_id, tls, tls_pem, tls_key, sni FROM proxy_domains",
+        "SELECT id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, tls_mode, expected_renew FROM proxy_domains",
         [],
         |row| {
             Ok(ProxyDomain {
@@ -117,6 +124,9 @@ pub fn get_all_proxy_domains() -> Result<Vec<ProxyDomain>, DatabaseError> {
                 tls_pem: row.get(3)?,
                 tls_key: row.get(4)?,
                 sni: row.get(5)?,
+                tls_autron: row.get(6)?,
+                tls_mode: row.get(7)?,
+                expected_renew: row.get(8)?,
             })
         },
     )?;
@@ -156,7 +166,7 @@ pub fn get_proxy_domain_by_id(id: &str) -> Result<Option<ProxyDomain>, DatabaseE
 
     // Query the proxy domain by ID
     let domain = db.query_one(
-        "SELECT id, proxy_id, tls, tls_pem, tls_key, sni FROM proxy_domains WHERE id = ?1",
+        "SELECT id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, tls_mode, expected_renew FROM proxy_domains WHERE id = ?1",
         [id],
         |row| {
             Ok(ProxyDomain {
@@ -166,6 +176,9 @@ pub fn get_proxy_domain_by_id(id: &str) -> Result<Option<ProxyDomain>, DatabaseE
                 tls_pem: row.get(3)?,
                 tls_key: row.get(4)?,
                 sni: row.get(5)?,
+                tls_autron: row.get(6)?,
+                tls_mode: row.get(7)?,
+                expected_renew: row.get(8)?,
             })
         },
     )?;
@@ -203,7 +216,7 @@ pub fn get_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<Vec<ProxyDomain>,
     
     // Query proxy domains by proxy ID
     let domains = db.query(
-        "SELECT id, proxy_id, tls, tls_pem, tls_key, sni FROM proxy_domains WHERE proxy_id = ?1",
+        "SELECT id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, tls_mode, expected_renew FROM proxy_domains WHERE proxy_id = ?1",
         [proxy_id],
         |row| {
             Ok(ProxyDomain {
@@ -213,6 +226,9 @@ pub fn get_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<Vec<ProxyDomain>,
                 tls_pem: row.get(3)?,
                 tls_key: row.get(4)?,
                 sni: row.get(5)?,
+                tls_autron: row.get(6)?,
+                tls_mode: row.get(7)?,
+                expected_renew: row.get(8)?,
             })
         },
     )?;
@@ -262,8 +278,8 @@ pub fn save_proxy_domain(domain: &ProxyDomain) -> Result<(), DatabaseError> {
     
     // Insert or replace the proxy domain with validated proxy_id and proper NULL handling
     db.execute(
-        "INSERT OR REPLACE INTO proxy_domains (id, proxy_id, tls, tls_pem, tls_key, sni) 
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT OR REPLACE INTO proxy_domains (id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, tls_mode, expected_renew) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
             &domain.id,
             &proxy_id,
@@ -271,6 +287,9 @@ pub fn save_proxy_domain(domain: &ProxyDomain) -> Result<(), DatabaseError> {
             &domain.tls_pem,
             &domain.tls_key,
             &domain.sni,
+            &(if domain.tls_autron { 1 } else { 0 }),
+            &domain.tls_mode,
+            &domain.expected_renew,
         ],
     ).map_err(|e| {
         log::error!("Database error when saving domain {}: {}", domain.id, e);

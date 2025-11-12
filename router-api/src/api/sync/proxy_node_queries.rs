@@ -46,7 +46,8 @@ pub struct QProxyNode {
 pub fn get_all_proxy_nodes() -> Result<Vec<QProxyNode>, DatabaseError> {
     let db = get_connection()?;
     
-    // Ensure the proxies table exists before querying it
+    // Ensure tables exist in the correct order (parent tables first)
+    // This prevents foreign key constraint violations during table creation
     proxy_queries::ensure_proxies_table()?;
     proxydomain_queries::ensure_proxy_domains_table()?;
     gwnode_queries::ensure_gateway_nodes_table()?;

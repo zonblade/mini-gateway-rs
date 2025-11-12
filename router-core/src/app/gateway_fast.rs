@@ -74,6 +74,8 @@ pub struct ContextGw {
     pub size_in: usize,
     pub size_out: usize,
     pub src_addr: Option<String>,
+    pub path_src: Option<String>,
+    pub path_dst: Option<String>,
 }
 
 impl Default for ContextGw {
@@ -86,6 +88,8 @@ impl Default for ContextGw {
             size_in: 0,
             size_out: 0,
             src_addr: None,
+            path_src: None,
+            path_dst: None,
         }
     }
 }
@@ -576,6 +580,11 @@ impl ProxyHttp for GatewayApp {
         Self::CTX: Send + Sync,
     {
         _ctx.conn_id = Some(atomic_id());
+        
+        // Set the original source path early for all logging
+        let path = session.req_header().uri.path();
+        _ctx.path_src = Some(path.to_string());
+        
         //
         //
         // --- validate domain if using TLS ---
@@ -621,26 +630,30 @@ impl ProxyHttp for GatewayApp {
                             } else {
                                 &q[start + 3..]
                             };
-                            id_str.to_string()
+                            Some(id_str.to_string())
                         },
-                        None => atomic_id()
+                        None => None
                     }
                 },
-                None => atomic_id()
+                None => None
             };
 
-            _ctx.conn_id    = Some(query_id.to_string());
-            _ctx.websocket  = true;
-            _ctx.conn_type  = Some("WS".into());
-
-            info!(
-                "[GWX] | ID:{}, TYPE:INIT, CONN:{}, SIZE:{}, STAT:101, SRC:{}, DST:{} |",
-                _ctx.conn_id.clone().unwrap_or("-".into()),
-                "WS",
-                0,
-                _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-                _ctx.peer.clone().unwrap_or("UNKNOWN".into())
-            );
+            if let Some(_) = query_id.clone() {
+                _ctx.conn_id    = query_id;
+                _ctx.websocket  = true;
+                _ctx.conn_type  = Some("WS".into());
+    
+                info!(
+                    "[GWX] | ID:{}, TYPE:INIT, CONN:{}, SIZE:{}, STAT:101, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
+                    _ctx.conn_id.clone().unwrap_or("-".into()),
+                    "WS",
+                    0,
+                    _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+                    _ctx.peer.clone().unwrap_or("UNKNOWN".into()),
+                    _ctx.path_src.clone().unwrap_or("-".into()),
+                    _ctx.path_dst.clone().unwrap_or("-".into())
+                );
+            }
         } else {
             _ctx.conn_type = Some("HTTP".into());
         }
@@ -656,7 +669,6 @@ impl ProxyHttp for GatewayApp {
 
         // 2. Prepare cache key (full path + query)
         // Avoid allocation if query is None
-        let path = session.req_header().uri.path();
         let query = session.req_header().uri.query();
         // Use Cow for potential zero-allocation case when no query exists
         let cache_key = match query {
@@ -669,6 +681,9 @@ impl ProxyHttp for GatewayApp {
         {
             // Cache Hit!
             debug!("Cache hit for key: {}", cache_key);
+            
+            // Set the destination path from cache
+            _ctx.path_dst = Some(rewritten_path_query.clone());
             if let Some(sni) = sni {
                 if authority != sni {
                     error!(
@@ -751,6 +766,9 @@ impl ProxyHttp for GatewayApp {
                     Some(q) => format!("{}?{}", rewritten_path, q),
                     None => rewritten_path, // Already a String
                 };
+                
+                // Set the destination path for cache miss scenario
+                _ctx.path_dst = Some(final_path_query.clone());
 
                 // Update request URI
                 match http::uri::PathAndQuery::from_maybe_shared(final_path_query.clone()) {
@@ -804,6 +822,12 @@ impl ProxyHttp for GatewayApp {
             "No matching rules for path '{}', using default fallback.",
             path
         );
+        
+        // Set destination path same as source since no rewriting occurred
+        if _ctx.path_dst.is_none() {
+            _ctx.path_dst = _ctx.path_src.clone();
+        }
+        
         // Clone the precomputed Box<HttpPeer>
         // Ok(DEFAULT_FALLBACK_PEER.clone())
         Ok(true)
@@ -840,12 +864,14 @@ impl ProxyHttp for GatewayApp {
 
         // println!("Request Header: {}", header_str);
         info!(
-            "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} |",
+            "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
             _ctx.conn_id.clone().unwrap_or("-".into()),
             _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
             size_in,
             _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-            _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+            _ctx.peer.clone().unwrap_or("UNKNOWN".into()),
+            _ctx.path_src.clone().unwrap_or("-".into()),
+            _ctx.path_dst.clone().unwrap_or("-".into())
         );
         Ok(())
     }
@@ -878,13 +904,15 @@ impl ProxyHttp for GatewayApp {
         //     _ctx.peer.clone().unwrap_or("UNKNOWN".into())
         // );
         info!(
-            "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
+            "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
             _ctx.conn_id.clone().unwrap_or("-".into()),
             _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
             _ctx.size_out,
             response_code,
             _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-            _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+            _ctx.peer.clone().unwrap_or("UNKNOWN".into()),
+            _ctx.path_src.clone().unwrap_or("-".into()),
+            _ctx.path_dst.clone().unwrap_or("-".into())
         );
     }
 

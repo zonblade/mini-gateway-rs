@@ -2,8 +2,6 @@ use mini_config::Configure;
 use std::sync::{Arc, RwLock};
 use std::sync::Once;
 
-use crate::module::temporary_log;
-
 #[derive(Debug, Clone, Configure)]
 pub enum Api {
     TCPAddress
@@ -11,7 +9,6 @@ pub enum Api {
 
 // Define a struct for configuration entries
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct LogGatewayEntry {
     pub path: String,
     pub status: String,
@@ -19,13 +16,21 @@ pub struct LogGatewayEntry {
     pub timestamp: String,
 }
 
+// Define a struct for active device connections
+#[derive(Debug, Clone)]
+pub struct ActiveDeviceEntry {
+    pub conn_id: String,
+    pub connected_at: String,
+}
+
 // Global append-only vector with RwLock for thread safety
 pub static GLOBAL_LOG_GATEWAY: RwLock<Option<Arc<Vec<LogGatewayEntry>>>> = RwLock::new(None);
 pub static GLOBAL_LOG_PROXY: RwLock<Option<Arc<Vec<LogGatewayEntry>>>> = RwLock::new(None);
+pub static GLOBAL_ACTIVE_DEVICES: RwLock<Vec<ActiveDeviceEntry>> = RwLock::new(Vec::new());
 static INIT: Once = Once::new();
 
 // Helper function to append a value to the global config
-pub fn append_config(_key: &str, _value: &str) {
+pub fn append_config(key: &str, value: &str) {
     // if let Ok(mut config) = GLOBAL_LOG_GATEWAY.write() {
     //     let new_entry = LogGatewayEntry {
     //         key: key.to_string(),
@@ -47,6 +52,8 @@ pub fn append_config(_key: &str, _value: &str) {
 }
 
 pub fn init(){
+    dotenv::dotenv().ok();
+
     Api::TCPAddress.set("127.0.0.1:30099");
     
     // Initialize the global config only once
@@ -62,6 +69,39 @@ pub fn init(){
     
     // Add initial values
     append_config("tcp_address", "127.0.0.1:30099");
-
-    temporary_log::init();
 }
+
+// Functions to manage active device connections
+pub fn add_active_device(conn_id: String) {
+    if let Ok(mut devices) = GLOBAL_ACTIVE_DEVICES.write() {
+        // Remove existing entry if it exists (in case of reconnection)
+        devices.retain(|device| device.conn_id != conn_id);
+
+        let new_entry = ActiveDeviceEntry {
+            conn_id,
+            connected_at: chrono::Utc::now().to_rfc3339(),
+        };
+        devices.push(new_entry);
+    }
+}
+
+pub fn remove_active_device(conn_id: &str) {
+    if let Ok(mut devices) = GLOBAL_ACTIVE_DEVICES.write() {
+        devices.retain(|device| device.conn_id != conn_id);
+    }
+}
+
+pub fn get_all_active_devices() -> Vec<ActiveDeviceEntry> {
+    if let Ok(devices) = GLOBAL_ACTIVE_DEVICES.read() {
+        devices.clone()
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn clear_all_active_devices() {
+    if let Ok(mut devices) = GLOBAL_ACTIVE_DEVICES.write() {
+        devices.clear();
+    }
+}
+

@@ -203,6 +203,8 @@ proxy:
           -----BEGIN PRIVATE KEY-----
           key
           -----END PRIVATE KEY-----
+        tls_autron: false  # Enable automatic TLS certificate generation via Let's Encrypt
+        tls_mode: "staging"  # TLS mode when tls_autron is true: "staging" or "prod"
     highspeed:
       enabled: true
       target: "gateway1"
@@ -214,6 +216,12 @@ proxy:
           - priority: 1
             pattern: "^(.*)$"
             target: "/$1"
+          - priority: 2
+            pattern: "^/api/debug/(.*)$"
+            target: "/debug/$1"
+          - priority: 3
+            pattern: "^/health$"
+            target: "/health"
 "#;
 
     let mut file = File::create(&config_path)
@@ -233,6 +241,8 @@ proxy:
     println!("     - tls: Enable/disable TLS");
     println!("     - tls_cert: TLS certificate (if tls is true)");
     println!("     - tls_key: TLS private key (if tls is true)");
+    println!("     - tls_autron: Enable automatic TLS via Let's Encrypt");
+    println!("     - tls_mode: Certificate mode when tls_autron is true (\"staging\" or \"prod\")");
     println!("   - highspeed: High-speed routing settings");
     println!("     - enabled: Enable/disable high-speed routing");
     println!("     - target: Target gateway for high-speed routing");

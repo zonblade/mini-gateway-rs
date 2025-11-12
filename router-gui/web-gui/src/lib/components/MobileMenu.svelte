@@ -1,6 +1,6 @@
 <!-- Mobile Menu Component -->
 <script lang="ts">
-    import { Home, BarChart2, Users, Server, Share2, X, User } from 'lucide-svelte';
+    import { Home, BarChart2, Users, Server, Share2, Database, X, User } from 'lucide-svelte';
     export let isOpen: boolean;
     export let username: string;
     export let onClose: () => void;
@@ -90,6 +90,10 @@
             <a href="/gwnode" class="group flex items-center px-2 py-3 text-base font-normal hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors border-l-2 border-transparent hover:border-indigo-500">
                 <Share2 class="mr-3 h-6 w-6 text-gray-500 group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white" />
                 Gateway Nodes
+            </a>
+            <a href="/database" class="group flex items-center px-2 py-3 text-base font-normal hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors border-l-2 border-transparent hover:border-indigo-500">
+                <Database class="mr-3 h-6 w-6 text-gray-500 group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white" />
+                Database
             </a>
         </nav>
     </div>

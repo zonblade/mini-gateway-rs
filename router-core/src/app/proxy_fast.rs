@@ -265,15 +265,19 @@ impl ProxyApp {
     }
 
     // Regex-based HTTP request line parser and rewriter
-    fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> (usize, bool, Option<String>) {
+    fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> (usize, bool, Option<String>, Option<String>, Option<String>) {
         // First convert the buffer to a string for processing
         let request_str = match std::str::from_utf8(&buffer[..length]) {
             Ok(s) => s,
-            Err(_) => return (length, false, None), // Not valid UTF-8, return unchanged
+            Err(_) => return (length, false, None, None, None), // Not valid UTF-8, return unchanged
         };
         
         // Initialize extracted_id as None
         let mut extracted_id = None;
+        
+        // Initialize path tracking variables
+        let mut original_path: Option<String> = None;
+        let mut rewritten_path: Option<String> = None;
 
         // Flag to track if this is a WebSocket upgrade request
         let is_websocket = request_str.contains("Upgrade: websocket")
@@ -315,7 +319,7 @@ impl ProxyApp {
             && !request_str.starts_with("CONNECT ")
             && !request_str.starts_with("OPTIONS ")
         {
-            return (length, is_websocket, extracted_id);
+            return (length, is_websocket, extracted_id, original_path, rewritten_path);
         }
     
         // First check for configuration changes at regular intervals
@@ -330,10 +334,10 @@ impl ProxyApp {
             // Make sure we don't overflow the buffer
             if new_len <= buffer.len() {
                 buffer[..new_len].copy_from_slice(new_bytes);
-                return (new_len, is_websocket, extracted_id);
+                return (new_len, is_websocket, extracted_id, original_path, rewritten_path);
             } else {
                 debug!("Cached rewritten request too large for buffer");
-                return (length, false, extracted_id);
+                return (length, false, extracted_id, original_path, rewritten_path);
             }
         }
     
@@ -342,7 +346,7 @@ impl ProxyApp {
         // Find the first line of the request (the request line)
         let line_end = match request_str.find("\r\n") {
             Some(pos) => pos,
-            None => return (length, is_websocket, extracted_id), // Not a complete HTTP request line
+            None => return (length, is_websocket, extracted_id, original_path, rewritten_path), // Not a complete HTTP request line
         };
     
         let request_line = &request_str[..line_end];
@@ -355,7 +359,7 @@ impl ProxyApp {
         let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
         if parts.len() < 3 {
             debug!("Malformed request line: '{}'", request_line);
-            return (length, is_websocket, extracted_id); // Malformed, return original
+            return (length, is_websocket, extracted_id, original_path, rewritten_path); // Malformed, return original
         }
         let method = parts[0];
         let request_path_with_query = parts[1];
@@ -371,13 +375,16 @@ impl ProxyApp {
         };
         
         debug!("Parsed request path: '{}', query: '{:?}'", request_path, query_string);
+        
+        // Capture original path for logging
+        original_path = Some(request_path.to_string());
     
         // Try each rewrite rule
         let rules_guard = match self.path_rewrites.read() {
             Ok(guard) => guard,
             Err(e) => {
                 error!("Failed to acquire read lock on path_rewrites: {}", e);
-                return (length, is_websocket, extracted_id); // Return original length and websocket flag if lock acquisition fails
+                return (length, is_websocket, extracted_id, original_path, rewritten_path); // Return original length and websocket flag if lock acquisition fails
             }
         };
         for rule in rules_guard.iter() {
@@ -415,6 +422,9 @@ impl ProxyApp {
                 // Create the new *path* without query, then add query if present
                 let new_request_path_only = format!("{}{}{}", before, replacement, after);
                 
+                // Capture rewritten path for logging before consuming new_request_path_only
+                rewritten_path = Some(new_request_path_only.clone());
+                
                 // Reconstruct the full path with query string if it was present
                 let new_request_path = match query_string {
                     Some(q) => format!("{}{}", new_request_path_only, q), // q already includes '?'
@@ -443,10 +453,10 @@ impl ProxyApp {
                 if new_len <= buffer.len() {
                     // Copy the new request into the buffer
                     buffer[..new_len].copy_from_slice(new_bytes);
-                    return (new_len, is_websocket, extracted_id);
+                    return (new_len, is_websocket, extracted_id, original_path, rewritten_path);
                 } else {
                     debug!("Rewritten request too large for buffer");
-                    return (length, is_websocket, extracted_id); // Return original length if new request is too large
+                    return (length, is_websocket, extracted_id, original_path, rewritten_path); // Return original length if new request is too large
                 }
             }
         }
@@ -454,7 +464,7 @@ impl ProxyApp {
         // No rewrite performed
         debug!("No rewrite rule matched for request path: {}", request_path);
         // should close if no match
-        (0, is_websocket, extracted_id)
+        (0, is_websocket, extracted_id, original_path, rewritten_path)
     }
     
     /// Checks if the configuration should be reloaded based on time interval.
@@ -615,10 +625,10 @@ impl ProxyApp {
                 }
                 DuplexEvent::DownstreamRead(n) => {
                     // Try to rewrite the request if it's HTTP
-                    let (write_len, websocket, id) = self.rewrite_http_request(&mut upstream_buf, n);
+                    let (write_len, websocket, id, path_src, path_dst) = self.rewrite_http_request(&mut upstream_buf, n);
 
                     temp_record.3 = write_len;
-                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM[ON], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
+                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM[ON], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |", 
                         {
                             if let Some(id) = id {
                                 if websocket {
@@ -651,7 +661,9 @@ impl ProxyApp {
                             }
                         }, 
                         self.proxy_source,
-                        self.proxy_to._address
+                        self.proxy_to._address,
+                        path_src.as_deref().unwrap_or("-"),
+                        path_dst.as_deref().unwrap_or("-")
                     );
                     temp_record.1 = {
                         if let None = temp_record.1 {

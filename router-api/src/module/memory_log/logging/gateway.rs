@@ -2,9 +2,11 @@ use crate::module::{
     memory_log::core::{LogConsumer, GATEWAY_LOGGER_NAME, MAX_MEMORY_SIZE},
     temporary_log::{tlog_gateway, TemporaryLog},
 };
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc, time::{Duration, Instant}
+};
 
-pub fn listen() {
+pub async fn listen() {
     log::info!("Starting log consumer...");
 
     // Open shared memory
@@ -35,7 +37,7 @@ pub fn listen() {
 
             // If we haven't received anything in a while, try to reconnect
             if consecutive_empty > 2000 {
-                batch.shrink_to_fit(); // Force capacity reduction
+                batch.shrink_to_fit();
                 log::warn!(
                     "Too many consecutive empty results ({}), attempting to recreate consumer",
                     consecutive_empty
@@ -69,7 +71,7 @@ pub fn listen() {
 
                 // Process full batch
                 if batch.len() >= BATCH_SIZE {
-                    // process_batch(&batch);
+                    process_batch(&batch).await;
                     batch.clear();
                     batch.shrink_to_fit();
                 }
@@ -78,7 +80,7 @@ pub fn listen() {
                 // Process any remaining logs
                 if !batch.is_empty() {
                     consecutive_empty = 0;
-                    // process_batch(&batch);
+                    process_batch(&batch).await;
                     batch.clear();
                     batch.shrink_to_fit();
                 }
@@ -102,7 +104,9 @@ pub fn listen() {
 }
 
 // Extract batch processing to a separate function
-fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
+async fn process_batch(
+    batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>,
+) {
     // Replace with actual batch processing logic
     for (datetime, _level, message) in batch {
         // Process each log entry (commented out to avoid unnecessary prints)
@@ -120,14 +124,14 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
             }
         };
 
-        let _header_inner = {
+        let header_inner = {
             if message_vector.len() > 2 {
                 message_vector[2]
             } else {
                 continue; // Skip if the message format is not as expected
             }
         };
-        
+
         // Initialize variables to store extracted values
         let mut conn_id = String::new();
         let mut msg_type = "";
@@ -136,15 +140,17 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
         let mut status = "";
         let mut source = String::new();
         let mut destination = String::new();
-        
+        let mut path_src = String::new();
+        let mut path_dst = String::new();
+
         // Direct field extraction
         for field in message_inner.split(',') {
             let field = field.trim();
-            
+
             if let Some(colon_idx) = field.find(':') {
                 let key = &field[..colon_idx].trim();
-                let value = &field[colon_idx+1..].trim();
-                
+                let value = &field[colon_idx + 1..].trim();
+
                 // Direct field matching without HashMap
                 match *key {
                     "ID" => conn_id = value.to_string(),
@@ -154,25 +160,28 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
                     "STAT" => status = value,
                     "SRC" => source = value.to_string(),
                     "DST" => destination = value.to_string(),
+                    "PTH_SRC" => path_src = value.to_string(),
+                    "PTH_DST" => path_dst = value.to_string(),
                     _ => {} // Ignore unknown fields
                 }
             }
         }
-        
+
         // Determine request vs response
         let (conn_req, conn_res, bytes_in, bytes_out) = match msg_type {
             "REQ" => (1, 0, size, 0),
             "RES" => (0, 1, 0, size),
             _ => (0, 0, 0, 0),
         };
-        
+
         // Convert status to numeric code
         let status_code = if status == "N/A" {
             0
         } else {
             status.parse::<i32>().unwrap_or(0)
         };
-        
+
+
         // Create and append the TemporaryLog
         let log_entry = TemporaryLog {
             date_time: datetime.clone(),
@@ -184,6 +193,8 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
             conn_res,
             bytes_in: bytes_in as i32,
             bytes_out: bytes_out as i32,
+            path_src: if path_src.is_empty() { None } else { Some(path_src) },
+            path_dst: if path_dst.is_empty() { None } else { Some(path_dst) },
         };
 
         let _ = tlog_gateway::append_data(log_entry);

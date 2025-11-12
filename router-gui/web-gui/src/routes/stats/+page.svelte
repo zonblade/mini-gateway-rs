@@ -5,6 +5,7 @@
     import StatsDefaultManager from "$lib/components/stats/StatsDefaultManager.svelte";
     import StatsBytesManager from "$lib/components/stats/StatsBytesManager.svelte";
     import StatsStatusCodeManager from "$lib/components/stats/StatsStatusCodeManager.svelte";
+    import ConnectionStatus from "$lib/components/stats/ConnectionStatus.svelte";
     import { statisticsActions } from "$lib/actions/statisticsAction";
     import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
 
@@ -29,14 +30,14 @@
     }
 
     onMount(() => {
-        // Setup polling for automatic data refresh only if logged in
+        // Setup hybrid approach (API + SSE) for automatic data refresh only if logged in
         if (isLoggedIn) {
-            stopPolling = statisticsActions.setupPolling(15000); // Poll every 15 seconds
+            stopPolling = statisticsActions.setupHybridUpdates(15000); // SSE with polling fallback
         }
     });
 
     onDestroy(() => {
-        // Clean up polling and auth subscription
+        // Clean up statistics connections and auth subscription
         if (stopPolling) stopPolling();
         unsubAuthCheck();
     });
@@ -107,9 +108,12 @@
 
             <div class="text-center text-sm text-gray-500 dark:text-gray-400 mt-2">
                 <p>
-                    Data refreshes automatically every 15 seconds. Last update: {new Date().toLocaleTimeString()}
+                    Data updates in real-time as new intervals are processed. Last update: {new Date().toLocaleTimeString()}
                 </p>
             </div>
         </div>
     </div>
+    
+    <!-- Connection status indicator (only show when logged in) -->
+    <ConnectionStatus />
 {/if}

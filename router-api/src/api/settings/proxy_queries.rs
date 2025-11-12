@@ -46,7 +46,7 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     let proxies_table_valid = db.table_exists_with_columns("proxies", &expected_columns)?;
     
     // Define the expected columns for proxy_domains table
-    let expected_domain_columns = ["id", "proxy_id", "tls", "tls_pem", "tls_key", "sni"];
+    let expected_domain_columns = ["id", "proxy_id", "tls", "tls_pem", "tls_key", "sni", "tls_autron", "expected_renew"];
     
     // Check if the proxy_domains table exists with the expected columns and is not corrupted
     let proxy_domains_table_valid = db.table_exists_with_columns("proxy_domains", &expected_domain_columns)?;
@@ -103,15 +103,17 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                         tls BOOLEAN NOT NULL DEFAULT 0,
                         tls_pem TEXT,
                         tls_key TEXT,
-                        sni TEXT
+                        sni TEXT,
+                        tls_autron BOOLEAN NOT NULL DEFAULT 0,
+                        expected_renew TEXT
                     )",
                     [],
                 )?;
                 
                 // Migrate TLS data to proxy_domains table
                 db.execute(
-                    "INSERT INTO proxy_domains (id, proxy_id, tls, tls_pem, tls_key, sni)
-                    SELECT hex(randomblob(16)), id, tls, tls_pem, tls_key, sni
+                    "INSERT INTO proxy_domains (id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, expected_renew)
+                    SELECT hex(randomblob(16)), id, tls, tls_pem, tls_key, sni, 0, NULL
                     FROM proxies WHERE tls = 1",
                     [],
                 )?;
@@ -157,7 +159,9 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                 tls BOOLEAN NOT NULL DEFAULT 0,
                 tls_pem TEXT,
                 tls_key TEXT,
-                sni TEXT
+                sni TEXT,
+                tls_autron BOOLEAN NOT NULL DEFAULT 0,
+                expected_renew TEXT
             )",
             [],
         )?;

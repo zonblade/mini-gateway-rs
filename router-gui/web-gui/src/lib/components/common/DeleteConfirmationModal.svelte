@@ -3,7 +3,7 @@
     import Button from './Button.svelte';
 
     export let showModal = false;
-    export let type: 'proxy' | 'gwnode' | 'user' = 'proxy';
+    export let type: 'proxy' | 'gwnode' | 'user' | 'database' = 'proxy';
     export let addressToVerify = '';
     export let errorMessage: null | string = null;
     export let isProcessing = false;
@@ -48,6 +48,7 @@
                 This action cannot be undone. To confirm deletion, please type the {
                     type === 'proxy' ? 'listen address' : 
                     type === 'gwnode' ? 'target address' : 
+                    type === 'database' ? 'database name' :
                     'email address'
                 } below:
             </p>
@@ -56,6 +57,7 @@
                 <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {type === 'proxy' ? 'Listen Address' : 
                      type === 'gwnode' ? 'Target Address' : 
+                     type === 'database' ? 'Database Name' :
                      'Email Address'}:
                 </p>
                 <code class="block bg-gray-100/80 dark:bg-gray-700/80 p-2 text-sm font-mono">
@@ -67,6 +69,7 @@
                 <label for="verification" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Type the {type === 'proxy' ? 'listen address' : 
                              type === 'gwnode' ? 'target address' : 
+                             type === 'database' ? 'database name' :
                              'email address'} to confirm:
                 </label>
                 <input
@@ -76,6 +79,7 @@
                     class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700/80 dark:text-white bg-white/80"
                     placeholder={`Type the ${type === 'proxy' ? 'listen address' : 
                                          type === 'gwnode' ? 'target address' : 
+                                         type === 'database' ? 'database name' :
                                          'email address'} to confirm`}
                 />
             </div>

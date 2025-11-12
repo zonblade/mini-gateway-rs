@@ -16,6 +16,7 @@ export interface TlsDomain {
     tls_pem: string | null;
     tls_key: string | null;
     tls_autron: boolean;
+    tls_mode?: string | null; // "staging" or "prod"
     proxy_id: string; // Set by server
     gwnode_id?: string | null; // Optional gateway node ID
 }
@@ -42,6 +43,7 @@ export interface DomainConfig {
     domain: string;
     useTls: boolean;
     autoTls: boolean;
+    prodMode: boolean;
     certPem: string;
     certKey: string;
     proxy_id: string;
@@ -83,6 +85,7 @@ export function domainsToApiFormat(domains: DomainConfig[]): TlsDomain[] {
         tls_pem: domain.useTls ? domain.certPem || null : null,
         tls_key: domain.useTls ? domain.certKey || null : null,
         tls_autron: domain.useTls ? domain.autoTls : false,
+        tls_mode: domain.useTls && domain.autoTls ? (domain.prodMode ? "prod" : "staging") : null,
         proxy_id: domain.proxy_id,
         gwnode_id: domain.gwnode_id || null
     }));
@@ -95,6 +98,7 @@ export function apiToDomainConfigs(domains: TlsDomain[]): DomainConfig[] {
         domain: domain.sni || "",
         useTls: !!domain.tls_pem || !!domain.tls_key || !!domain.tls_autron,
         autoTls: domain.tls_autron || false,
+        prodMode: domain.tls_mode === "prod",
         certPem: domain.tls_pem || "",
         certKey: domain.tls_key || "",
         proxy_id: domain.proxy_id,

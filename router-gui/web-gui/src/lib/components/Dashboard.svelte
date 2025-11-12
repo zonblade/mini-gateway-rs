@@ -62,4 +62,16 @@
             </div>
         </div>
     </div>
+    <!-- <div class="mt-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-md">
+        <div class="min-h-[300px] ">
+            <div style="width: 100%; height: 300px;">
+                <LineChart data={Ldata} {labels} />
+            </div>
+        </div>
+        <div class="min-h-[300px]">
+            <div style="width: 100%; height: 300px;">
+                <HighLowChart data={highLowData} {labels} />
+            </div>
+        </div>
+    </div> -->
 </div>
