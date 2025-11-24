@@ -76,6 +76,38 @@ pub struct ContextGw {
     pub src_addr: Option<String>,
     pub path_src: Option<String>,
     pub path_dst: Option<String>,
+
+    // === NEW RAW METRICS ===
+    // Timing
+    pub request_start: Option<Instant>,
+    pub duration_ms: Option<f64>,
+
+    // Network
+    pub client_ip: Option<String>,
+    pub client_port: Option<u16>,
+    pub server_ip: Option<String>,
+    pub server_port: Option<u16>,
+    pub protocol: Option<String>,
+
+    // TCP (from TCP_INFO on Linux)
+    pub tcp_rtt: Option<u32>,
+    pub tcp_rtt_var: Option<u32>,
+    pub tcp_retrans: Option<u8>,
+    pub tcp_lost: Option<u32>,
+    pub tcp_send_wnd: Option<u32>,
+    pub tcp_recv_wnd: Option<u32>,
+    pub tcp_send_mss: Option<u32>,
+    pub tcp_recv_mss: Option<u32>,
+    pub tcp_bytes_acked: Option<u64>,
+    pub tcp_segs_in: Option<u32>,
+    pub tcp_segs_out: Option<u32>,
+
+    // HTTP
+    pub http_method: Option<String>,
+    pub http_status: Option<u16>,
+
+    // TLS
+    pub tls_version: Option<String>,
 }
 
 impl Default for ContextGw {
@@ -90,6 +122,29 @@ impl Default for ContextGw {
             src_addr: None,
             path_src: None,
             path_dst: None,
+
+            // New fields
+            request_start: None,
+            duration_ms: None,
+            client_ip: None,
+            client_port: None,
+            server_ip: None,
+            server_port: None,
+            protocol: None,
+            tcp_rtt: None,
+            tcp_rtt_var: None,
+            tcp_retrans: None,
+            tcp_lost: None,
+            tcp_send_wnd: None,
+            tcp_recv_wnd: None,
+            tcp_send_mss: None,
+            tcp_recv_mss: None,
+            tcp_bytes_acked: None,
+            tcp_segs_in: None,
+            tcp_segs_out: None,
+            http_method: None,
+            http_status: None,
+            tls_version: None,
         }
     }
 }
@@ -579,6 +634,59 @@ impl ProxyHttp for GatewayApp {
     where
         Self::CTX: Send + Sync,
     {
+        // === NEW: Start timing ===
+        _ctx.request_start = Some(Instant::now());
+
+        // === NEW: Extract metrics from Pingora digest ===
+        if let Some(digest) = session.digest() {
+            // Socket addresses
+            if let Some(socket_digest) = &digest.socket_digest {
+                if let Some(peer_addr) = socket_digest.peer_addr() {
+                    // Convert entire address to string, parse later if needed
+                    let addr_str = peer_addr.to_string();
+                    _ctx.client_ip = Some(addr_str.clone());
+                    _ctx.client_port = None; // Parse from addr_str if needed
+                }
+                if let Some(local_addr) = socket_digest.local_addr() {
+                    let addr_str = local_addr.to_string();
+                    _ctx.server_ip = Some(addr_str.clone());
+                    _ctx.server_port = None; // Parse from addr_str if needed
+                }
+
+                // TCP_INFO (Linux only)
+                #[cfg(target_os = "linux")]
+                if let Some(tcp_info) = socket_digest.tcp_info() {
+                    _ctx.tcp_rtt = Some(tcp_info.tcpi_rtt);
+                    _ctx.tcp_rtt_var = Some(tcp_info.tcpi_rttvar);
+                    _ctx.tcp_retrans = Some(tcp_info.tcpi_retransmits);
+                    _ctx.tcp_lost = Some(tcp_info.tcpi_lost);
+                    _ctx.tcp_send_wnd = Some(tcp_info.tcpi_snd_wnd);
+                    _ctx.tcp_recv_wnd = Some(tcp_info.tcpi_rcv_wnd);
+                    _ctx.tcp_send_mss = Some(tcp_info.tcpi_snd_mss);
+                    _ctx.tcp_recv_mss = Some(tcp_info.tcpi_rcv_mss);
+                    _ctx.tcp_bytes_acked = Some(tcp_info.tcpi_bytes_acked);
+                    _ctx.tcp_segs_in = Some(tcp_info.tcpi_segs_in);
+                    _ctx.tcp_segs_out = Some(tcp_info.tcpi_segs_out);
+                }
+            }
+
+            // TLS info
+            if let Some(ssl_digest) = &digest.ssl_digest {
+                _ctx.tls_version = Some(ssl_digest.version.to_string());
+            }
+        }
+
+        // HTTP info
+        let req_header = session.req_header();
+        _ctx.http_method = Some(req_header.method.to_string());
+        _ctx.protocol = Some(match req_header.version {
+            http::Version::HTTP_11 => "HTTP/1.1",
+            http::Version::HTTP_2 => "HTTP/2",
+            http::Version::HTTP_3 => "HTTP/3",
+            _ => "HTTP/1.0",
+        }.to_string());
+
+        // === EXISTING CODE CONTINUES ===
         _ctx.conn_id = Some(atomic_id());
         
         // Set the original source path early for all logging
@@ -894,25 +1002,60 @@ impl ProxyHttp for GatewayApp {
         let response_code = _session
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
-        // eprintln!(
-        //     "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} | Response",
-        //     _ctx.conn_id.clone().unwrap_or("-".into()),
-        //     _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
-        //     _ctx.size_out,
-        //     response_code,
-        //     _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-        //     _ctx.peer.clone().unwrap_or("UNKNOWN".into())
-        // );
+
+        // Capture HTTP status
+        _ctx.http_status = Some(response_code);
+
+        // Calculate duration
+        if let Some(start) = _ctx.request_start {
+            _ctx.duration_ms = Some(start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Refresh TCP_INFO for final counts
+        #[cfg(target_os = "linux")]
+        if let Some(digest) = _session.digest() {
+            if let Some(socket_digest) = &digest.socket_digest {
+                if let Some(tcp_info) = socket_digest.tcp_info() {
+                    _ctx.tcp_bytes_acked = Some(tcp_info.tcpi_bytes_acked);
+                    _ctx.tcp_segs_in = Some(tcp_info.tcpi_segs_in);
+                    _ctx.tcp_segs_out = Some(tcp_info.tcpi_segs_out);
+                }
+            }
+        }
+
+        // EXTENDED [GWX] LOG with raw metrics
         info!(
-            "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
-            _ctx.conn_id.clone().unwrap_or("-".into()),
-            _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+            "[GWX] ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{}, \
+             DUR:{:.2}, PROTO:{}, METHOD:{}, \
+             TCP_RTT:{}, TCP_RETRANS:{}, TCP_LOST:{}, TCP_SND_WND:{}, TCP_RCV_WND:{}, \
+             TCP_SND_MSS:{}, TCP_RCV_MSS:{}, TCP_BYTES_ACKED:{}, TCP_SEGS_IN:{}, TCP_SEGS_OUT:{}, \
+             TLS_VER:{}, CLIENT:{}:{}, SERVER:{}:{}",
+            _ctx.conn_id.clone().unwrap_or_else(|| "-".into()),
+            _ctx.conn_type.clone().unwrap_or_else(|| "UNKNOWN".into()),
             _ctx.size_out,
             response_code,
-            _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-            _ctx.peer.clone().unwrap_or("UNKNOWN".into()),
-            _ctx.path_src.clone().unwrap_or("-".into()),
-            _ctx.path_dst.clone().unwrap_or("-".into())
+            _ctx.src_addr.clone().unwrap_or_else(|| "UNKNOWN".into()),
+            _ctx.peer.clone().unwrap_or_else(|| "UNKNOWN".into()),
+            _ctx.path_src.clone().unwrap_or_else(|| "-".into()),
+            _ctx.path_dst.clone().unwrap_or_else(|| "-".into()),
+            _ctx.duration_ms.unwrap_or(0.0),
+            _ctx.protocol.clone().unwrap_or_else(|| "-".into()),
+            _ctx.http_method.clone().unwrap_or_else(|| "-".into()),
+            _ctx.tcp_rtt.unwrap_or(0),
+            _ctx.tcp_retrans.unwrap_or(0),
+            _ctx.tcp_lost.unwrap_or(0),
+            _ctx.tcp_send_wnd.unwrap_or(0),
+            _ctx.tcp_recv_wnd.unwrap_or(0),
+            _ctx.tcp_send_mss.unwrap_or(0),
+            _ctx.tcp_recv_mss.unwrap_or(0),
+            _ctx.tcp_bytes_acked.unwrap_or(0),
+            _ctx.tcp_segs_in.unwrap_or(0),
+            _ctx.tcp_segs_out.unwrap_or(0),
+            _ctx.tls_version.clone().unwrap_or_else(|| "-".into()),
+            _ctx.client_ip.clone().unwrap_or_else(|| "-".into()),
+            _ctx.client_port.unwrap_or(0),
+            _ctx.server_ip.clone().unwrap_or_else(|| "-".into()),
+            _ctx.server_port.unwrap_or(0)
         );
     }
 

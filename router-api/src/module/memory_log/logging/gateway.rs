@@ -162,6 +162,16 @@ async fn process_batch(
                     "DST" => destination = value.to_string(),
                     "PTH_SRC" => path_src = value.to_string(),
                     "PTH_DST" => path_dst = value.to_string(),
+
+                    // Extended metrics (parsed but not stored)
+                    "DUR" | "PROTO" | "METHOD" |
+                    "TCP_RTT" | "TCP_RETRANS" | "TCP_LOST" |
+                    "TCP_SND_WND" | "TCP_RCV_WND" | "TCP_SND_MSS" | "TCP_RCV_MSS" |
+                    "TCP_BYTES_ACKED" | "TCP_SEGS_IN" | "TCP_SEGS_OUT" |
+                    "TLS_VER" | "CLIENT" | "SERVER" => {
+                        // Parsed successfully, ignoring value
+                    },
+
                     _ => {} // Ignore unknown fields
                 }
             }
