@@ -25,6 +25,7 @@ mod statistics;
 pub mod sync;
 mod users;
 mod generation;
+pub mod ai_security;
 
 use actix_web::web;
 use users::init_database;
@@ -61,7 +62,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .configure(users::configure)
             .configure(sync::configure)
             .configure(statistics::configure) // Statistics module is empty now, but will be protected when implemented
-            .configure(generation::configure), // Generation utilities for UUID and other identifiers
+            .configure(generation::configure) // Generation utilities for UUID and other identifiers
+            .configure(ai_security::configure), // AI Security model management and inference
                                                // .configure(statistics::configure)
     );
 }
