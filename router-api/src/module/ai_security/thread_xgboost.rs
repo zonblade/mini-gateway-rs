@@ -5,6 +5,7 @@
 
 use super::models::{OnnxModel, ModelError};
 use crate::api::ai_security::ai_model_queries;
+use crate::api::ai_security::ModelType;
 use std::sync::mpsc::Receiver;
 
 /// Represents a parsed ML feature log for inference
@@ -55,7 +56,7 @@ impl XGBoostHandler {
             .map_err(|e| ModelError::FileNotFound(format!("Database error: {}", e)))?;
 
         let xgboost_model = models.iter()
-            .find(|m| m.model_type == "xgboost")
+            .find(|m| m.model_type == ModelType::XGBoost)
             .ok_or_else(|| ModelError::FileNotFound("No enabled XGBoost model found".to_string()))?;
 
         log::info!("Loading XGBoost model: {} from {}", xgboost_model.name, xgboost_model.file_path);

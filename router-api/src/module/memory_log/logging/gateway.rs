@@ -1,6 +1,7 @@
 use crate::module::{
     memory_log::core::{LogConsumer, GATEWAY_LOGGER_NAME, MAX_MEMORY_SIZE},
     temporary_log::{tlog_gateway, TemporaryLog},
+    ai_security::{self, MlFeatureLog},
 };
 use std::{
     sync::Arc, time::{Duration, Instant}
@@ -107,6 +108,9 @@ pub async fn listen() {
 async fn process_batch(
     batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>,
 ) {
+    // FAST PATH: Check if AI is enabled ONCE per batch
+    let ai_enabled = ai_security::is_ai_enabled();
+
     // Replace with actual batch processing logic
     for (datetime, _level, message) in batch {
         // Process each log entry (commented out to avoid unnecessary prints)
@@ -143,6 +147,12 @@ async fn process_batch(
         let mut path_src = String::new();
         let mut path_dst = String::new();
 
+        // ML feature fields (only used when AI enabled)
+        let mut duration_ms: f32 = 0.0;
+        let mut tcp_rtt: u32 = 0;
+        let mut tcp_retrans: u32 = 0;
+        let mut tcp_lost: u32 = 0;
+
         // Direct field extraction
         for field in message_inner.split(',') {
             let field = field.trim();
@@ -163,14 +173,18 @@ async fn process_batch(
                     "PTH_SRC" => path_src = value.to_string(),
                     "PTH_DST" => path_dst = value.to_string(),
 
-                    // Extended metrics (parsed but not stored)
+                    // ML fields - only parse if AI enabled
+                    "DUR" if ai_enabled => duration_ms = value.parse().unwrap_or(0.0),
+                    "TCP_RTT" if ai_enabled => tcp_rtt = value.parse().unwrap_or(0),
+                    "TCP_RETRANS" if ai_enabled => tcp_retrans = value.parse().unwrap_or(0),
+                    "TCP_LOST" if ai_enabled => tcp_lost = value.parse().unwrap_or(0),
+
+                    // Skip ML fields when disabled (zero overhead)
                     "DUR" | "PROTO" | "METHOD" |
                     "TCP_RTT" | "TCP_RETRANS" | "TCP_LOST" |
                     "TCP_SND_WND" | "TCP_RCV_WND" | "TCP_SND_MSS" | "TCP_RCV_MSS" |
                     "TCP_BYTES_ACKED" | "TCP_SEGS_IN" | "TCP_SEGS_OUT" |
-                    "TLS_VER" | "CLIENT" | "SERVER" => {
-                        // Parsed successfully, ignoring value
-                    },
+                    "TLS_VER" | "CLIENT" | "SERVER" => {},
 
                     _ => {} // Ignore unknown fields
                 }
@@ -195,7 +209,7 @@ async fn process_batch(
         // Create and append the TemporaryLog
         let log_entry = TemporaryLog {
             date_time: datetime.clone(),
-            conn_id,
+            conn_id: conn_id.clone(),
             conn_type: conn_type.to_string(),
             peer: (source, destination),
             status_code,
@@ -208,5 +222,18 @@ async fn process_batch(
         };
 
         let _ = tlog_gateway::append_data(log_entry);
+
+        // Send to AI inference if enabled (only on response which has all metrics)
+        if ai_enabled && msg_type == "RES" {
+            let ml_log = MlFeatureLog {
+                conn_id: conn_id.clone(),
+                duration_ms,
+                tcp_rtt: tcp_rtt as f32,
+                tcp_retrans: tcp_retrans as f32,
+                tcp_lost: tcp_lost as f32,
+                http_status: status_code as f32,
+            };
+            ai_security::send_to_inference(ml_log);
+        }
     }
 }

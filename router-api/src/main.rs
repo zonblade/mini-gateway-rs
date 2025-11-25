@@ -119,6 +119,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         memory_log::spawner::spawn_all();
     }
 
+    // Initialize AI security (checks DB, spawns threads if models exist)
+    {
+        log::info!("Initializing AI security...");
+        if let Err(e) = module::ai_security::init_ai_security() {
+            log::warn!("AI security init failed: {}. Continuing without AI.", e);
+        }
+    }
+
     {
         log::info!("Starting certificate auto-renewal spawner...");
         module::auto_renewal::spawner::spawn_auto_renewal();

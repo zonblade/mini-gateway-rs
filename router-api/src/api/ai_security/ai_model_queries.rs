@@ -7,13 +7,14 @@
 use crate::module::database::{get_connection, DatabaseError};
 use chrono::Utc;
 use uuid::Uuid;
+use super::ModelType;
 
 /// Represents an AI model configuration
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AiModel {
     pub id: String,
     pub name: String,
-    pub model_type: String,          // "xgboost" or "isolation"
+    pub model_type: ModelType,
     pub file_path: String,
     pub enabled: bool,
     pub version: Option<String>,
@@ -57,7 +58,9 @@ pub fn get_all_ai_models() -> Result<Vec<AiModel>, DatabaseError> {
             Ok(AiModel {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                model_type: row.get(2)?,
+                model_type: row.get::<_, String>(2)?
+                    .parse::<ModelType>()
+                    .unwrap_or(ModelType::XGBoost),
                 file_path: row.get(3)?,
                 enabled: row.get::<_, i64>(4)? != 0,
                 version: row.get(5)?,
@@ -82,7 +85,9 @@ pub fn get_ai_model_by_id(id: &str) -> Result<Option<AiModel>, DatabaseError> {
             Ok(AiModel {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                model_type: row.get(2)?,
+                model_type: row.get::<_, String>(2)?
+                    .parse::<ModelType>()
+                    .unwrap_or(ModelType::XGBoost),
                 file_path: row.get(3)?,
                 enabled: row.get::<_, i64>(4)? != 0,
                 version: row.get(5)?,
@@ -108,7 +113,7 @@ pub fn upsert_ai_model(model: &AiModel) -> Result<(), DatabaseError> {
         rusqlite::params![
             &model.id,
             &model.name,
-            &model.model_type,
+            &model.model_type.to_string(),
             &model.file_path,
             if model.enabled { 1 } else { 0 },
             &model.version,
@@ -174,7 +179,9 @@ pub fn get_enabled_ai_models() -> Result<Vec<AiModel>, DatabaseError> {
             Ok(AiModel {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                model_type: row.get(2)?,
+                model_type: row.get::<_, String>(2)?
+                    .parse::<ModelType>()
+                    .unwrap_or(ModelType::XGBoost),
                 file_path: row.get(3)?,
                 enabled: row.get::<_, i64>(4)? != 0,
                 version: row.get(5)?,

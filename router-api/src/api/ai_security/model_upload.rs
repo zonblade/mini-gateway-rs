@@ -2,7 +2,7 @@
 //!
 //! This module provides the HTTP endpoint for uploading ONNX model files.
 
-use super::ai_model_queries::{self, AiModel};
+use super::{ai_model_queries::{self, AiModel}, ModelType};
 use actix_multipart::Multipart;
 use actix_web::{post, HttpResponse, Responder};
 use chrono::Utc;
@@ -128,10 +128,11 @@ pub async fn upload_ai_model(mut payload: Multipart) -> impl Responder {
         _ => return HttpResponse::BadRequest().body("Missing or empty 'name' field"),
     };
 
-    let model_type = match model_type {
-        Some(mt) if mt == "xgboost" || mt == "isolation" => mt,
-        Some(mt) => return HttpResponse::BadRequest()
-            .body(format!("Invalid model_type '{}'. Must be 'xgboost' or 'isolation'", mt)),
+    let model_type: ModelType = match model_type {
+        Some(mt) => match mt.parse::<ModelType>() {
+            Ok(t) => t,
+            Err(e) => return HttpResponse::BadRequest().body(e),
+        },
         None => return HttpResponse::BadRequest().body("Missing 'model_type' field"),
     };
 
@@ -154,7 +155,17 @@ pub async fn upload_ai_model(mut payload: Multipart) -> impl Responder {
 
     // Save to database
     match ai_model_queries::upsert_ai_model(&ai_model) {
-        Ok(_) => HttpResponse::Ok().json(ai_model),
+        Ok(_) => {
+            // Spawn inference thread if this is the first model of this type
+            match ai_model.model_type {
+                ModelType::XGBoost => crate::module::ai_security::spawn_xgboost_with_sender(),
+                ModelType::Isolation => crate::module::ai_security::spawn_isolation_with_sender(),
+            }
+            // Enable AI inference
+            crate::module::ai_security::state::enable_ai();
+
+            HttpResponse::Ok().json(ai_model)
+        }
         Err(e) => {
             // Clean up file on database error
             let _ = fs::remove_file(format!("./models/{}.onnx", model_id));

@@ -54,7 +54,7 @@ pub async fn get_inference_stats() -> impl Responder {
         .map(|m| ModelStats {
             id: m.id.clone(),
             name: m.name.clone(),
-            model_type: m.model_type.clone(),
+            model_type: m.model_type.to_string(),
             enabled: m.enabled,
             inference_count: m.inference_count,
             last_inference: m.last_inference.clone(),

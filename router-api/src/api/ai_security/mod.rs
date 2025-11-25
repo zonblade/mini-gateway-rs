@@ -7,6 +7,44 @@
 //!
 //! The module uses ONNX Runtime for model inference with XGBoost and Isolation Forest models.
 
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
+
+/// AI Model types supported by the system
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelType {
+    XGBoost,
+    Isolation,
+}
+
+impl ModelType {
+    /// All supported model types
+    pub const ALL: &'static [ModelType] = &[ModelType::XGBoost, ModelType::Isolation];
+}
+
+impl fmt::Display for ModelType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ModelType::XGBoost => write!(f, "xgboost"),
+            ModelType::Isolation => write!(f, "isolation"),
+        }
+    }
+}
+
+impl FromStr for ModelType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "xgboost" => Ok(ModelType::XGBoost),
+            "isolation" => Ok(ModelType::Isolation),
+            _ => Err(format!("Invalid model type: '{}'. Must be 'xgboost' or 'isolation'", s)),
+        }
+    }
+}
+
 pub mod ai_model_queries;
 mod model_list;
 mod model_get;

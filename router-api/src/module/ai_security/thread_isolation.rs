@@ -6,6 +6,7 @@
 use super::models::{OnnxModel, ModelError};
 use super::thread_xgboost::MlFeatureLog; // Reuse the same feature log struct
 use crate::api::ai_security::ai_model_queries;
+use crate::api::ai_security::ModelType;
 use std::sync::mpsc::Receiver;
 
 /// Isolation Forest thread handler that processes ML logs and runs inference
@@ -30,7 +31,7 @@ impl IsolationForestHandler {
             .map_err(|e| ModelError::FileNotFound(format!("Database error: {}", e)))?;
 
         let isolation_model = models.iter()
-            .find(|m| m.model_type == "isolation")
+            .find(|m| m.model_type == ModelType::Isolation)
             .ok_or_else(|| ModelError::FileNotFound("No enabled Isolation Forest model found".to_string()))?;
 
         log::info!("Loading Isolation Forest model: {} from {}", isolation_model.name, isolation_model.file_path);

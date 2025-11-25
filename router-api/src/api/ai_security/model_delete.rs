@@ -45,6 +45,13 @@ pub async fn delete_ai_model(id: web::Path<String>) -> impl Responder {
         log::warn!("Failed to delete model file {}: {}", model.file_path, e);
     }
 
+    // Check if any models remain
+    let remaining = ai_model_queries::get_enabled_ai_models().unwrap_or_default();
+    if remaining.is_empty() {
+        crate::module::ai_security::state::disable_ai();
+        log::info!("All AI models deleted, AI security disabled");
+    }
+
     HttpResponse::Ok().json(serde_json::json!({
         "message": "AI model deleted successfully",
         "id": id.to_string()
