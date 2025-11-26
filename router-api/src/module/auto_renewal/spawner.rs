@@ -200,7 +200,7 @@ async fn check_and_renew_expiring_certificates(config: &AutoRenewalConfig) -> Re
         if needs_renewal {
             log::info!("Renewing certificate for domain: {}", domain_name);
             
-            match renew_single_domain_with_retry(domain_name, proxy_id, config).await {
+            match renew_single_domain_with_retry(&domain, config).await {
                 Ok(_) => {
                     renewed += 1;
                     log::info!("Successfully renewed certificate for domain: {}", domain_name);
@@ -216,17 +216,32 @@ async fn check_and_renew_expiring_certificates(config: &AutoRenewalConfig) -> Re
     Ok((checked, renewed, failed))
 }
 
-/// Renew a single domain certificate with retry logic
-async fn renew_single_domain_with_retry(domain_name: &str, proxy_id: &str, config: &AutoRenewalConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// Renew a single domain certificate with retry logic using per-domain configuration
+async fn renew_single_domain_with_retry(domain: &ProxyDomain, config: &AutoRenewalConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let domain_name = domain.sni.as_ref().ok_or("Domain has no SNI")?;
+    let proxy_id = domain.proxy_id.as_ref().ok_or("Domain has no proxy_id")?;
+
+    // Email should always exist due to API validation, but double-check
+    let email = domain.tls_email.clone();
+    if email.is_none() || email.as_ref().map(|e| e.trim().is_empty()).unwrap_or(true) {
+        log::error!("Domain {} missing email - this should not happen due to validation", domain_name);
+        return Err(format!("Domain {} has no email configured for Let's Encrypt", domain_name).into());
+    }
+
     let mut attempt = 1;
     let mut last_error = None;
-    
+
     while attempt <= config.retry_attempts {
         log::debug!("Certificate renewal attempt {} of {} for domain {}", attempt, config.retry_attempts, domain_name);
-        
-        // Create a manager that will check the domain's tls_mode and use the appropriate certificate authority
-        // The ensure_certificate_and_save method will automatically detect the correct mode (staging/prod)
-        let manager = certificate_automation::CertificateAutomationManager::new_staging();
+
+        // Create the appropriate manager based on domain's tls_mode and email
+        let tls_mode = domain.tls_mode.as_deref().unwrap_or("staging");
+        let manager = if tls_mode == "prod" {
+            certificate_automation::CertificateAutomationManager::new_production(email.clone())
+        } else {
+            certificate_automation::CertificateAutomationManager::new_staging_with_email(email.clone())
+        };
+
         match manager.ensure_certificate_and_save(domain_name, proxy_id).await {
             Ok(_) => {
                 if attempt > 1 {
@@ -236,26 +251,26 @@ async fn renew_single_domain_with_retry(domain_name: &str, proxy_id: &str, confi
             },
             Err(e) => {
                 last_error = Some(e);
-                
+
                 if attempt < config.retry_attempts {
                     let delay = Duration::from_secs(
                         config.retry_delay_seconds * 2_u64.pow(attempt - 1)
                     );
-                    log::warn!("Certificate renewal attempt {} failed for {}, retrying in {:?}: {}", 
+                    log::warn!("Certificate renewal attempt {} failed for {}, retrying in {:?}: {}",
                               attempt, domain_name, delay, last_error.as_ref().unwrap());
                     tokio::time::sleep(delay).await;
                 } else {
-                    log::error!("Certificate renewal for {} failed after {} attempts: {}", 
+                    log::error!("Certificate renewal for {} failed after {} attempts: {}",
                                domain_name, config.retry_attempts, last_error.as_ref().unwrap());
                 }
-                
+
                 attempt += 1;
             }
         }
     }
-    
-    Err(format!("Certificate renewal for {} failed after {} attempts: {}", 
-                domain_name, config.retry_attempts, 
+
+    Err(format!("Certificate renewal for {} failed after {} attempts: {}",
+                domain_name, config.retry_attempts,
                 last_error.unwrap()).into())
 }
 

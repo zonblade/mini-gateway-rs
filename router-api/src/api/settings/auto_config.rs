@@ -37,6 +37,9 @@ pub struct YamlDomain {
     /// TLS mode for certbot when tls_autron is true ("staging" or "prod")
     #[serde(default = "default_tls_mode")]
     pub tls_mode: String,
+    /// Email for Let's Encrypt registration (required when tls_autron is true)
+    #[serde(default)]
+    pub tls_email: Option<String>,
 }
 
 /// Default TLS mode is staging for safety
@@ -219,7 +222,23 @@ pub async fn upload_config(
             )
         }
         created_proxies.push(proxy.clone());
-        
+
+        // Validate tls_email for domains with tls_autron enabled
+        for yaml_domain in &yaml_proxy.domains {
+            if yaml_domain.tls_autron {
+                match &yaml_domain.tls_email {
+                    Some(email) if !email.trim().is_empty() => {
+                        // Valid - continue
+                    }
+                    _ => {
+                        return HttpResponse::BadRequest().json(serde_json::json!({
+                            "error": format!("Domain '{}' has tls_autron=true but missing tls_email. Email is required for Let's Encrypt registration.", yaml_domain.domain)
+                        }));
+                    }
+                }
+            }
+        }
+
         // Process domains
         let mut domain_map = std::collections::HashMap::new();
         for yaml_domain in &yaml_proxy.domains {
@@ -245,6 +264,7 @@ pub async fn upload_config(
                 sni: Some(yaml_domain.domain.clone()),
                 tls_autron: yaml_domain.tls_autron,
                 tls_mode: Some(tls_mode.clone()),
+                tls_email: yaml_domain.tls_email.clone(),
                 expected_renew: None, // Will be set during certificate generation
             };
             
@@ -261,12 +281,11 @@ pub async fn upload_config(
                 
                 // Wait for certificate generation to complete before proceeding
                 // Use the appropriate manager based on tls_mode
+                let email = yaml_domain.tls_email.clone();
                 let manager = if tls_mode == "prod" {
-                    certificate_automation::CertificateAutomationManager::new_production(
-                        Some("email@domain.com".to_string())
-                    )
+                    certificate_automation::CertificateAutomationManager::new_production(email)
                 } else {
-                    certificate_automation::CertificateAutomationManager::new_staging()
+                    certificate_automation::CertificateAutomationManager::new_staging_with_email(email)
                 };
                 
                 let cert_result = manager.ensure_certificate_and_save(&yaml_domain.domain, &proxy_id).await;
@@ -467,6 +486,7 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
             tls_key: domain.tls_key.clone(),
             tls_autron: domain.tls_autron,
             tls_mode: domain.tls_mode.clone().unwrap_or_else(|| "staging".to_string()),
+            tls_email: domain.tls_email.clone(),
         }).collect::<Vec<_>>();
         
         // Get gateway nodes for this proxy

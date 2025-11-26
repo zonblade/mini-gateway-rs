@@ -17,6 +17,7 @@ export interface TlsDomain {
     tls_key: string | null;
     tls_autron: boolean;
     tls_mode?: string | null; // "staging" or "prod"
+    tls_email?: string | null; // Email for Let's Encrypt registration
     proxy_id: string; // Set by server
     gwnode_id?: string | null; // Optional gateway node ID
 }
@@ -44,6 +45,7 @@ export interface DomainConfig {
     useTls: boolean;
     autoTls: boolean;
     prodMode: boolean;
+    tlsEmail: string; // Email for Let's Encrypt (required when autoTls is true)
     certPem: string;
     certKey: string;
     proxy_id: string;
@@ -86,6 +88,7 @@ export function domainsToApiFormat(domains: DomainConfig[]): TlsDomain[] {
         tls_key: domain.useTls ? domain.certKey || null : null,
         tls_autron: domain.useTls ? domain.autoTls : false,
         tls_mode: domain.useTls && domain.autoTls ? (domain.prodMode ? "prod" : "staging") : null,
+        tls_email: domain.useTls && domain.autoTls ? domain.tlsEmail || null : null,
         proxy_id: domain.proxy_id,
         gwnode_id: domain.gwnode_id || null
     }));
@@ -99,6 +102,7 @@ export function apiToDomainConfigs(domains: TlsDomain[]): DomainConfig[] {
         useTls: !!domain.tls_pem || !!domain.tls_key || !!domain.tls_autron,
         autoTls: domain.tls_autron || false,
         prodMode: domain.tls_mode === "prod",
+        tlsEmail: domain.tls_email || "",
         certPem: domain.tls_pem || "",
         certKey: domain.tls_key || "",
         proxy_id: domain.proxy_id,

@@ -128,6 +128,8 @@ pub struct ProxyDomain {
     pub tls_autron: bool,
     /// TLS mode for certbot when tls_autron is true ("staging" or "prod")
     pub tls_mode: Option<String>,
+    /// Email for Let's Encrypt registration (required when tls_autron is true)
+    pub tls_email: Option<String>,
     /// Expected renewal date for automatic certificates (ISO 8601 format)
     pub expected_renew: Option<String>,
 }

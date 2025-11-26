@@ -269,8 +269,34 @@ pub async fn set_proxy(req: HttpRequest, input: web::Json<ProxyInputObject>) -> 
                     // Ensure domain is associated with this proxy
                     domain.proxy_id = Some(proxy.id.clone());
 
-                    // Auto-set tls_mode to "staging" for safety when tls_autron is true but tls_mode is missing or empty
+                    // Validate: if tls_autron is enabled, tls_email must be provided and valid
                     if domain.tls_autron {
+                        match &domain.tls_email {
+                            Some(email) if !email.trim().is_empty() => {
+                                if let Err(e) = validate_tls_email(email) {
+                                    // Cleanup if this is a new proxy
+                                    if is_new_proxy {
+                                        cleanup_proxy_and_domains(&proxy_id, &saved_domain_ids);
+                                    }
+                                    return HttpResponse::BadRequest().json(serde_json::json!({
+                                        "error": format!("Invalid email for domain '{}': {}",
+                                            domain.sni.as_deref().unwrap_or("unknown"), e)
+                                    }));
+                                }
+                            }
+                            _ => {
+                                // Cleanup if this is a new proxy
+                                if is_new_proxy {
+                                    cleanup_proxy_and_domains(&proxy_id, &saved_domain_ids);
+                                }
+                                return HttpResponse::BadRequest().json(serde_json::json!({
+                                    "error": format!("Email is required for Auto TLS on domain '{}'",
+                                        domain.sni.as_deref().unwrap_or("unknown"))
+                                }));
+                            }
+                        }
+
+                        // Auto-set tls_mode to "staging" for safety when tls_autron is true but tls_mode is missing or empty
                         if domain.tls_mode.is_none() || domain.tls_mode.as_ref().unwrap().is_empty() {
                             log::info!("Domain {} has tls_autron=true but missing tls_mode, defaulting to 'staging' for safety", domain.id);
                             domain.tls_mode = Some("staging".to_string());
@@ -439,6 +465,27 @@ fn cleanup_proxy_and_domains(proxy_id: &str, domain_ids: &[String]) {
     if let Err(e) = proxy_queries::delete_proxy_by_id(proxy_id) {
         log::error!("Error deleting proxy {} during cleanup: {}", proxy_id, e);
     }
+}
+
+/// Validates email format for TLS certificates (basic RFC 5322 validation)
+fn validate_tls_email(email: &str) -> Result<(), String> {
+    let email = email.trim();
+    if email.is_empty() {
+        return Err("Email cannot be empty".to_string());
+    }
+    // Basic RFC 5322 validation
+    if !email.contains('@') || !email.contains('.') || email.len() > 254 {
+        return Err(format!("Invalid email format: {}", email));
+    }
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        return Err(format!("Invalid email format: {}", email));
+    }
+    // Check domain part has at least one dot
+    if !parts[1].contains('.') {
+        return Err(format!("Invalid email domain: {}", email));
+    }
+    Ok(())
 }
 
 /// Deletes a proxy configuration by ID

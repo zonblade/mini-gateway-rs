@@ -38,15 +38,20 @@ pub struct CertificateAutomationManager {
 }
 
 impl CertificateAutomationManager {
-    /// Create a new certificate automation manager with default staging configuration
+    /// Create a new certificate automation manager with default staging configuration (no email)
     pub fn new_staging() -> Self {
+        Self::new_staging_with_email(None)
+    }
+
+    /// Create a new certificate automation manager with staging configuration and custom email
+    pub fn new_staging_with_email(email: Option<String>) -> Self {
         let config = CertbotConfig {
             staging: true,  // Safe staging environment
-            email: Some("email@domain.com".to_string()),
+            email: email.clone(),
             non_interactive: true,
             agree_tos: true,
             no_eff_email: true,
-            register_unsafely_without_email: false,
+            register_unsafely_without_email: email.is_none(),
             // Use custom directory instead of /etc/letsencrypt
             config_dir: Some("/data/certbot/config".to_string()),
             work_dir: Some("/data/certbot/work".to_string()),
@@ -193,12 +198,14 @@ impl CertificateAutomationManager {
                 info!("Domain {} requires different TLS mode ({}), creating appropriate manager", domain, tls_mode);
                 
                 // Create the appropriate manager and proceed with certificate generation
+                // Use the domain's email for Let's Encrypt registration
+                let email = domain_record.tls_email.clone();
                 let appropriate_manager = if tls_mode == "prod" {
                     info!("Creating production manager for domain {}", domain);
-                    CertificateAutomationManager::new_production(Some("email@domain.com".to_string()))
+                    CertificateAutomationManager::new_production(email)
                 } else {
                     info!("Creating staging manager for domain {}", domain);
-                    CertificateAutomationManager::new_staging()
+                    CertificateAutomationManager::new_staging_with_email(email)
                 };
                 
                 // Generate certificate using the appropriate manager and return immediately
@@ -307,6 +314,7 @@ impl CertificateAutomationManager {
                     sni: Some(domain.to_string()),
                     tls_autron: true,
                     tls_mode: Some("staging".to_string()), // Default to staging
+                    tls_email: None,
                     expected_renew: None,
                 }
             });
@@ -438,26 +446,27 @@ impl CertificateAutomationManager {
                     sni: Some(domain.to_string()),
                     tls_autron: true,
                     tls_mode: Some("staging".to_string()), // Default to staging
+                    tls_email: None,
                     expected_renew: None,
                 }
             });
-        
+
         // Update domain record with certificate data
         proxy_domain.tls = true;
         proxy_domain.tls_autron = true;
         proxy_domain.tls_pem = Some(cert_pem);
         proxy_domain.tls_key = Some(key_pem);
         proxy_domain.expected_renew = Some(expected_renew);
-        
+
         // Save to database
         debug!("Saving updated proxy domain to database");
         proxydomain_queries::save_proxy_domain(&proxy_domain)?;
-        
+
         info!("Certificate automation completed successfully for domain: {}", domain);
-        
+
         Ok(proxy_domain)
     }
-    
+
     /// Generate certificates for all domains with tls_autron=true that need renewal
     ///
     /// This function scans all proxy domains and renews certificates that are:
@@ -683,15 +692,16 @@ impl CertificateAutomationManager {
         Ok(domain_matches)
     }
     
-    /// Get appropriate certificate manager based on domain's tls_mode
+    /// Get appropriate certificate manager based on domain's tls_mode and email
     fn get_appropriate_manager_for_domain(&self, domain: &ProxyDomain) -> Option<CertificateAutomationManager> {
         let default_tls_mode = "staging".to_string();
         let tls_mode = domain.tls_mode.as_ref().unwrap_or(&default_tls_mode);
+        let email = domain.tls_email.clone();
 
         if tls_mode == "prod" {
-            Some(CertificateAutomationManager::new_production(Some("email@domain.com".to_string())))
+            Some(CertificateAutomationManager::new_production(email))
         } else {
-            Some(CertificateAutomationManager::new_staging())
+            Some(CertificateAutomationManager::new_staging_with_email(email))
         }
     }
     
@@ -740,23 +750,24 @@ impl CertificateAutomationManager {
                     sni: Some(domain.to_string()),
                     tls_autron: true,
                     tls_mode: Some("staging".to_string()), // Default to staging
+                    tls_email: None,
                     expected_renew: None,
                 }
             });
-        
+
         // Update domain record with certificate data
         proxy_domain.tls = true;
         proxy_domain.tls_autron = true;
         proxy_domain.tls_pem = Some(cert_pem);
         proxy_domain.tls_key = Some(key_pem);
         proxy_domain.expected_renew = Some(expected_renew);
-        
+
         // Save to database
         debug!("Saving updated proxy domain to database");
         proxydomain_queries::save_proxy_domain(&proxy_domain)?;
-        
+
         info!("Successfully processed existing certificate for domain: {}", domain);
-        
+
         Ok(proxy_domain)
     }
 }
