@@ -1,4 +1,4 @@
-mod app;
+pub mod app;
 mod core;
 
 pub fn init() {
@@ -47,6 +47,16 @@ pub fn init() {
                         Err(e) => {
                             log::error!("Failed to update proxy node data: {}", e);
                             request.send_400("Failed to update proxy node data")
+                        }
+                    };
+                    let _ = res;
+                }
+                ("GWRX", "/gateway/blocklist") => {
+                    let res = match app::blocklist::init(body_string) {
+                        Ok(_) => request.send_200("Blocklist updated successfully"),
+                        Err(e) => {
+                            log::error!("Failed to update blocklist: {}", e);
+                            request.send_400(&format!("Failed to update blocklist: {}", e))
                         }
                     };
                     let _ = res;

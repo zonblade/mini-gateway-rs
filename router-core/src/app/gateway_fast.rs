@@ -85,6 +85,7 @@ pub struct ContextGw {
     // Network
     pub client_ip: Option<String>,
     pub client_port: Option<u16>,
+    pub real_ip: Option<String>,  // X-Forwarded-For or client_ip for Zero Trust
     pub server_ip: Option<String>,
     pub server_port: Option<u16>,
     pub protocol: Option<String>,
@@ -128,6 +129,7 @@ impl Default for ContextGw {
             duration_ms: None,
             client_ip: None,
             client_port: None,
+            real_ip: None,
             server_ip: None,
             server_port: None,
             protocol: None,
@@ -690,6 +692,44 @@ impl ProxyHttp for GatewayApp {
             _ => "HTTP/1.0",
         }.to_string());
 
+        // === ZERO TRUST: Extract real IP and check blocklist ===
+        // Priority: X-Forwarded-For > client_ip
+        let real_ip = {
+            let xff = session
+                .req_header()
+                .headers
+                .get("X-Forwarded-For")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.split(',').next()) // First IP in chain
+                .map(|s| s.trim().to_string());
+
+            xff.or_else(|| _ctx.client_ip.clone())
+        };
+        _ctx.real_ip = real_ip.clone();
+
+        // Check blocklist
+        if let Some(ip) = &real_ip {
+            if let Some(reason) = crate::system::prottp::app::blocklist::is_blocked(ip) {
+                log::warn!(
+                    "[BLOCKED] IP={} reason={} conn_id={}",
+                    ip,
+                    reason,
+                    _ctx.conn_id.clone().unwrap_or_else(|| "-".into())
+                );
+
+                // Return 403 Forbidden
+                let mut header = pingora::http::ResponseHeader::build(403, None).unwrap();
+                header.insert_header("Content-Type", "text/plain").unwrap();
+                header.insert_header("X-Blocked-Reason", &reason).unwrap();
+
+                session.write_response_header(Box::new(header), false).await?;
+                session.write_response_body(Some(bytes::Bytes::from("Forbidden")), true).await?;
+
+                return Ok(false); // Don't continue to upstream
+            }
+        }
+        // === END ZERO TRUST ===
+
         // === EXISTING CODE CONTINUES ===
         _ctx.conn_id = Some(atomic_id());
         
@@ -1033,7 +1073,7 @@ impl ProxyHttp for GatewayApp {
              DUR:{:.2}, PROTO:{}, METHOD:{}, \
              TCP_RTT:{}, TCP_RETRANS:{}, TCP_LOST:{}, TCP_SND_WND:{}, TCP_RCV_WND:{}, \
              TCP_SND_MSS:{}, TCP_RCV_MSS:{}, TCP_BYTES_ACKED:{}, TCP_SEGS_IN:{}, TCP_SEGS_OUT:{}, \
-             TLS_VER:{}, CLIENT:{}:{}, SERVER:{}:{}",
+             TLS_VER:{}, CLIENT:{}:{}, SERVER:{}:{}, REAL_IP:{}",
             _ctx.conn_id.clone().unwrap_or_else(|| "-".into()),
             _ctx.conn_type.clone().unwrap_or_else(|| "UNKNOWN".into()),
             _ctx.size_out,
@@ -1059,7 +1099,8 @@ impl ProxyHttp for GatewayApp {
             _ctx.client_ip.clone().unwrap_or_else(|| "-".into()),
             _ctx.client_port.unwrap_or(0),
             _ctx.server_ip.clone().unwrap_or_else(|| "-".into()),
-            _ctx.server_port.unwrap_or(0)
+            _ctx.server_port.unwrap_or(0),
+            _ctx.real_ip.clone().unwrap_or_else(|| "-".into())
         );
     }
 
