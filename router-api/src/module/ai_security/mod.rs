@@ -7,6 +7,8 @@ pub mod models;
 pub mod state;
 pub mod thread_isolation;
 pub mod thread_xgboost;
+pub mod blocklist_store;
+pub mod blocklist_sync;
 
 use crate::api::ai_security::{ai_model_queries, ModelType};
 use thread_isolation::spawn_isolation_thread;
@@ -27,6 +29,12 @@ pub fn init_ai_security() -> Result<(), String> {
 
     // Ensure models directory exists
     let _ = std::fs::create_dir_all("./models");
+
+    // Initialize blocklist store and sync
+    {
+        blocklist_store::init();
+        blocklist_sync::init();
+    }
 
     // Check DB for existing enabled models
     let models = ai_model_queries::get_enabled_ai_models().unwrap_or_default();

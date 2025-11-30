@@ -168,11 +168,19 @@ impl XGBoostHandler {
                         let _ = ai_model_queries::update_inference_stats(model_id);
                     }
 
-                    // TODO: Process output (e.g., check anomaly threshold, alert, store result)
-                    // For now, just log it
+                    // Check anomaly threshold and add to blocklist
                     if let Some(score) = output.first() {
                         if *score > 0.8 {
-                            log::warn!("ANOMALY DETECTED by XGBoost: conn_id={}, score={}", log.conn_id, score);
+                            log::warn!("ANOMALY DETECTED by XGBoost: conn_id={}, ip={}, score={}",
+                                log.conn_id, log.client_ip, score);
+
+                            // Add to blocklist (1 hour TTL)
+                            let reason = format!("xgboost:{:.2}", score);
+                            super::blocklist_store::add_blocked(
+                                log.client_ip.clone(),
+                                reason,
+                                Some(3600), // 1 hour TTL
+                            );
                         }
                     }
                 }
