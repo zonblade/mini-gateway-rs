@@ -642,15 +642,19 @@ impl ProxyHttp for GatewayApp {
             // Socket addresses
             if let Some(socket_digest) = &digest.socket_digest {
                 if let Some(peer_addr) = socket_digest.peer_addr() {
-                    // Convert entire address to string, parse later if needed
                     let addr_str = peer_addr.to_string();
-                    _ctx.client_ip = Some(addr_str.clone());
-                    _ctx.client_port = None; // Parse from addr_str if needed
+                    // Use rsplit_once to handle IPv6 addresses like [::1]:8080
+                    if let Some((ip, port)) = addr_str.rsplit_once(':') {
+                        _ctx.client_ip = Some(ip.to_string());
+                        _ctx.client_port = port.parse().ok();
+                    }
                 }
                 if let Some(local_addr) = socket_digest.local_addr() {
                     let addr_str = local_addr.to_string();
-                    _ctx.server_ip = Some(addr_str.clone());
-                    _ctx.server_port = None; // Parse from addr_str if needed
+                    if let Some((ip, port)) = addr_str.rsplit_once(':') {
+                        _ctx.server_ip = Some(ip.to_string());
+                        _ctx.server_port = port.parse().ok();
+                    }
                 }
 
                 // TCP_INFO (Linux only)

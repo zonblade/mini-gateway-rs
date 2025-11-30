@@ -152,6 +152,20 @@ async fn process_batch(
         let mut tcp_rtt: u32 = 0;
         let mut tcp_retrans: u32 = 0;
         let mut tcp_lost: u32 = 0;
+        let mut protocol = String::new();
+        let mut http_method = String::new();
+        let mut tcp_send_wnd: u32 = 0;
+        let mut tcp_recv_wnd: u32 = 0;
+        let mut tcp_send_mss: u32 = 0;
+        let mut tcp_recv_mss: u32 = 0;
+        let mut tcp_bytes_acked: u64 = 0;
+        let mut tcp_segs_in: u32 = 0;
+        let mut tcp_segs_out: u32 = 0;
+        let mut tls_version = String::new();
+        let mut client_ip = String::new();
+        let mut client_port: u16 = 0;
+        let mut server_ip = String::new();
+        let mut server_port: u16 = 0;
 
         // Direct field extraction
         for field in message_inner.split(',') {
@@ -178,13 +192,35 @@ async fn process_batch(
                     "TCP_RTT" if ai_enabled => tcp_rtt = value.parse().unwrap_or(0),
                     "TCP_RETRANS" if ai_enabled => tcp_retrans = value.parse().unwrap_or(0),
                     "TCP_LOST" if ai_enabled => tcp_lost = value.parse().unwrap_or(0),
+                    "PROTO" if ai_enabled => protocol = value.to_string(),
+                    "METHOD" if ai_enabled => http_method = value.to_string(),
+                    "TCP_SND_WND" if ai_enabled => tcp_send_wnd = value.parse().unwrap_or(0),
+                    "TCP_RCV_WND" if ai_enabled => tcp_recv_wnd = value.parse().unwrap_or(0),
+                    "TCP_SND_MSS" if ai_enabled => tcp_send_mss = value.parse().unwrap_or(0),
+                    "TCP_RCV_MSS" if ai_enabled => tcp_recv_mss = value.parse().unwrap_or(0),
+                    "TCP_BYTES_ACKED" if ai_enabled => tcp_bytes_acked = value.parse().unwrap_or(0),
+                    "TCP_SEGS_IN" if ai_enabled => tcp_segs_in = value.parse().unwrap_or(0),
+                    "TCP_SEGS_OUT" if ai_enabled => tcp_segs_out = value.parse().unwrap_or(0),
+                    "TLS_VER" if ai_enabled => tls_version = value.to_string(),
+                    "CLIENT" if ai_enabled => {
+                        if let Some((ip, port)) = value.rsplit_once(':') {
+                            client_ip = ip.to_string();
+                            client_port = port.parse().unwrap_or(0);
+                        }
+                    },
+                    "SERVER" if ai_enabled => {
+                        if let Some((ip, port)) = value.rsplit_once(':') {
+                            server_ip = ip.to_string();
+                            server_port = port.parse().unwrap_or(0);
+                        }
+                    },
 
-                    // Skip ML fields when disabled (zero overhead)
-                    "DUR" | "PROTO" | "METHOD" |
-                    "TCP_RTT" | "TCP_RETRANS" | "TCP_LOST" |
-                    "TCP_SND_WND" | "TCP_RCV_WND" | "TCP_SND_MSS" | "TCP_RCV_MSS" |
-                    "TCP_BYTES_ACKED" | "TCP_SEGS_IN" | "TCP_SEGS_OUT" |
-                    "TLS_VER" | "CLIENT" | "SERVER" => {},
+                    // All ML fields are now parsed above when ai_enabled
+                    _ if !ai_enabled && matches!(*key, "DUR" | "PROTO" | "METHOD" |
+                        "TCP_RTT" | "TCP_RETRANS" | "TCP_LOST" |
+                        "TCP_SND_WND" | "TCP_RCV_WND" | "TCP_SND_MSS" | "TCP_RCV_MSS" |
+                        "TCP_BYTES_ACKED" | "TCP_SEGS_IN" | "TCP_SEGS_OUT" |
+                        "TLS_VER" | "CLIENT" | "SERVER") => {},
 
                     _ => {} // Ignore unknown fields
                 }
@@ -228,10 +264,26 @@ async fn process_batch(
             let ml_log = MlFeatureLog {
                 conn_id: conn_id.clone(),
                 duration_ms,
+                http_status: status_code as f32,
+                http_method,
+                protocol,
+                size_in: bytes_in as f32,
+                size_out: bytes_out as f32,
                 tcp_rtt: tcp_rtt as f32,
                 tcp_retrans: tcp_retrans as f32,
                 tcp_lost: tcp_lost as f32,
-                http_status: status_code as f32,
+                tcp_send_wnd: tcp_send_wnd as f32,
+                tcp_recv_wnd: tcp_recv_wnd as f32,
+                tcp_send_mss: tcp_send_mss as f32,
+                tcp_recv_mss: tcp_recv_mss as f32,
+                tcp_bytes_acked: tcp_bytes_acked as f32,
+                tcp_segs_in: tcp_segs_in as f32,
+                tcp_segs_out: tcp_segs_out as f32,
+                tls_version,
+                client_ip,
+                client_port: client_port as f32,
+                server_ip,
+                server_port: server_port as f32,
             };
             ai_security::send_to_inference(ml_log);
         }

@@ -11,13 +11,41 @@ use std::sync::mpsc::Receiver;
 /// Represents a parsed ML feature log for inference
 #[derive(Debug, Clone)]
 pub struct MlFeatureLog {
+    // Identification
     pub conn_id: String,
+
+    // Timing
     pub duration_ms: f32,
+
+    // HTTP
+    pub http_status: f32,
+    pub http_method: String,
+    pub protocol: String,
+
+    // Size metrics
+    pub size_in: f32,
+    pub size_out: f32,
+
+    // TCP metrics (10 fields)
     pub tcp_rtt: f32,
     pub tcp_retrans: f32,
     pub tcp_lost: f32,
-    pub http_status: f32,
-    // Add more features as needed to match your 43 features
+    pub tcp_send_wnd: f32,
+    pub tcp_recv_wnd: f32,
+    pub tcp_send_mss: f32,
+    pub tcp_recv_mss: f32,
+    pub tcp_bytes_acked: f32,
+    pub tcp_segs_in: f32,
+    pub tcp_segs_out: f32,
+
+    // TLS
+    pub tls_version: String,
+
+    // Network
+    pub client_ip: String,
+    pub client_port: f32,
+    pub server_ip: String,
+    pub server_port: f32,
 }
 
 impl MlFeatureLog {
@@ -25,12 +53,56 @@ impl MlFeatureLog {
     pub fn to_feature_vector(&self) -> Vec<f32> {
         vec![
             self.duration_ms,
+            self.http_status,
+            self.size_in,
+            self.size_out,
             self.tcp_rtt,
             self.tcp_retrans,
             self.tcp_lost,
-            self.http_status,
-            // Add all 43 features here in the correct order
+            self.tcp_send_wnd,
+            self.tcp_recv_wnd,
+            self.tcp_send_mss,
+            self.tcp_recv_mss,
+            self.tcp_bytes_acked,
+            self.tcp_segs_in,
+            self.tcp_segs_out,
+            self.client_port,
+            self.server_port,
+            self.encode_protocol(),
+            self.encode_method(),
+            self.encode_tls(),
         ]
+    }
+
+    fn encode_protocol(&self) -> f32 {
+        match self.protocol.as_str() {
+            "HTTP/1.0" => 0.0,
+            "HTTP/1.1" => 1.0,
+            "HTTP/2" => 2.0,
+            "HTTP/3" => 3.0,
+            _ => 0.0,
+        }
+    }
+
+    fn encode_method(&self) -> f32 {
+        match self.http_method.as_str() {
+            "GET" => 0.0,
+            "POST" => 1.0,
+            "PUT" => 2.0,
+            "DELETE" => 3.0,
+            "PATCH" => 4.0,
+            "HEAD" => 5.0,
+            "OPTIONS" => 6.0,
+            _ => 7.0,
+        }
+    }
+
+    fn encode_tls(&self) -> f32 {
+        if self.tls_version == "-" || self.tls_version.is_empty() {
+            0.0
+        } else {
+            1.0
+        }
     }
 }
 
