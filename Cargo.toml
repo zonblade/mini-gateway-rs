@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "router-api",
-    "router-cli",
-    "router-core",
-    "router-gui",
-    "router-client/src-tauri"
+    "router-api"
+    ,"router-cli"
+    ,"router-core"
+    ,"router-gui"
+    #,"router-client/src-tauri"
 , "router-rds"]
 
 [workspace.dependencies]

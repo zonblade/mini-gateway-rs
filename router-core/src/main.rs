@@ -69,6 +69,11 @@ async fn main() {
         system::writer::writer_start();
     }
 
+    eprintln!("[----] Starting Blocklist Cleanup Scheduler...");
+    {
+        system::scheduler::blocklist_cleanup::init();
+    }
+
     eprintln!("[----] Starting CTRL+C Listener...");
     // Set up interrupt handler for graceful shutdown on SIGINT (Ctrl+C)
     {

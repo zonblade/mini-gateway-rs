@@ -707,25 +707,32 @@ impl ProxyHttp for GatewayApp {
         };
         _ctx.real_ip = real_ip.clone();
 
-        // Check blocklist
-        if let Some(ip) = &real_ip {
-            if let Some(reason) = crate::system::prottp::app::blocklist::is_blocked(ip) {
-                log::warn!(
-                    "[BLOCKED] IP={} reason={} conn_id={}",
-                    ip,
-                    reason,
-                    _ctx.conn_id.clone().unwrap_or_else(|| "-".into())
-                );
+        // Check blocklist (only if active)
+        let blocklist_active = crate::config::RoutingData::BlocklistActive
+            .xget::<bool>()
+            .unwrap_or(false);
 
-                // Return 403 Forbidden
-                let mut header = pingora::http::ResponseHeader::build(403, None).unwrap();
-                header.insert_header("Content-Type", "text/plain").unwrap();
-                header.insert_header("X-Blocked-Reason", &reason).unwrap();
+        if blocklist_active {
+            if let Some(ip) = &real_ip {
+                if let Some(reason) = crate::system::prottp::app::blocklist::is_blocked(ip) {
+                    log::warn!(
+                        "[BLOCKED] IP={} reason={} conn_id={}",
+                        ip,
+                        reason,
+                        _ctx.conn_id.clone().unwrap_or_else(|| "-".into())
+                    );
 
-                session.write_response_header(Box::new(header), false).await?;
-                session.write_response_body(Some(bytes::Bytes::from("Forbidden")), true).await?;
+                    // Return 429 Too Many Requests
+                    let mut header = pingora::http::ResponseHeader::build(429, None).unwrap();
+                    header.insert_header("Content-Type", "text/plain").unwrap();
+                    header.insert_header("X-Blocked-Reason", &reason).unwrap();
+                    header.insert_header("Retry-After", "3600").unwrap(); // 1 hour
 
-                return Ok(false); // Don't continue to upstream
+                    session.write_response_header(Box::new(header), false).await?;
+                    session.write_response_body(Some(bytes::Bytes::from("Too Many Requests")), true).await?;
+
+                    return Ok(false); // Don't continue to upstream
+                }
             }
         }
         // === END ZERO TRUST ===

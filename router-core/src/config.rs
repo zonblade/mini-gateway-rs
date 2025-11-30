@@ -86,6 +86,9 @@ pub enum RoutingData {
 
     /// Key for blocklist data
     BlocklistData,
+
+    /// Key for blocklist active flag (performance optimization)
+    BlocklistActive,
 }
 
 /// Proxy node configuration.
@@ -216,4 +219,5 @@ pub fn init(){
     RoutingData::GatewayNodeListen.xset::<Vec<GatewayPath>>(vec![]);
     RoutingData::BlocklistID.set("-");
     RoutingData::BlocklistData.xset::<Vec<BlocklistEntry>>(vec![]);
+    RoutingData::BlocklistActive.xset::<bool>(false);
 }

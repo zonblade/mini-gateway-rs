@@ -23,6 +23,7 @@ pub mod terminator;
 pub mod writer;
 pub mod memory_log;
 pub mod prottp;
+pub mod scheduler;
 
 // unused
 // pub mod netlisten;

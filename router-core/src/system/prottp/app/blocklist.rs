@@ -23,14 +23,19 @@ pub fn init(payload: String) -> Result<(), serde_json::Error> {
 
     let blocklist_data = serde_json::from_str::<Vec<BlocklistEntry>>(&payload)?;
 
+    // Set active flag based on list content
+    let is_active = !blocklist_data.is_empty();
+
     log::info!(
-        "Blocklist updated: {} entries (checksum: {})",
+        "Blocklist updated: {} entries (checksum: {}, active: {})",
         blocklist_data.len(),
-        &checksum[..8]
+        &checksum[..8],
+        is_active
     );
 
     config::RoutingData::BlocklistID.set(&checksum);
     config::RoutingData::BlocklistData.xset(&blocklist_data);
+    config::RoutingData::BlocklistActive.xset::<bool>(is_active);
 
     Ok(())
 }
