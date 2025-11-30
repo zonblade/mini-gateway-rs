@@ -1430,6 +1430,25 @@ pub mod tlog_proxy {
                 .get_bytes_io_frame(start, end, metric)
         }
     }
+    pub fn load_logs(
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<TemporaryLog>, LogStoreError> {
+        unsafe {
+            if PROXY_LOG_STORE.is_none() {
+                init();
+            }
+            PROXY_LOG_STORE
+                .as_ref()
+                .ok_or_else(|| {
+                    LogStoreError::IoError(io::Error::new(
+                        io::ErrorKind::Other,
+                        "Proxy log store not initialized",
+                    ))
+                })?
+                .load_logs(start, end)
+        }
+    }
 }
 
 #[allow(static_mut_refs, dead_code)]
@@ -1527,6 +1546,25 @@ pub mod tlog_gateway {
                     ))
                 })?
                 .get_bytes_io_frame(start, end, metric)
+        }
+    }
+    pub fn load_logs(
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<TemporaryLog>, LogStoreError> {
+        unsafe {
+            if GATEWAY_LOG_STORE.is_none() {
+                init();
+            }
+            GATEWAY_LOG_STORE
+                .as_ref()
+                .ok_or_else(|| {
+                    LogStoreError::IoError(io::Error::new(
+                        io::ErrorKind::Other,
+                        "Gateway log store not initialized",
+                    ))
+                })?
+                .load_logs(start, end)
         }
     }
 }

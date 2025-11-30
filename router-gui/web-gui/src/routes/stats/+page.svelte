@@ -1,119 +1,159 @@
 <script lang="ts">
-    import { onMount, onDestroy } from "svelte";
-    import { goto } from "$app/navigation";
-    import { user } from "$lib/stores/userStore";
-    import StatsDefaultManager from "$lib/components/stats/StatsDefaultManager.svelte";
-    import StatsBytesManager from "$lib/components/stats/StatsBytesManager.svelte";
-    import StatsStatusCodeManager from "$lib/components/stats/StatsStatusCodeManager.svelte";
-    import ConnectionStatus from "$lib/components/stats/ConnectionStatus.svelte";
-    import { statisticsActions } from "$lib/actions/statisticsAction";
-    import LoadingSpinner from "$lib/components/common/LoadingSpinner.svelte";
+    import { onMount, onDestroy } from 'svelte';
+    import { goto } from '$app/navigation';
+    import { user } from '$lib/stores/userStore';
+    import StatCard from '$lib/components/stats/StatCard.svelte';
+    import StatusCodeGraph from '$lib/components/stats/StatusCodeGraph.svelte';
+    import {
+        rawBuffer,
+        displayInterval,
+        connectionStatus,
+        aggregatedStats,
+        getSparklineData,
+        type DisplayInterval
+    } from '$lib/stores/unifiedStatsStore';
+    import { connectSSE, disconnectSSE } from '$lib/services/unifiedStatsService';
 
-    // Authentication state
-    let isLoggedIn = false;
-    let isLoading = true;
-
-    // Subscribe to auth store
-    const unsubAuthCheck = user.subscribe(value => {
-        isLoggedIn = !!value;
-        isLoading = false;
-    });
-
-    // Polling interval handler
-    let stopPolling: () => void;
-
-    // Tab management
-    let activeTab = "default";
-
-    function setActiveTab(tab: string) {
-        activeTab = tab;
+    // Check auth
+    $: if (!$user) {
+        goto('/');
     }
 
+    // Interval options
+    const intervals: { value: DisplayInterval; label: string }[] = [
+        { value: 'live', label: 'Live' },
+        { value: '5s', label: '5s' },
+        { value: '10s', label: '10s' },
+        { value: '15s', label: '15s' }
+    ];
+
+    // Sparkline data (reactive)
+    $: gatewayReqSparkline = getSparklineData($rawBuffer, 'gateway', 'req');
+    $: gatewayResSparkline = getSparklineData($rawBuffer, 'gateway', 'res');
+    $: gatewayBytesInSparkline = getSparklineData($rawBuffer, 'gateway', 'bytes_in');
+    $: gatewayBytesOutSparkline = getSparklineData($rawBuffer, 'gateway', 'bytes_out');
+
+    $: proxyReqSparkline = getSparklineData($rawBuffer, 'proxy', 'req');
+    $: proxyResSparkline = getSparklineData($rawBuffer, 'proxy', 'res');
+    $: proxyBytesInSparkline = getSparklineData($rawBuffer, 'proxy', 'bytes_in');
+    $: proxyBytesOutSparkline = getSparklineData($rawBuffer, 'proxy', 'bytes_out');
+
     onMount(() => {
-        // Setup hybrid approach (API + SSE) for automatic data refresh only if logged in
-        if (isLoggedIn) {
-            stopPolling = statisticsActions.setupHybridUpdates(15000); // SSE with polling fallback
-        }
+        connectSSE();
     });
 
     onDestroy(() => {
-        // Clean up statistics connections and auth subscription
-        if (stopPolling) stopPolling();
-        unsubAuthCheck();
+        disconnectSSE();
     });
-
-    // Handle authentication effect
-    $: if (!isLoading && !isLoggedIn) {
-        goto('/');
-    }
 </script>
 
-{#if isLoading}
-    <LoadingSpinner />
-{:else if isLoggedIn}
-    <div class="p-4 flex justify-center">
-        <div class="flex flex-col w-full max-w-[900px]">
-            <div class="mb-4">
-                <h1
-                    class="text-2xl font-normal text-gray-900 dark:text-gray-100 mb-2"
-                >
-                    Mini Gateway Statistics
-                </h1>
-                <p class="text-gray-600 dark:text-gray-400">
-                    Real-time monitoring of router performance and traffic
-                </p>
+<svelte:head>
+    <title>Stats Dashboard</title>
+</svelte:head>
+
+<div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Stats Dashboard</h1>
+        <div class="flex items-center gap-4">
+            <!-- Interval selector -->
+            <div class="flex bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                {#each intervals as interval}
+                    <button
+                        on:click={() => displayInterval.set(interval.value)}
+                        class="px-3 py-1.5 text-sm font-medium transition-colors
+                            {$displayInterval === interval.value
+                                ? 'bg-blue-500 text-white'
+                                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}"
+                    >
+                        {interval.label}
+                    </button>
+                {/each}
             </div>
 
-            <div class="flex gap-2 border-b border-gray-200 dark:border-gray-700">
-                <button
-                    class="px-4 py-2 cursor-pointer transition-colors
-                          {activeTab === 'default'
-                        ? 'border-l-6 border-indigo-500 bg-gray-50 dark:bg-gray-900 font-normal'
-                        : 'border-l-2 border-transparent hover:bg-gray-50 dark:hover:bg-gray-900'}"
-                    on:click={() => setActiveTab('default')}
-                >
-                    Request & Response
-                </button>
-                <button
-                    class="px-4 py-2 cursor-pointer transition-colors
-                          {activeTab === 'bytes'
-                        ? 'border-l-6 border-indigo-500 bg-gray-50 dark:bg-gray-900 font-normal'
-                        : 'border-l-2 border-transparent hover:bg-gray-50 dark:hover:bg-gray-900'}"
-                    on:click={() => setActiveTab('bytes')}
-                >
-                    Bytes Transferred
-                </button>
-                <button
-                    class="px-4 py-2 cursor-pointer transition-colors
-                          {activeTab === 'status'
-                        ? 'border-l-6 border-indigo-500 bg-gray-50 dark:bg-gray-900 font-normal'
-                        : 'border-l-2 border-transparent hover:bg-gray-50 dark:hover:bg-gray-900'}"
-                    on:click={() => setActiveTab('status')}
-                >
-                    Status Codes
-                </button>
-            </div>
-
-            <div
-                class="flex-1 min-h-[500px] p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
-            >
-                {#if activeTab === "default"}
-                    <StatsDefaultManager />
-                {:else if activeTab === "bytes"}
-                    <StatsBytesManager />
-                {:else if activeTab === "status"}
-                    <StatsStatusCodeManager />
-                {/if}
-            </div>
-
-            <div class="text-center text-sm text-gray-500 dark:text-gray-400 mt-2">
-                <p>
-                    Data updates in real-time as new intervals are processed. Last update: {new Date().toLocaleTimeString()}
-                </p>
+            <!-- Connection status -->
+            <div class="flex items-center gap-2 text-sm">
+                <div
+                    class="w-2 h-2 rounded-full {$connectionStatus === 'connected'
+                        ? 'bg-green-500'
+                        : 'bg-red-500'}"
+                ></div>
+                <span class="text-gray-600 dark:text-gray-400">
+                    {$connectionStatus === 'connected' ? 'Live' : 'Offline'}
+                </span>
             </div>
         </div>
     </div>
-    
-    <!-- Connection status indicator (only show when logged in) -->
-    <ConnectionStatus />
-{/if}
+
+    <!-- Gateway Section -->
+    <div class="mb-6">
+        <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Gateway</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard
+                label="Requests"
+                value={$aggregatedStats?.gateway.req ?? 0}
+                sparklineData={gatewayReqSparkline}
+                color="#3b82f6"
+            />
+            <StatCard
+                label="Responses"
+                value={$aggregatedStats?.gateway.res ?? 0}
+                sparklineData={gatewayResSparkline}
+                color="#22c55e"
+            />
+            <StatCard
+                label="Bytes In"
+                value={$aggregatedStats?.gateway.bytes_in ?? 0}
+                sparklineData={gatewayBytesInSparkline}
+                format="bytes"
+                color="#8b5cf6"
+            />
+            <StatCard
+                label="Bytes Out"
+                value={$aggregatedStats?.gateway.bytes_out ?? 0}
+                sparklineData={gatewayBytesOutSparkline}
+                format="bytes"
+                color="#f59e0b"
+            />
+        </div>
+    </div>
+
+    <!-- Proxy Section -->
+    <div class="mb-6">
+        <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Proxy</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard
+                label="Requests"
+                value={$aggregatedStats?.proxy.req ?? 0}
+                sparklineData={proxyReqSparkline}
+                color="#3b82f6"
+            />
+            <StatCard
+                label="Responses"
+                value={$aggregatedStats?.proxy.res ?? 0}
+                sparklineData={proxyResSparkline}
+                color="#22c55e"
+            />
+            <StatCard
+                label="Bytes In"
+                value={$aggregatedStats?.proxy.bytes_in ?? 0}
+                sparklineData={proxyBytesInSparkline}
+                format="bytes"
+                color="#8b5cf6"
+            />
+            <StatCard
+                label="Bytes Out"
+                value={$aggregatedStats?.proxy.bytes_out ?? 0}
+                sparklineData={proxyBytesOutSparkline}
+                format="bytes"
+                color="#f59e0b"
+            />
+        </div>
+    </div>
+
+    <!-- Status Code Section -->
+    <div>
+        <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Status Code</h2>
+        <StatusCodeGraph />
+    </div>
+</div>
