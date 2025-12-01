@@ -21,10 +21,10 @@
 
     // Interval options
     const intervals: { value: DisplayInterval; label: string }[] = [
-        { value: 'live', label: 'Live' },
-        { value: '5s', label: '5s' },
-        { value: '10s', label: '10s' },
-        { value: '15s', label: '15s' }
+        { value: 'live', label: 'Live (15s)' },
+        { value: '30s', label: '30s' },
+        { value: '1m', label: '1m' },
+        { value: '5m', label: '5m' }
     ];
 
     // Sparkline data (reactive)
@@ -37,6 +37,9 @@
     $: proxyResSparkline = getSparklineData($rawBuffer, 'proxy', 'res');
     $: proxyBytesInSparkline = getSparklineData($rawBuffer, 'proxy', 'bytes_in');
     $: proxyBytesOutSparkline = getSparklineData($rawBuffer, 'proxy', 'bytes_out');
+
+    $: gatewayFailedSparkline = getSparklineData($rawBuffer, 'gateway', 'failed');
+    $: proxyFailedSparkline = getSparklineData($rawBuffer, 'proxy', 'failed');
 
     onMount(() => {
         connectSSE();
@@ -51,9 +54,10 @@
     <title>Stats Dashboard</title>
 </svelte:head>
 
-<div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
-    <!-- Header -->
-    <div class="flex justify-between items-center mb-6">
+<div class="px-4 flex flex-col items-center">
+    <div class="py-8 w-full max-w-[1200px]">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-6">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Stats Dashboard</h1>
         <div class="flex items-center gap-4">
             <!-- Interval selector -->
@@ -88,7 +92,7 @@
     <!-- Gateway Section -->
     <div class="mb-6">
         <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Gateway</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <StatCard
                 label="Requests"
                 value={$aggregatedStats?.gateway.req ?? 0}
@@ -115,13 +119,24 @@
                 format="bytes"
                 color="#f59e0b"
             />
+            <StatCard
+                label="Failed"
+                value={$aggregatedStats?.gateway.failed ?? 0}
+                sparklineData={gatewayFailedSparkline}
+                color="#ef4444"
+            />
+            <StatCard
+                label="Stalled"
+                value={$aggregatedStats?.gateway.stalled_count ?? 0}
+                color="#f97316"
+            />
         </div>
     </div>
 
     <!-- Proxy Section -->
     <div class="mb-6">
         <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Proxy</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <StatCard
                 label="Requests"
                 value={$aggregatedStats?.proxy.req ?? 0}
@@ -148,6 +163,17 @@
                 format="bytes"
                 color="#f59e0b"
             />
+            <StatCard
+                label="Failed"
+                value={$aggregatedStats?.proxy.failed ?? 0}
+                sparklineData={proxyFailedSparkline}
+                color="#ef4444"
+            />
+            <StatCard
+                label="Stalled"
+                value={$aggregatedStats?.proxy.stalled_count ?? 0}
+                color="#f97316"
+            />
         </div>
     </div>
 
@@ -155,5 +181,6 @@
     <div>
         <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Status Code</h2>
         <StatusCodeGraph />
+    </div>
     </div>
 </div>

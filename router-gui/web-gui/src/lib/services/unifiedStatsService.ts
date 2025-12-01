@@ -1,4 +1,4 @@
-import { addDataPoint, connectionStatus, clearBuffer, type StatsDataPoint } from '$lib/stores/unifiedStatsStore';
+import { addDataPoint, connectionStatus, clearBuffer, rawBuffer, type StatsDataPoint } from '$lib/stores/unifiedStatsStore';
 import { user } from '$lib/stores/userStore';
 
 let eventSource: EventSource | null = null;
@@ -31,8 +31,17 @@ export function connectSSE(): void {
 
     eventSource.onmessage = (event) => {
         try {
-            const data: StatsDataPoint = JSON.parse(event.data);
-            addDataPoint(data);
+            const parsed = JSON.parse(event.data);
+
+            // Check if it's history (array) or live (single object)
+            if (Array.isArray(parsed)) {
+                // History: populate buffer with all points
+                console.log('[SSE] Received history:', parsed.length, 'points');
+                rawBuffer.set(parsed);
+            } else {
+                // Live: append single point
+                addDataPoint(parsed);
+            }
         } catch (e) {
             console.error('[SSE] Failed to parse data:', e);
         }

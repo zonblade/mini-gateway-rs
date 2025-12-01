@@ -7,6 +7,14 @@ export interface TargetStats {
     bytes_in: number;
     bytes_out: number;
     status: Record<string, number>;
+    failed: number;
+    bytes_in_min: number;
+    bytes_in_max: number;
+    bytes_in_avg: number;
+    bytes_out_min: number;
+    bytes_out_max: number;
+    bytes_out_avg: number;
+    stalled_count: number;
 }
 
 /** A single data point from SSE */
@@ -17,7 +25,7 @@ export interface StatsDataPoint {
 }
 
 /** Display interval options */
-export type DisplayInterval = 'live' | '5s' | '10s' | '15s';
+export type DisplayInterval = 'live' | '30s' | '1m' | '5m';
 
 // Raw buffer (all incoming SSE data - last 5 minutes)
 export const rawBuffer = writable<StatsDataPoint[]>([]);
@@ -31,11 +39,11 @@ export const connectionStatus = writable<'connected' | 'disconnected'>('disconne
 // Selected status code for graph
 export const selectedStatusCode = writable<string>('200');
 
-// Add data point to buffer (keeps last 300 points = 5 min at 1s interval)
+// Add data point to buffer (keeps last 120 points = 30 min at 15s interval)
 export function addDataPoint(point: StatsDataPoint): void {
     rawBuffer.update(buf => {
         buf.push(point);
-        if (buf.length > 300) buf.shift();
+        if (buf.length > 120) buf.shift();
         return buf;
     });
 }
@@ -45,13 +53,13 @@ export function clearBuffer(): void {
     rawBuffer.set([]);
 }
 
-// Get sparkline data for a metric (last 60 points = 60 seconds)
+// Get sparkline data for a metric (last 20 points = 5 minutes at 15s intervals)
 export function getSparklineData(
     buffer: StatsDataPoint[],
     target: 'gateway' | 'proxy',
-    metric: 'req' | 'res' | 'bytes_in' | 'bytes_out'
+    metric: 'req' | 'res' | 'bytes_in' | 'bytes_out' | 'failed' | 'stalled_count'
 ): number[] {
-    return buffer.slice(-60).map(p => p[target][metric]);
+    return buffer.slice(-20).map(p => p[target][metric]);
 }
 
 // Get status code count for sparkline
@@ -60,7 +68,7 @@ export function getStatusSparklineData(
     target: 'gateway' | 'proxy',
     statusCode: string
 ): number[] {
-    return buffer.slice(-120).map(p => p[target].status[statusCode] || 0);
+    return buffer.slice(-40).map(p => p[target].status[statusCode] || 0);
 }
 
 // Aggregate stats based on interval
@@ -70,7 +78,10 @@ export function aggregateStats(
 ): StatsDataPoint | null {
     if (buffer.length === 0) return null;
 
-    const count = interval === 'live' ? 1 : parseInt(interval);
+    const count = interval === 'live' ? 1
+        : interval === '30s' ? 2
+        : interval === '1m' ? 4
+        : 20; // 5m = 20 * 15s
     const slice = buffer.slice(-count);
 
     if (slice.length === 0) return null;
@@ -78,8 +89,8 @@ export function aggregateStats(
     // Sum all values in the slice
     const result: StatsDataPoint = {
         ts: slice[slice.length - 1].ts,
-        gateway: { req: 0, res: 0, bytes_in: 0, bytes_out: 0, status: {} },
-        proxy: { req: 0, res: 0, bytes_in: 0, bytes_out: 0, status: {} }
+        gateway: { req: 0, res: 0, bytes_in: 0, bytes_out: 0, status: {}, failed: 0, bytes_in_min: 0, bytes_in_max: 0, bytes_in_avg: 0, bytes_out_min: 0, bytes_out_max: 0, bytes_out_avg: 0, stalled_count: 0 },
+        proxy: { req: 0, res: 0, bytes_in: 0, bytes_out: 0, status: {}, failed: 0, bytes_in_min: 0, bytes_in_max: 0, bytes_in_avg: 0, bytes_out_min: 0, bytes_out_max: 0, bytes_out_avg: 0, stalled_count: 0 }
     };
 
     for (const point of slice) {
@@ -91,6 +102,16 @@ export function aggregateStats(
         for (const [code, count] of Object.entries(point.gateway.status)) {
             result.gateway.status[code] = (result.gateway.status[code] || 0) + count;
         }
+        // Gateway new fields
+        result.gateway.failed += point.gateway.failed;
+        result.gateway.stalled_count += point.gateway.stalled_count;
+        // For min/max/avg, just take the latest values (they're already calculated server-side per interval)
+        result.gateway.bytes_in_min = point.gateway.bytes_in_min;
+        result.gateway.bytes_in_max = point.gateway.bytes_in_max;
+        result.gateway.bytes_in_avg = point.gateway.bytes_in_avg;
+        result.gateway.bytes_out_min = point.gateway.bytes_out_min;
+        result.gateway.bytes_out_max = point.gateway.bytes_out_max;
+        result.gateway.bytes_out_avg = point.gateway.bytes_out_avg;
 
         // Proxy
         result.proxy.req += point.proxy.req;
@@ -100,6 +121,15 @@ export function aggregateStats(
         for (const [code, count] of Object.entries(point.proxy.status)) {
             result.proxy.status[code] = (result.proxy.status[code] || 0) + count;
         }
+        // Proxy new fields (same pattern)
+        result.proxy.failed += point.proxy.failed;
+        result.proxy.stalled_count += point.proxy.stalled_count;
+        result.proxy.bytes_in_min = point.proxy.bytes_in_min;
+        result.proxy.bytes_in_max = point.proxy.bytes_in_max;
+        result.proxy.bytes_in_avg = point.proxy.bytes_in_avg;
+        result.proxy.bytes_out_min = point.proxy.bytes_out_min;
+        result.proxy.bytes_out_max = point.proxy.bytes_out_max;
+        result.proxy.bytes_out_avg = point.proxy.bytes_out_avg;
     }
 
     return result;

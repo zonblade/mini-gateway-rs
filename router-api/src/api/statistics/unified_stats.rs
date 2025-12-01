@@ -29,6 +29,22 @@ pub struct TargetStats {
     pub bytes_out: i64,
     /// Status code counts (e.g., {"200": 35, "404": 3})
     pub status: HashMap<String, i64>,
+    /// Failed/unmatched requests (req - res)
+    pub failed: i64,
+    /// Minimum bytes_in in interval
+    pub bytes_in_min: i64,
+    /// Maximum bytes_in in interval
+    pub bytes_in_max: i64,
+    /// Average bytes_in in interval
+    pub bytes_in_avg: f64,
+    /// Minimum bytes_out in interval
+    pub bytes_out_min: i64,
+    /// Maximum bytes_out in interval
+    pub bytes_out_max: i64,
+    /// Average bytes_out in interval
+    pub bytes_out_avg: f64,
+    /// Connections with request but no response yet
+    pub stalled_count: i64,
 }
 
 impl TargetStats {
