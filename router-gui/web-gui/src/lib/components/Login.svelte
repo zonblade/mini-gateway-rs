@@ -99,7 +99,7 @@
 </script>
 
 <div
-    class="min-h-screen flex items-center justify-center transition-colors duration-300 bg-gray-50 dark:bg-[#121212] text-gray-900 dark:text-gray-100 p-4"
+    class="min-h-screen flex items-center justify-center transition-colors duration-300 text-gray-900 dark:text-gray-100 p-4"
 >
     <div
         class="max-w-5xl w-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800"
