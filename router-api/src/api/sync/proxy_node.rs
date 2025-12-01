@@ -28,6 +28,7 @@ use super::proxy_node_tcp::sync_proxy_nodes_to_registry;
 /// * `high_speed` - Whether speed mode is enabled for faster proxying 
 /// * `high_speed_addr` - Specific address to use for speed mode (optional)
 /// * `domains` - List of domain configurations with TLS settings (if any)
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProxyNode {
     /// Unique identifier for this proxy
@@ -50,6 +51,7 @@ pub struct ProxyNode {
 }
 
 /// Represents a proxy domain configuration with TLS settings
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProxyDomain {
     /// Unique identifier for this proxy domain

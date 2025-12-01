@@ -82,6 +82,7 @@ impl HttpC {
 }
 
 // Helper functions for common data types
+#[allow(dead_code)]
 impl HttpC {
     /// Send JSON data - returns success/failure only
     pub fn post_json(&self, path: &str, json: &str) -> Result<(), String> {

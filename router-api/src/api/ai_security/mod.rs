@@ -19,11 +19,6 @@ pub enum ModelType {
     Isolation,
 }
 
-impl ModelType {
-    /// All supported model types
-    pub const ALL: &'static [ModelType] = &[ModelType::XGBoost, ModelType::Isolation];
-}
-
 impl fmt::Display for ModelType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -52,9 +47,6 @@ mod model_upload;
 mod model_set;
 mod model_delete;
 mod inference_stats;
-
-// Re-export AiModel for external use
-pub use ai_model_queries::AiModel;
 
 use actix_web::web;
 use crate::api::users::{JwtAuth, RoleAuth};

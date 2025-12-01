@@ -162,9 +162,10 @@ async fn check_and_renew_expiring_certificates(config: &AutoRenewalConfig) -> Re
     
     for domain in auto_cert_domains {
         checked += 1;
-        
+
         let domain_name = domain.sni.as_ref().unwrap();
-        let proxy_id = domain.proxy_id.as_ref().unwrap();
+        // UNUSED: extracted but renewal logic uses other fields
+        let _proxy_id = domain.proxy_id.as_ref().unwrap();
         
         // Check if certificate needs renewal based on expected_renew date
         let needs_renewal = match &domain.expected_renew {

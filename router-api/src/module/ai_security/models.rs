@@ -4,7 +4,7 @@
 //! using the ORT (ONNX Runtime) library version 2.0 with lazy loading support.
 
 use ort::session::Session;
-use ort::value::{Tensor, Value};
+use ort::value::Tensor;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -104,6 +104,7 @@ impl OnnxModel {
     }
 
     /// Unloads the model from memory
+    #[allow(dead_code)]
     pub fn unload(&self) {
         let mut session_guard = self.session.lock().unwrap();
         *session_guard = None;
@@ -112,6 +113,7 @@ impl OnnxModel {
 }
 
 /// Convenience function to create and immediately load a model
+#[allow(dead_code)]
 pub fn load_onnx_model(file_path: &str) -> Result<OnnxModel, ModelError> {
     let model = OnnxModel::new(file_path.to_string());
     model.load()?;

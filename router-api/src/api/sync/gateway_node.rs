@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{api::sync::gateway_node_tcp::{sync_gateway_nodes_to_registry, sync_gateway_paths_to_registry}, module::httpc::HttpC};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNode {
     /// Processing priority (higher values = higher priority)

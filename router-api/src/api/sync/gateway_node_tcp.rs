@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use super::gateway_node_queries;
 use crate::{
     api::sync::HTTPCResponse,
-    config, module::httpc::HttpC,
+    module::httpc::HttpC,
 };
-use log::{error, info, warn};
+use log::{error, info};
 
 pub async fn sync_gateway_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<HTTPCResponse, HTTPCResponse> {
     log::info!("Syncing gateway nodes to registry...");

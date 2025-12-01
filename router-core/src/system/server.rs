@@ -244,7 +244,7 @@ pub fn init() {
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
             // my_server.bootstrap();
-            let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
+            let mut my_gateway: Vec<Box<dyn pingora::services::Service + 'static>> = Vec::new();
 
             let mut already_listened: Vec<String> = vec![];
 

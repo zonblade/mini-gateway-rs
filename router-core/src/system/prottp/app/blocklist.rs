@@ -68,10 +68,3 @@ pub fn is_blocked(ip: &str) -> Option<String> {
     None // Not blocked
 }
 
-/// Get current blocklist count (for monitoring)
-pub fn count() -> usize {
-    config::RoutingData::BlocklistData
-        .xget::<Vec<BlocklistEntry>>()
-        .map(|list| list.len())
-        .unwrap_or(0)
-}

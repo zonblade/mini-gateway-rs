@@ -44,6 +44,7 @@ pub struct MlFeatureLog {
     // Network
     pub client_ip: String,
     pub client_port: f32,
+    #[allow(dead_code)]
     pub server_ip: String,
     pub server_port: f32,
 }

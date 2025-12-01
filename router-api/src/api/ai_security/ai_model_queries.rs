@@ -6,7 +6,6 @@
 
 use crate::module::database::{get_connection, DatabaseError};
 use chrono::Utc;
-use uuid::Uuid;
 use super::ModelType;
 
 /// Represents an AI model configuration
@@ -132,19 +131,6 @@ pub fn delete_ai_model(id: &str) -> Result<(), DatabaseError> {
     let db = get_connection()?;
 
     db.execute("DELETE FROM ai_models WHERE id = ?1", [id])?;
-
-    Ok(())
-}
-
-/// Updates the enabled status of an AI model
-pub fn update_ai_model_enabled(id: &str, enabled: bool) -> Result<(), DatabaseError> {
-    ensure_ai_models_table()?;
-    let db = get_connection()?;
-
-    db.execute(
-        "UPDATE ai_models SET enabled = ?1 WHERE id = ?2",
-        rusqlite::params![if enabled { 1 } else { 0 }, id],
-    )?;
 
     Ok(())
 }

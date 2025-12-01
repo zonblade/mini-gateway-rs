@@ -91,6 +91,7 @@ pub fn clear_pending() {
 }
 
 /// Get count of pending entries
+#[allow(dead_code)]
 pub fn pending_count() -> usize {
     get_pending().len()
 }

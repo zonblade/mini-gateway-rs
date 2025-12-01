@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::module::httpc::HttpC;
 
 use super::{proxy_node_queries, HTTPCResponse};
-use log::{error, info, warn};
+use log::{error, info};
 
 pub async fn sync_proxy_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<HTTPCResponse, HTTPCResponse> {
     log::info!("Syncing proxy nodes to registry...");

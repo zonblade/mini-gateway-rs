@@ -76,6 +76,7 @@ pub fn send_to_inference(log: MlFeatureLog) {
 }
 
 /// Check if any model thread is ready
+#[allow(dead_code)]
 pub fn any_model_ready() -> bool {
     XGBOOST_READY.load(Ordering::Relaxed) || ISOLATION_READY.load(Ordering::Relaxed)
 }

@@ -4,7 +4,7 @@ use crate::module::{
     ai_security::{self, MlFeatureLog},
 };
 use std::{
-    sync::Arc, time::{Duration, Instant}
+    time::{Duration, Instant}
 };
 
 pub async fn listen() {
@@ -128,7 +128,8 @@ async fn process_batch(
             }
         };
 
-        let header_inner = {
+        // UNUSED: destructured for pattern match only
+        let _header_inner = {
             if message_vector.len() > 2 {
                 message_vector[2]
             } else {

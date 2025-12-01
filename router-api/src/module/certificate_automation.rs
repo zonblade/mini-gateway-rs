@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! # Certificate Automation Module
 //!
 //! This module integrates the certbot certificate generation system with the proxy domain database.

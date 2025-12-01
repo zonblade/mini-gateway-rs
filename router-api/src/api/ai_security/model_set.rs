@@ -2,7 +2,7 @@
 //!
 //! This module provides the HTTP endpoint for updating AI model configurations.
 
-use super::ai_model_queries::{self, AiModel};
+use super::ai_model_queries;
 use actix_web::{post, web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 

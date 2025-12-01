@@ -1,5 +1,7 @@
+#![allow(dead_code)]
+
 //! # Certbot SSL Certificate Automation Module
-//! 
+//!
 //! This module provides Rust automation for certbot SSL certificate management.
 //! 
 //! ## Interactive vs Non-Interactive Modes
