@@ -128,7 +128,6 @@ dist
 # vuepress v2.x temp and cache directory
 .temp
 .cache
-.claude
 #.enhancement
 
 # Docusaurus cache and generated files
