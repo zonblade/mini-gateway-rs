@@ -66,6 +66,7 @@ const CACHE_SHARDS: usize = 16;
 // Default capacity per shard if not otherwise specified
 const DEFAULT_PER_SHARD_CAPACITY: usize = 250; // ~4000 total routes
 
+#[derive(Default)]
 pub struct ContextGw {
     pub conn_id: Option<String>,
     pub websocket: bool,
@@ -111,45 +112,6 @@ pub struct ContextGw {
     pub tls_version: Option<String>,
 }
 
-impl Default for ContextGw {
-    fn default() -> Self {
-        Self {
-            conn_id: None,
-            websocket: false,
-            conn_type: None,
-            peer: None,
-            size_in: 0,
-            size_out: 0,
-            src_addr: None,
-            path_src: None,
-            path_dst: None,
-
-            // New fields
-            request_start: None,
-            duration_ms: None,
-            client_ip: None,
-            client_port: None,
-            real_ip: None,
-            server_ip: None,
-            server_port: None,
-            protocol: None,
-            tcp_rtt: None,
-            tcp_rtt_var: None,
-            tcp_retrans: None,
-            tcp_lost: None,
-            tcp_send_wnd: None,
-            tcp_recv_wnd: None,
-            tcp_send_mss: None,
-            tcp_recv_mss: None,
-            tcp_bytes_acked: None,
-            tcp_segs_in: None,
-            tcp_segs_out: None,
-            http_method: None,
-            http_status: None,
-            tls_version: None,
-        }
-    }
-}
 
 // --- Sharded LRU Cache Implementation ---
 // Uses the `lru` crate for efficient O(1) operations.
@@ -272,12 +234,15 @@ static _DEFAULT_FALLBACK_PEER_PORT: &str = DEFAULT_PORT.p404;
 // --- Gateway Application ---
 
 /// # Gateway Application
+/// Cached route entry: (rewritten_path+query, sni, tls, target_peer)
+type RouteCacheEntry = (String, Option<String>, bool, Arc<BasicPeer>);
+
 /// The main application implementing HTTP proxy routing.
 pub struct GatewayApp {
     source: String,                   // Listener address (e.g., "0.0.0.0:8080")
     last_check_time: RwLock<Instant>, // Last time config was checked
     check_interval: Duration,         // How often to check for config changes
-    route_cache: Arc<ShardedLruCache<String, (String, Option<String>, bool, Arc<BasicPeer>)>>, // Cache: key=path+query, value=(rewritten_path+query, sni, tls, target_peer)
+    route_cache: Arc<ShardedLruCache<String, RouteCacheEntry>>, // Cache: key=path+query, value=(rewritten_path+query, sni, tls, target_peer)
 }
 
 impl GatewayApp {
@@ -793,7 +758,7 @@ impl ProxyHttp for GatewayApp {
                 None => None
             };
 
-            if let Some(_) = query_id.clone() {
+            if query_id.is_some() {
                 _ctx.conn_id    = query_id;
                 _ctx.websocket  = true;
                 _ctx.conn_type  = Some("WS".into());

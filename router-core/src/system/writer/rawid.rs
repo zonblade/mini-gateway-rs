@@ -295,11 +295,11 @@ impl UltraHighThroughputGenerator {
             // Normal case: time is moving forward
             // Update the last timestamp for this thread atomically
             counter.last_timestamp.store(timestamp, Ordering::Release);
-            return timestamp;
+            timestamp
         } else if timestamp == last {
             // Same millisecond, use sequence counter for uniqueness
             // No need to update last_timestamp since it's the same
-            return timestamp;
+            timestamp
         } else {
             // Clock went backwards! This is the rare case that requires special handling.
             // We need to maintain monotonic ordering while allowing the system to continue
@@ -309,7 +309,7 @@ impl UltraHighThroughputGenerator {
             *offset = offset.max(last - timestamp + 1);
             let adjusted = timestamp + *offset;
             counter.last_timestamp.store(adjusted, Ordering::Release);
-            return adjusted;
+            adjusted
         }
     }
     
@@ -351,7 +351,7 @@ impl UltraHighThroughputGenerator {
         // Map thread ID to counter index with modulo to handle thread ID overflow
         // This ensures we always have a valid counter even if thread IDs exceed capacity
         let thread_idx = thread_id % self.thread_counters.len();
-        let thread_id_bits = (thread_id as u64 & MAX_THREAD_ID) as u64;
+        let thread_id_bits = thread_id as u64 & MAX_THREAD_ID;
         
         // Get the cache-line aligned counter for this thread
         let counter = &self.thread_counters[thread_idx];
@@ -522,7 +522,7 @@ impl UltraHighThroughputGenerator {
 // The Cell type provides interior mutability for the cached thread ID value
 // while maintaining thread safety through thread-local isolation.
 thread_local! {
-    static THREAD_ID: Cell<u32> = Cell::new(0);
+    static THREAD_ID: Cell<u32> = const { Cell::new(0) };
 }
 
 // Global singleton instance of the ID generator.

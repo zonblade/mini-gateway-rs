@@ -415,7 +415,7 @@ impl ProxyApp {
     
                 // Process replacement template with capture references
                 let replacement = self.process_replacement(
-                    &captures.iter().map(|s| *s).collect::<Vec<&str>>(),
+                    &captures.to_vec(),
                     &rule.replacement,
                 );
     
@@ -666,7 +666,7 @@ impl ProxyApp {
                         path_dst.as_deref().unwrap_or("-")
                     );
                     temp_record.1 = {
-                        if let None = temp_record.1 {
+                        if temp_record.1.is_none() {
                             Some(websocket)
                         } else {
                             temp_record.1

@@ -10,7 +10,7 @@ pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::Prox
     let mut addr_target = addr_to.to_string();
     let is_ip = addr_to.bytes().filter(|&b| b == b'.').count() == 4;
     if !is_ip {
-        let ipx = lookup_host(&addr_to);
+        let ipx = lookup_host(addr_to);
         if let Ok(ipx) = ipx {
             if let Some(ip) = ipx.first() {
                 addr_target = ip.to_string();
@@ -39,7 +39,7 @@ pub fn proxy_service_tls_fast(
     let mut addr_target = addr_to.to_string();
     let is_ip = addr_to.bytes().filter(|&b| b == b'.').count() == 4;
     if !is_ip {
-        let ipx = lookup_host(&addr_to);
+        let ipx = lookup_host(addr_to);
         if let Ok(ipx) = ipx {
             if let Some(ip) = ipx.first() {
                 addr_target = ip.to_string();

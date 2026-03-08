@@ -10,8 +10,7 @@ pub fn init() {
         if let Err(e) = server.start(|mut request| {
             let body_string = {
                 let string = String::from_utf8_lossy(&request.body); // Returns Cow<str>
-                let string = string.to_string(); // Convert to owned String
-                string
+                string.to_string()
             };
 
             println!("[-PT-] Received request: {} {}", request.method, request.path);

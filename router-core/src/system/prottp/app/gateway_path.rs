@@ -24,12 +24,9 @@ pub fn init(payload: String) -> Result<(), serde_json::Error> {
     };
     log::debug!("Parsed gateway data: {:#?}", gateway_data);
 
-    let gateway_existing = match config::RoutingData::GatewayRouting.xget::<Vec<GatewayPath>>() {
-        Some(data) => data,
-        None => {
-            vec![]
-        }
-    };
+    let gateway_existing = config::RoutingData::GatewayRouting
+        .xget::<Vec<GatewayPath>>()
+        .unwrap_or_default();
 
     eprintln!(
         "[-TC-]   Count of existing gateway addresses: {}",
