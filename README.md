@@ -66,7 +66,7 @@ The architecture of the mini-gateway is currently simple and straightforward.
 - [x] (proxy)   Dynamic Target
 - [x] (gateway) Dynamic Routing
 - [x] (gateway) Advanced routing path using regex 
-- [ ] Auto Renew SSL (let's encrypt)
+- [x] Auto Renew SSL (let's encrypt)
 - [ ] Scripting Plugin
 
 ### Other Features
