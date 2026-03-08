@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
+import { generateUUID } from '../services/uuidService';
 
 export interface Connection {
     id: string;
@@ -27,15 +28,20 @@ const connectionsStore = writable<Connection[]>(initialConnections);
 export const connections = {
     subscribe: connectionsStore.subscribe,
     
-    addConnection: (connection: Omit<Connection, 'id'>) => {
-        const id = crypto.randomUUID();
-        connectionsStore.update(connections => {
-            const newConnections = [...connections, { ...connection, id }];
-            if (browser) {
-                localStorage.setItem('connections', JSON.stringify(newConnections));
-            }
-            return newConnections;
-        });
+    addConnection: async (connection: Omit<Connection, 'id'>) => {
+        try {
+            const id = await generateUUID();
+            connectionsStore.update(connections => {
+                const newConnections = [...connections, { ...connection, id }];
+                if (browser) {
+                    localStorage.setItem('connections', JSON.stringify(newConnections));
+                }
+                return newConnections;
+            });
+        } catch (error) {
+            console.error('Failed to add connection - UUID generation failed:', error);
+            throw error;
+        }
     },
     
     updateConnection: (id: string, connection: Partial<Omit<Connection, 'id'>>) => {

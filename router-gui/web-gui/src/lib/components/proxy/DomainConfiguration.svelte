@@ -1,10 +1,14 @@
 <script lang="ts">
+    import { generateUUID } from '../../services/uuidService';
+
     // Domain Config interface
     interface DomainConfig {
         id: string;
         domain: string;
         useTls: boolean;
         autoTls: boolean;
+        prodMode: boolean;
+        tlsEmail: string;
         certPem: string;
         certKey: string;
     }
@@ -35,19 +39,26 @@
     }
     
     // Add a new domain configuration
-    function addDomainConfig() {
-        const newId = crypto.randomUUID();
-        domainConfigs = [...domainConfigs, {
-            id: newId,
-            domain: "",
-            useTls: false,
-            autoTls: false,
-            certPem: "",
-            certKey: "",
-        }];
-        // Auto-expand newly added domain
-        expandedDomains.add(newId);
-        expandedDomains = expandedDomains; // Trigger reactivity
+    async function addDomainConfig() {
+        try {
+            const newId = await generateUUID();
+            domainConfigs = [...domainConfigs, {
+                id: newId,
+                domain: "",
+                useTls: false,
+                autoTls: false,
+                prodMode: false,
+                tlsEmail: "",
+                certPem: "",
+                certKey: "",
+            }];
+            // Auto-expand newly added domain
+            expandedDomains.add(newId);
+            expandedDomains = expandedDomains; // Trigger reactivity
+        } catch (error) {
+            console.error('Failed to add domain config - UUID generation failed:', error);
+            // You might want to show an error message to the user here
+        }
     }
     
     // Remove a domain configuration
@@ -179,12 +190,42 @@
                                             id={`autoTls-${config.id}`}
                                             bind:checked={config.autoTls}
                                             class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 "
-                                            disabled={true}
                                         />
                                         <label for={`autoTls-${config.id}`} class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                                            Auto TLS (Let's Encrypt) - upcoming feature
+                                            Auto TLS (Let's Encrypt)
                                         </label>
                                     </div>
+                                    
+                                    {#if config.autoTls}
+                                        <div class="flex items-center mb-3 ml-6">
+                                            <input
+                                                type="checkbox"
+                                                id={`prodMode-${config.id}`}
+                                                bind:checked={config.prodMode}
+                                                class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 "
+                                            />
+                                            <label for={`prodMode-${config.id}`} class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                                                Use production certificates (default: staging)
+                                            </label>
+                                        </div>
+
+                                        <div class="ml-6 mt-3">
+                                            <label for={`tlsEmail-${config.id}`} class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                Let's Encrypt Email (required)
+                                            </label>
+                                            <input
+                                                id={`tlsEmail-${config.id}`}
+                                                type="email"
+                                                bind:value={config.tlsEmail}
+                                                class="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                                                placeholder="admin@example.com"
+                                                required={config.autoTls}
+                                            />
+                                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                                Required for certificate issuance and expiration notices
+                                            </p>
+                                        </div>
+                                    {/if}
                                     
                                     {#if !config.autoTls}
                                         <div class="space-y-3">

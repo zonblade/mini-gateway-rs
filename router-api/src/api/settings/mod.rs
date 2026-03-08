@@ -19,6 +19,7 @@ mod proxy_get;
 mod proxy_list;
 mod proxy_set;
 mod auto_config;
+mod certificate_management;
 
 pub mod gateway_queries;
 pub mod gwnode_queries;
@@ -123,6 +124,14 @@ pub struct ProxyDomain {
     pub tls_key: Option<String>,
     /// Server Name Indication value for TLS
     pub sni: Option<String>,
+    /// Whether automatic certificate generation is enabled (using certbot)
+    pub tls_autron: bool,
+    /// TLS mode for certbot when tls_autron is true ("staging" or "prod")
+    pub tls_mode: Option<String>,
+    /// Email for Let's Encrypt registration (required when tls_autron is true)
+    pub tls_email: Option<String>,
+    /// Expected renewal date for automatic certificates (ISO 8601 format)
+    pub expected_renew: Option<String>,
 }
 
 /// Represents a gateway node configuration in the system
@@ -293,6 +302,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(gateway_set::delete_gateway) // ProxyDomain endpoints - REMOVED, functionality now in proxy endpoints
             // config
             .service(auto_config::upload_config)
-            .service(auto_config::download_config),
+            .service(auto_config::download_config)
+            // Certificate management endpoints
+            .service(certificate_management::generate_certificate)
+            .service(certificate_management::renew_all_certificates)
+            .service(certificate_management::get_due_for_renewal),
     );
 }

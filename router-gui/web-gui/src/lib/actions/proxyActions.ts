@@ -44,6 +44,7 @@ export const proxyActions = {
                         tls_pem: domain.useTls ? domain.certPem || null : null,
                         tls_key: domain.useTls ? domain.certKey || null : null,
                         tls_autron: domain.useTls ? domain.autoTls : false,
+                        tls_mode: domain.useTls && domain.autoTls ? (domain.prodMode ? "prod" : "staging") : null,
                         // Use gateway node ID if provided
                         gwnode_id: domain.gwnode_id || null
                     };

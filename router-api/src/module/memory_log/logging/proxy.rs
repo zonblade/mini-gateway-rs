@@ -4,7 +4,7 @@ use crate::module::{
 };
 use std::time::{Duration, Instant};
 
-pub fn listen() {
+pub async fn listen() {
     log::info!("Starting proxy log consumer...");
     println!("Starting proxy log consumer...");
 
@@ -29,9 +29,11 @@ pub fn listen() {
     loop {
         // Periodic health check
         if last_health_check.elapsed() >= health_check_interval {
+            log::info!("Health check - queue size: {}", log_consumer.queue_size());
+
             // If we haven't received anything in a while, try to reconnect
             if consecutive_empty > 2000 {
-                batch.shrink_to_fit(); // Force capacity reduction
+                batch.shrink_to_fit();
                 log::warn!(
                     "Too many consecutive empty results ({}), attempting to recreate consumer",
                     consecutive_empty
@@ -65,16 +67,18 @@ pub fn listen() {
 
                 // Process full batch
                 if batch.len() >= BATCH_SIZE {
-                    // process_batch(&batch);
+                    process_batch(&batch).await;
                     batch.clear();
+                    batch.shrink_to_fit();
                 }
             }
             Ok(None) => {
                 // Process any remaining logs first before incrementing consecutive_empty
                 if !batch.is_empty() {
                     consecutive_empty = 0; // Reset counter when we process logs
-                    // process_batch(&batch);
+                    process_batch(&batch).await;
                     batch.clear();
+                    batch.shrink_to_fit();
                 }
 
                 // Exponential backoff with max cap
@@ -96,7 +100,9 @@ pub fn listen() {
 }
 
 // Extract batch processing to a separate function
-fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
+async fn process_batch(
+    batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>,
+) {
     // Replace with actual batch processing logic
     for (datetime, _level, message) in batch {
         // This log line is active - if you're not seeing this, there might be a log level issue
@@ -106,7 +112,7 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
 
         let message_inner = message.as_str();
         let message_inner = message_inner.split('|').collect::<Vec<&str>>();
-        
+
         let message_inner = {
             if message_inner.len() > 1 {
                 message_inner[1]
@@ -123,6 +129,8 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
         let mut status = "";
         let mut source = String::new();
         let mut destination = String::new();
+        let mut path_src = String::new();
+        let mut path_dst = String::new();
 
         // Direct field extraction
         for field in message_inner.split(',') {
@@ -141,6 +149,8 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
                     "STAT" => status = value,
                     "SRC" => source = value.to_string(),
                     "DST" => destination = value.to_string(),
+                    "PTH_SRC" => path_src = value.to_string(),
+                    "PTH_DST" => path_dst = value.to_string(),
                     _ => {} // Ignore unknown fields
                 }
             }
@@ -148,8 +158,8 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
 
         // Determine request vs response
         let (conn_req, conn_res, bytes_in, bytes_out) = match msg_type {
-            "DOWNSTREAM" => (1, 0, size, 0),
-            "UPSTREAM" => (0, 1, 0, size),
+            "DOWNSTREAM[ON]" => (1, 0, size, 0),
+            "UPSTREAM[ON]" => (0, 1, 0, size),
             _ => (0, 0, 0, 0),
         };
 
@@ -160,17 +170,27 @@ fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
             status.parse::<i32>().unwrap_or(0)
         };
 
+        let conn_type2 = {
+            if conn_type == "WS:[ON]" || conn_type == "WS:[OFF]" || conn_type == "WS:[CONNECTED]" {
+                conn_type.split(":").collect::<Vec<&str>>()[0].to_string()
+            }else{
+                conn_type.to_string()
+            }
+        };
+
         // Create and append the TemporaryLog
         let log_entry = TemporaryLog {
             date_time: datetime.clone(),
             conn_id,
-            conn_type: conn_type.to_string(),
+            conn_type: conn_type2,
             peer: (source, destination),
             status_code,
             conn_req,
             conn_res,
             bytes_in: bytes_in as i32,
             bytes_out: bytes_out as i32,
+            path_src: if path_src.is_empty() { None } else { Some(path_src) },
+            path_dst: if path_dst.is_empty() { None } else { Some(path_dst) },
         };
 
         let _ = tlog_proxy::append_data(log_entry);

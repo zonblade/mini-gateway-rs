@@ -45,6 +45,7 @@ mod boringssl_openssl {
     pub(super) struct DynamicCert {
         certs: Vec<(Option<String>, X509, PKey<Private>)>,
         // Thread-safe cache for hostname lookups
+        #[allow(clippy::type_complexity)]
         cache: Mutex<HashMap<String, (Arc<X509>, Arc<PKey<Private>>)>>,
         // Maximum number of entries to prevent unbounded growth
         max_cache_size: usize,
@@ -239,12 +240,12 @@ pub fn init() {
 
             let gateway = config::RoutingData::GatewayNodeListen
                 .xget::<Vec<GatewayNode>>()
-                .unwrap_or(vec![]);
+                .unwrap_or_default();
 
             let opt = Some(Opt::default());
             let mut my_server = Server::new(opt).expect("Failed to create server");
             // my_server.bootstrap();
-            let mut my_gateway: Vec<Box<(dyn pingora::services::Service + 'static)>> = Vec::new();
+            let mut my_gateway: Vec<Box<dyn pingora::services::Service + 'static>> = Vec::new();
 
             let mut already_listened: Vec<String> = vec![];
 
@@ -293,8 +294,8 @@ pub fn init() {
 
                     match dynamic_cert.add_cert(
                         proxy_sni.unwrap_or("localhost".to_string()),
-                        &cert_path,
-                        &key_path,
+                        cert_path,
+                        key_path,
                     ) {
                         Ok(_) => {
                             eprintln!("[----] Gateway service {} added TLS cert", &gw.addr_listen);
@@ -342,7 +343,7 @@ pub fn init() {
             my_server.bootstrap();
             let proxy = config::RoutingData::ProxyRouting
                 .xget::<Vec<ProxyNode>>()
-                .unwrap_or(vec![])
+                .unwrap_or_default()
                 .into_iter()
                 .filter(|px| px.high_speed)
                 .collect::<Vec<_>>();
@@ -359,9 +360,9 @@ pub fn init() {
                     let proxy_tls = service::proxy::proxy_service_tls_fast(
                         &px.addr_listen,
                         &addr_target,
-                        &px.sni.as_ref().unwrap_or(&"localhost".to_string()),
-                        &px.tls_pem.as_ref().unwrap(),
-                        &px.tls_key.as_ref().unwrap(),
+                        px.sni.as_ref().unwrap_or(&"localhost".to_string()),
+                        px.tls_pem.as_ref().unwrap(),
+                        px.tls_key.as_ref().unwrap(),
                     );
 
                     eprintln!("[----] Adding proxy TLS service");

@@ -1,0 +1,91 @@
+<script lang="ts">
+    import { createEventDispatcher } from 'svelte';
+    import Button from '$lib/components/common/Button.svelte';
+    import type { AiModel } from '$lib/types/aiSecurity';
+
+    export let showModal = false;
+    export let model: AiModel | null = null;
+    export let isProcessing = false;
+    export let error: string | null = null;
+
+    const dispatch = createEventDispatcher<{
+        confirm: string;
+        cancel: void;
+    }>();
+
+    let confirmName = '';
+
+    function handleConfirm() {
+        if (!model || confirmName !== model.name) return;
+        dispatch('confirm', model.id);
+    }
+
+    function handleCancel() {
+        confirmName = '';
+        dispatch('cancel');
+    }
+
+    $: isValid = model && confirmName === model.name;
+</script>
+
+{#if showModal && model}
+    <div class="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                Delete Model
+            </h2>
+
+            {#if error}
+                <div class="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-3 mb-4">
+                    <p class="text-sm text-red-700 dark:text-red-300">{error}</p>
+                </div>
+            {/if}
+
+            <p class="text-gray-600 dark:text-gray-300 mb-4">
+                This action cannot be undone. The model file will be permanently deleted.
+            </p>
+
+            <div class="mb-4">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Model to delete:
+                </p>
+                <code class="block bg-gray-100 dark:bg-gray-700 p-2 text-sm font-mono text-gray-800 dark:text-gray-200 rounded">
+                    {model.name}
+                </code>
+            </div>
+
+            <div class="mb-4">
+                <label for="confirmDelete" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Type the model name to confirm:
+                </label>
+                <input
+                    type="text"
+                    id="confirmDelete"
+                    bind:value={confirmName}
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-red-500 focus:border-red-500 dark:bg-gray-700 dark:text-white"
+                    placeholder="Type model name to confirm"
+                    disabled={isProcessing}
+                />
+            </div>
+
+            <div class="flex justify-end gap-3">
+                <Button variant="secondary" onClick={handleCancel} disabled={isProcessing}>
+                    Cancel
+                </Button>
+                <Button variant="danger" onClick={handleConfirm} disabled={!isValid || isProcessing}>
+                    {#if isProcessing}
+                        <span class="flex items-center">
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Deleting...
+                        </span>
+                    {:else}
+                        Delete Model
+                    {/if}
+                </Button>
+            </div>
+        </div>
+    </div>
+{/if}

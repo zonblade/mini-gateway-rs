@@ -1,6 +1,6 @@
 # Gateway Router CLI Tool
 
-A command-line interface for interacting with the Mini-Gateway Router API. This tool allows you to upload configuration files to the router service.
+A command-line interface for interacting with the Mini-Gateway Router API. This tool allows you to upload gateway configurations.
 
 ## Installation
 
@@ -48,9 +48,28 @@ gwrs --config config.yaml -u USERNAME -p PASSWORD --url http://router-api:3000
 gwrs config config.yaml -u USERNAME -p PASSWORD --url http://router-api:3000
 ```
 
+### Export Configuration
+
+Download the current configuration from the router:
+
+```bash
+# Export to default file
+gwrs export -u USERNAME -p PASSWORD
+
+# Export to specific file
+gwrs export --output my-config.yaml -u USERNAME -p PASSWORD
+
+# Using environment variables
+gwrs export --osenv --output current-config.yaml
+```
+
 ### Configuration File Format
 
-The configuration file should be in YAML format with the following structure:
+The configuration file should be in YAML format:
+
+#### Proxy Configuration
+
+Define your gateway routing rules:
 
 ```yaml
 proxy:
@@ -67,6 +86,8 @@ proxy:
           -----BEGIN PRIVATE KEY-----
           key
           -----END PRIVATE KEY-----
+        tls_autron: false              # Enable automatic TLS via Let's Encrypt
+        tls_mode: "staging"            # "staging" or "prod" for Let's Encrypt
     highspeed:
       enabled: true
       target: "gateway1"
@@ -78,7 +99,12 @@ proxy:
           - priority: 1
             pattern: "^(.*)$"
             target: "/$1"
-```
+          - priority: 2
+            pattern: "^/api/debug/(.*)$"
+            target: "/debug/$1"
+          - priority: 3
+            pattern: "^/health$"
+            target: "/health"
 
 ## Environment Variables
 

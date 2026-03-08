@@ -42,6 +42,8 @@ pub struct TemporaryLog {
     pub conn_res: i8,   // 1 indicate connection dirupted
     pub bytes_in: i32,  // bytes in
     pub bytes_out: i32, // bytes out
+    pub path_src: Option<String>, // source path (before routing)
+    pub path_dst: Option<String>, // destination path (after routing)
 }
 
 impl bincode::enc::Encode for TemporaryLog {
@@ -62,6 +64,8 @@ impl bincode::enc::Encode for TemporaryLog {
         self.conn_res.encode(encoder)?;
         self.bytes_in.encode(encoder)?;
         self.bytes_out.encode(encoder)?;
+        self.path_src.encode(encoder)?;
+        self.path_dst.encode(encoder)?;
         Ok(())
     }
 }
@@ -90,6 +94,8 @@ impl bincode::de::Decode<()> for TemporaryLog {
             conn_res: i8::decode(decoder)?,
             bytes_in: i32::decode(decoder)?,
             bytes_out: i32::decode(decoder)?,
+            path_src: Option::<String>::decode(decoder)?,
+            path_dst: Option::<String>::decode(decoder)?,
         })
     }
 }
@@ -114,6 +120,8 @@ impl Clone for TemporaryLog {
             conn_res: self.conn_res,
             bytes_in: self.bytes_in,
             bytes_out: self.bytes_out,
+            path_src: self.path_src.clone(),
+            path_dst: self.path_dst.clone(),
         }
     }
 }
@@ -1422,6 +1430,25 @@ pub mod tlog_proxy {
                 .get_bytes_io_frame(start, end, metric)
         }
     }
+    pub fn load_logs(
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<TemporaryLog>, LogStoreError> {
+        unsafe {
+            if PROXY_LOG_STORE.is_none() {
+                init();
+            }
+            PROXY_LOG_STORE
+                .as_ref()
+                .ok_or_else(|| {
+                    LogStoreError::IoError(io::Error::new(
+                        io::ErrorKind::Other,
+                        "Proxy log store not initialized",
+                    ))
+                })?
+                .load_logs(start, end)
+        }
+    }
 }
 
 #[allow(static_mut_refs, dead_code)]
@@ -1519,6 +1546,25 @@ pub mod tlog_gateway {
                     ))
                 })?
                 .get_bytes_io_frame(start, end, metric)
+        }
+    }
+    pub fn load_logs(
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<TemporaryLog>, LogStoreError> {
+        unsafe {
+            if GATEWAY_LOG_STORE.is_none() {
+                init();
+            }
+            GATEWAY_LOG_STORE
+                .as_ref()
+                .ok_or_else(|| {
+                    LogStoreError::IoError(io::Error::new(
+                        io::ErrorKind::Other,
+                        "Gateway log store not initialized",
+                    ))
+                })?
+                .load_logs(start, end)
         }
     }
 }

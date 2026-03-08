@@ -24,7 +24,7 @@ use mapper::{setup_standard_logging, setup_tag_based_logging};
 ///    and initializes the standard `env_logger` directly as a last resort,
 ///    logging a warning about using the default configuration.
 pub fn writer_start() {
-    // // Try the tag-based logging first
+    // Try the tag-based logging first
     eprintln!("[----] Initializing tag-based logging...");
     if setup_tag_based_logging().is_ok() {
         eprintln!("[----] Tag-based logging initialized successfully");

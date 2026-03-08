@@ -58,14 +58,14 @@ impl log::Log for TagBasedLogger {
         for pattern in &self.tag_writers {
             if message.contains(pattern) {
                 // Send the log message to the corresponding UDP endpoint.
-                memory_log::sender::switcher(&pattern, level, &message);
+                memory_log::sender::switcher(pattern, level, &message);
                 found = true;
             }
         }
 
         // If no tag matched, log a warning about the unrecognized message.
         if !found {
-            memory_log::sender::switcher(&"-", level, &message);
+            memory_log::sender::switcher("-", level, &message);
         }
     }
 

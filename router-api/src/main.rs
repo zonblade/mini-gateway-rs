@@ -13,6 +13,7 @@
 //! - **CORS Support**: Configurable cross-origin request security
 //! - **JWT Authentication**: Role-based access control (admin, staff, user)
 //! - **Registry Synchronization**: Automatic sync of proxy and gateway nodes with central registry
+//! - **Certificate Auto-Renewal**: Background daemon for automatic SSL certificate renewal
 //!
 //! ## API Endpoints
 //!
@@ -42,6 +43,15 @@
 //!
 //! By default, the service listens on port 24042 on all network interfaces (0.0.0.0).
 //! This can be configured through environment variables or config files.
+//!
+//! ## Certificate Auto-Renewal
+//!
+//! The service includes a background daemon that automatically renews SSL certificates:
+//! - `CERT_RENEWAL_INTERVAL_HOURS`: Check interval in hours (default: 6)
+//! - `CERT_RENEWAL_JITTER_MINUTES`: Random delay to avoid load spikes (default: 30)
+//! - `CERT_RENEWAL_RETRY_ATTEMPTS`: Max retry attempts per domain (default: 5)
+//! - `CERT_RENEWAL_RETRY_DELAY_SECONDS`: Base retry delay in seconds (default: 300)
+//! - `CERT_RENEWAL_BUFFER_DAYS`: Days before expiry to trigger renewal (default: 3)
 
 mod api;
 mod config;
@@ -53,6 +63,7 @@ use actix_web::{middleware, web, App, HttpServer};
 use api::sync;
 use module::memory_log;
 use std::sync::{Arc, Mutex};
+use tokio::signal;
 
 use crate::config::Api;
 
@@ -97,7 +108,7 @@ use crate::config::Api;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
-        std::env::set_var("RUST_LOG", "info");
+        std::env::set_var("RUST_LOG", "debug");
         env_logger::init();
         config::init();
     }
@@ -106,6 +117,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         log::info!("Starting memory log spawner...");
         memory_log::spawner::spawn_all();
+    }
+
+    // Initialize AI security (checks DB, spawns threads if models exist)
+    {
+        log::info!("Initializing AI security...");
+        if let Err(e) = module::ai_security::init_ai_security() {
+            log::warn!("AI security init failed: {}. Continuing without AI.", e);
+        }
+    }
+
+    {
+        log::info!("Starting certificate auto-renewal spawner...");
+        module::auto_renewal::spawner::spawn_auto_renewal();
     }
 
     // Parse command line arguments using clap
@@ -170,6 +194,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => log::warn!("Failed to sync gateway paths to registry: {:?}. Continuing startup anyway.", e),
         }
     }
+
+    // Setup shutdown signal handling
+    tokio::spawn(async {
+        let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
+        let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt()).unwrap();
+        
+        tokio::select! {
+            _ = sigterm.recv() => {
+                log::info!("Received SIGTERM");
+            },
+            _ = sigint.recv() => {
+                log::info!("Received SIGINT");
+            },
+        }
+
+        // Exit the process
+        std::process::exit(0);
+    });
 
     // Configure and start actix-web server
     log::info!("Starting HTTP server on {}...", bind_address);

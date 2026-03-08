@@ -1,4 +1,5 @@
 use crate::app::proxy_fast;
+use dns_lookup::lookup_host;
 use pingora::listeners::Listeners;
 use pingora::services::listening::Service;
 use pingora::upstreams::peer::BasicPeer;
@@ -6,7 +7,20 @@ use pingora::upstreams::peer::BasicPeer;
 
 pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::ProxyApp> {
 
-    let peer = BasicPeer::new(addr_to);
+    let mut addr_target = addr_to.to_string();
+    let is_ip = addr_to.bytes().filter(|&b| b == b'.').count() == 4;
+    if !is_ip {
+        let ipx = lookup_host(addr_to);
+        if let Ok(ipx) = ipx {
+            if let Some(ip) = ipx.first() {
+                addr_target = ip.to_string();
+                log::info!("Resolved {} to {}", addr_to, addr_target);
+            } else {
+                log::error!("Failed to resolve address: {}", addr_to);
+            }
+        }
+    }
+    let peer = BasicPeer::new(&addr_target);
 
     Service::with_listeners(
         "Proxy Service".to_string(),
@@ -22,8 +36,21 @@ pub fn proxy_service_tls_fast(
     cert_path: &str,
     key_path: &str,
 ) -> Service<proxy_fast::ProxyApp> {
+    let mut addr_target = addr_to.to_string();
+    let is_ip = addr_to.bytes().filter(|&b| b == b'.').count() == 4;
+    if !is_ip {
+        let ipx = lookup_host(addr_to);
+        if let Ok(ipx) = ipx {
+            if let Some(ip) = ipx.first() {
+                addr_target = ip.to_string();
+                log::info!("Resolved {} to {}", addr_to, addr_target);
+            } else {
+                log::error!("Failed to resolve address: {}", addr_to);
+            }
+        }
+    }
 
-    let peer = BasicPeer::new(addr_to);
+    let peer = BasicPeer::new(&addr_target);
     
     // Check if certificate and key files exist
     if !std::path::Path::new(cert_path).exists() {

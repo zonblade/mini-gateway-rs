@@ -79,7 +79,16 @@ pub enum RoutingData {
     GatewayNodeID,
 
     /// Key for the current proxy node identifier
-    GatewayNodeListen
+    GatewayNodeListen,
+
+    /// Key for blocklist identifier (checksum)
+    BlocklistID,
+
+    /// Key for blocklist data
+    BlocklistData,
+
+    /// Key for blocklist active flag (performance optimization)
+    BlocklistActive,
 }
 
 /// Proxy node configuration.
@@ -178,6 +187,19 @@ pub struct GatewayNodeSNI {
     pub tls_key : Option<String>,
 }
 
+/// Blocklist entry for Zero Trust IP blocking
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BlocklistEntry {
+    /// IP address to block (supports both IPv4 and IPv6)
+    pub ip: String,
+    /// Reason for blocking (e.g., "xgboost:0.92", "manual")
+    pub reason: Option<String>,
+    /// Unix timestamp when block expires, None = permanent
+    pub expires_at: Option<u64>,
+    /// Unix timestamp when entry was created
+    pub created_at: u64,
+}
+
 /// Initialize the configuration system with default values.
 ///
 /// This function sets up the initial configuration state by:
@@ -195,4 +217,7 @@ pub fn init(){
     RoutingData::GatewayRouting.xset::<Vec<GatewayNode>>(vec![]);
     RoutingData::ProxyRouting.xset::<Vec<ProxyNode>>(vec![]);
     RoutingData::GatewayNodeListen.xset::<Vec<GatewayPath>>(vec![]);
+    RoutingData::BlocklistID.set("-");
+    RoutingData::BlocklistData.xset::<Vec<BlocklistEntry>>(vec![]);
+    RoutingData::BlocklistActive.xset::<bool>(false);
 }

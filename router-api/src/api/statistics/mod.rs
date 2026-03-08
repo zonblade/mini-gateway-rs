@@ -35,14 +35,11 @@
 //! 2. Store this data in a time-series format
 //! 3. Aggregate and analyze the data for reporting
 //! 4. Provide recent views (last 120 minutes)
-// mod logs;
-// mod logs_broadcast;
-mod log_default;
-mod log_bytesio;
-mod log_status_code;
+pub mod unified_stats;
+pub mod unified_stream;
 
 use actix_web::web;
-// use logs_broadcast::LogsBroadcaster;
+use unified_stream::UnifiedStatsBroadcaster;
 
 /// Configure statistics API routes
 /// 
@@ -53,19 +50,16 @@ use actix_web::web;
 /// 
 /// * `cfg` - A mutable reference to the service configuration
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    // Statistics endpoints will be implemented here in the future
-    // Example route configuration:
-
-    // let sse_logs = LogsBroadcaster::create();
-    // let sse_logs = web::Data::from(sse_logs);
+    // Create unified stats broadcaster
+    let unified_broadcaster = UnifiedStatsBroadcaster::create();
+    let unified_broadcaster = web::Data::from(unified_broadcaster);
 
     cfg.service(
         web::scope("/statistics")
             // .wrap(JwtAuth::new())
             // .wrap(RoleAuth::admin())
-            .service(log_default::init)
-            .service(log_status_code::init)
-            .service(log_bytesio::init)
+            .app_data(unified_broadcaster.clone())
+            .service(unified_stream::stream)
     //         .route("/gateways/{id}", web::get().to(handlers::get_gateway_stats))
     //         .route("/proxies/{id}", web::get().to(handlers::get_proxy_stats))
     //         .route("/traffic", web::get().to(handlers::get_traffic_stats))

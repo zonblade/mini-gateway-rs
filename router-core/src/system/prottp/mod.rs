@@ -1,4 +1,4 @@
-mod app;
+pub mod app;
 mod core;
 
 pub fn init() {
@@ -10,13 +10,16 @@ pub fn init() {
         if let Err(e) = server.start(|mut request| {
             let body_string = {
                 let string = String::from_utf8_lossy(&request.body); // Returns Cow<str>
-                let string = string.to_string(); // Convert to owned String
-                string
+                string.to_string()
             };
 
             println!("[-PT-] Received request: {} {}", request.method, request.path);
 
             match (request.method.as_str(), request.path.as_str()) {
+                ("GWRX", "/version") => {
+                    let version_info = "Mini Gateway";
+                    let _ =  request.send_200(version_info);
+                }
                 ("GWRX", "/gateway/node") => {
                     let res = match app::gateway_node::init(body_string) {
                         Ok(_) => request.send_200("Gateway node data updated successfully"),
@@ -43,6 +46,16 @@ pub fn init() {
                         Err(e) => {
                             log::error!("Failed to update proxy node data: {}", e);
                             request.send_400("Failed to update proxy node data")
+                        }
+                    };
+                    let _ = res;
+                }
+                ("GWRX", "/gateway/blocklist") => {
+                    let res = match app::blocklist::init(body_string) {
+                        Ok(_) => request.send_200("Blocklist updated successfully"),
+                        Err(e) => {
+                            log::error!("Failed to update blocklist: {}", e);
+                            request.send_400(&format!("Failed to update blocklist: {}", e))
                         }
                     };
                     let _ = res;

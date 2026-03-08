@@ -66,6 +66,7 @@ const CACHE_SHARDS: usize = 16;
 // Default capacity per shard if not otherwise specified
 const DEFAULT_PER_SHARD_CAPACITY: usize = 250; // ~4000 total routes
 
+#[derive(Default)]
 pub struct ContextGw {
     pub conn_id: Option<String>,
     pub websocket: bool,
@@ -74,21 +75,43 @@ pub struct ContextGw {
     pub size_in: usize,
     pub size_out: usize,
     pub src_addr: Option<String>,
+    pub path_src: Option<String>,
+    pub path_dst: Option<String>,
+
+    // === NEW RAW METRICS ===
+    // Timing
+    pub request_start: Option<Instant>,
+    pub duration_ms: Option<f64>,
+
+    // Network
+    pub client_ip: Option<String>,
+    pub client_port: Option<u16>,
+    pub real_ip: Option<String>,  // X-Forwarded-For or client_ip for Zero Trust
+    pub server_ip: Option<String>,
+    pub server_port: Option<u16>,
+    pub protocol: Option<String>,
+
+    // TCP (from TCP_INFO on Linux)
+    pub tcp_rtt: Option<u32>,
+    pub tcp_rtt_var: Option<u32>,
+    pub tcp_retrans: Option<u8>,
+    pub tcp_lost: Option<u32>,
+    pub tcp_send_wnd: Option<u32>,
+    pub tcp_recv_wnd: Option<u32>,
+    pub tcp_send_mss: Option<u32>,
+    pub tcp_recv_mss: Option<u32>,
+    pub tcp_bytes_acked: Option<u64>,
+    pub tcp_segs_in: Option<u32>,
+    pub tcp_segs_out: Option<u32>,
+
+    // HTTP
+    pub http_method: Option<String>,
+    pub http_status: Option<u16>,
+
+    // TLS
+    pub tls_version: Option<String>,
 }
 
-impl Default for ContextGw {
-    fn default() -> Self {
-        Self {
-            conn_id: None,
-            websocket: false,
-            conn_type: None,
-            peer: None,
-            size_in: 0,
-            size_out: 0,
-            src_addr: None,
-        }
-    }
-}
 
 // --- Sharded LRU Cache Implementation ---
 // Uses the `lru` crate for efficient O(1) operations.
@@ -211,12 +234,15 @@ static _DEFAULT_FALLBACK_PEER_PORT: &str = DEFAULT_PORT.p404;
 // --- Gateway Application ---
 
 /// # Gateway Application
+/// Cached route entry: (rewritten_path+query, sni, tls, target_peer)
+type RouteCacheEntry = (String, Option<String>, bool, Arc<BasicPeer>);
+
 /// The main application implementing HTTP proxy routing.
 pub struct GatewayApp {
     source: String,                   // Listener address (e.g., "0.0.0.0:8080")
     last_check_time: RwLock<Instant>, // Last time config was checked
     check_interval: Duration,         // How often to check for config changes
-    route_cache: Arc<ShardedLruCache<String, (String, Option<String>, bool, Arc<BasicPeer>)>>, // Cache: key=path+query, value=(rewritten_path+query, sni, tls, target_peer)
+    route_cache: Arc<ShardedLruCache<String, RouteCacheEntry>>, // Cache: key=path+query, value=(rewritten_path+query, sni, tls, target_peer)
 }
 
 impl GatewayApp {
@@ -575,7 +601,110 @@ impl ProxyHttp for GatewayApp {
     where
         Self::CTX: Send + Sync,
     {
+        // === NEW: Start timing ===
+        _ctx.request_start = Some(Instant::now());
+
+        // === NEW: Extract metrics from Pingora digest ===
+        if let Some(digest) = session.digest() {
+            // Socket addresses
+            if let Some(socket_digest) = &digest.socket_digest {
+                if let Some(peer_addr) = socket_digest.peer_addr() {
+                    let addr_str = peer_addr.to_string();
+                    // Use rsplit_once to handle IPv6 addresses like [::1]:8080
+                    if let Some((ip, port)) = addr_str.rsplit_once(':') {
+                        _ctx.client_ip = Some(ip.to_string());
+                        _ctx.client_port = port.parse().ok();
+                    }
+                }
+                if let Some(local_addr) = socket_digest.local_addr() {
+                    let addr_str = local_addr.to_string();
+                    if let Some((ip, port)) = addr_str.rsplit_once(':') {
+                        _ctx.server_ip = Some(ip.to_string());
+                        _ctx.server_port = port.parse().ok();
+                    }
+                }
+
+                // TCP_INFO (Linux only)
+                #[cfg(target_os = "linux")]
+                if let Some(tcp_info) = socket_digest.tcp_info() {
+                    _ctx.tcp_rtt = Some(tcp_info.tcpi_rtt);
+                    _ctx.tcp_rtt_var = Some(tcp_info.tcpi_rttvar);
+                    _ctx.tcp_retrans = Some(tcp_info.tcpi_retransmits);
+                    _ctx.tcp_lost = Some(tcp_info.tcpi_lost);
+                    _ctx.tcp_send_wnd = Some(tcp_info.tcpi_snd_wnd);
+                    _ctx.tcp_recv_wnd = Some(tcp_info.tcpi_rcv_wnd);
+                    _ctx.tcp_send_mss = Some(tcp_info.tcpi_snd_mss);
+                    _ctx.tcp_recv_mss = Some(tcp_info.tcpi_rcv_mss);
+                    _ctx.tcp_bytes_acked = Some(tcp_info.tcpi_bytes_acked);
+                    _ctx.tcp_segs_in = Some(tcp_info.tcpi_segs_in);
+                    _ctx.tcp_segs_out = Some(tcp_info.tcpi_segs_out);
+                }
+            }
+
+            // TLS info
+            if let Some(ssl_digest) = &digest.ssl_digest {
+                _ctx.tls_version = Some(ssl_digest.version.to_string());
+            }
+        }
+
+        // HTTP info
+        let req_header = session.req_header();
+        _ctx.http_method = Some(req_header.method.to_string());
+        _ctx.protocol = Some(match req_header.version {
+            http::Version::HTTP_11 => "HTTP/1.1",
+            http::Version::HTTP_2 => "HTTP/2",
+            http::Version::HTTP_3 => "HTTP/3",
+            _ => "HTTP/1.0",
+        }.to_string());
+
+        // === ZERO TRUST: Extract real IP and check blocklist ===
+        // Priority: X-Forwarded-For > client_ip
+        let real_ip = {
+            let xff = session
+                .req_header()
+                .headers
+                .get("X-Forwarded-For")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.split(',').next()) // First IP in chain
+                .map(|s| s.trim().to_string());
+
+            xff.or_else(|| _ctx.client_ip.clone())
+        };
+        _ctx.real_ip = real_ip.clone();
+
+        // Check blocklist (only if active)
+        if crate::system::prottp::app::blocklist::is_active() {
+            if let Some(ip) = &real_ip {
+                if let Some(reason) = crate::system::prottp::app::blocklist::is_blocked(ip) {
+                    log::warn!(
+                        "[BLOCKED] IP={} reason={} conn_id={}",
+                        ip,
+                        reason,
+                        _ctx.conn_id.clone().unwrap_or_else(|| "-".into())
+                    );
+
+                    // Return 429 Too Many Requests
+                    let mut header = pingora::http::ResponseHeader::build(429, None).unwrap();
+                    header.insert_header("Content-Type", "text/plain").unwrap();
+                    header.insert_header("X-Blocked-Reason", &reason).unwrap();
+                    header.insert_header("Retry-After", "3600").unwrap(); // 1 hour
+
+                    session.write_response_header(Box::new(header), false).await?;
+                    session.write_response_body(Some(bytes::Bytes::from("Too Many Requests")), true).await?;
+
+                    return Ok(false); // Don't continue to upstream
+                }
+            }
+        }
+        // === END ZERO TRUST ===
+
+        // === EXISTING CODE CONTINUES ===
         _ctx.conn_id = Some(atomic_id());
+        
+        // Set the original source path early for all logging
+        let path = session.req_header().uri.path();
+        _ctx.path_src = Some(path.to_string());
+        
         //
         //
         // --- validate domain if using TLS ---
@@ -621,26 +750,30 @@ impl ProxyHttp for GatewayApp {
                             } else {
                                 &q[start + 3..]
                             };
-                            id_str.to_string()
+                            Some(id_str.to_string())
                         },
-                        None => atomic_id()
+                        None => None
                     }
                 },
-                None => atomic_id()
+                None => None
             };
 
-            _ctx.conn_id    = Some(query_id.to_string());
-            _ctx.websocket  = true;
-            _ctx.conn_type  = Some("WS".into());
-
-            info!(
-                "[GWX] | ID:{}, TYPE:INIT, CONN:{}, SIZE:{}, STAT:101, SRC:{}, DST:{} |",
-                _ctx.conn_id.clone().unwrap_or("-".into()),
-                "WS",
-                0,
-                _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-                _ctx.peer.clone().unwrap_or("UNKNOWN".into())
-            );
+            if query_id.is_some() {
+                _ctx.conn_id    = query_id;
+                _ctx.websocket  = true;
+                _ctx.conn_type  = Some("WS".into());
+    
+                info!(
+                    "[GWX] | ID:{}, TYPE:INIT, CONN:{}, SIZE:{}, STAT:101, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
+                    _ctx.conn_id.clone().unwrap_or("-".into()),
+                    "WS",
+                    0,
+                    _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
+                    _ctx.peer.clone().unwrap_or("UNKNOWN".into()),
+                    _ctx.path_src.clone().unwrap_or("-".into()),
+                    _ctx.path_dst.clone().unwrap_or("-".into())
+                );
+            }
         } else {
             _ctx.conn_type = Some("HTTP".into());
         }
@@ -656,7 +789,6 @@ impl ProxyHttp for GatewayApp {
 
         // 2. Prepare cache key (full path + query)
         // Avoid allocation if query is None
-        let path = session.req_header().uri.path();
         let query = session.req_header().uri.query();
         // Use Cow for potential zero-allocation case when no query exists
         let cache_key = match query {
@@ -669,6 +801,9 @@ impl ProxyHttp for GatewayApp {
         {
             // Cache Hit!
             debug!("Cache hit for key: {}", cache_key);
+            
+            // Set the destination path from cache
+            _ctx.path_dst = Some(rewritten_path_query.clone());
             if let Some(sni) = sni {
                 if authority != sni {
                     error!(
@@ -751,6 +886,9 @@ impl ProxyHttp for GatewayApp {
                     Some(q) => format!("{}?{}", rewritten_path, q),
                     None => rewritten_path, // Already a String
                 };
+                
+                // Set the destination path for cache miss scenario
+                _ctx.path_dst = Some(final_path_query.clone());
 
                 // Update request URI
                 match http::uri::PathAndQuery::from_maybe_shared(final_path_query.clone()) {
@@ -804,6 +942,12 @@ impl ProxyHttp for GatewayApp {
             "No matching rules for path '{}', using default fallback.",
             path
         );
+        
+        // Set destination path same as source since no rewriting occurred
+        if _ctx.path_dst.is_none() {
+            _ctx.path_dst = _ctx.path_src.clone();
+        }
+        
         // Clone the precomputed Box<HttpPeer>
         // Ok(DEFAULT_FALLBACK_PEER.clone())
         Ok(true)
@@ -840,12 +984,14 @@ impl ProxyHttp for GatewayApp {
 
         // println!("Request Header: {}", header_str);
         info!(
-            "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{} |",
+            "[GWX] | ID:{}, TYPE:REQ, CONN:{}, SIZE:{}, STAT:N/A, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
             _ctx.conn_id.clone().unwrap_or("-".into()),
             _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
             size_in,
             _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-            _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+            _ctx.peer.clone().unwrap_or("UNKNOWN".into()),
+            _ctx.path_src.clone().unwrap_or("-".into()),
+            _ctx.path_dst.clone().unwrap_or("-".into())
         );
         Ok(())
     }
@@ -868,23 +1014,61 @@ impl ProxyHttp for GatewayApp {
         let response_code = _session
             .response_written()
             .map_or(0, |resp| resp.status.as_u16());
-        // eprintln!(
-        //     "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} | Response",
-        //     _ctx.conn_id.clone().unwrap_or("-".into()),
-        //     _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
-        //     _ctx.size_out,
-        //     response_code,
-        //     _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-        //     _ctx.peer.clone().unwrap_or("UNKNOWN".into())
-        // );
+
+        // Capture HTTP status
+        _ctx.http_status = Some(response_code);
+
+        // Calculate duration
+        if let Some(start) = _ctx.request_start {
+            _ctx.duration_ms = Some(start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Refresh TCP_INFO for final counts
+        #[cfg(target_os = "linux")]
+        if let Some(digest) = _session.digest() {
+            if let Some(socket_digest) = &digest.socket_digest {
+                if let Some(tcp_info) = socket_digest.tcp_info() {
+                    _ctx.tcp_bytes_acked = Some(tcp_info.tcpi_bytes_acked);
+                    _ctx.tcp_segs_in = Some(tcp_info.tcpi_segs_in);
+                    _ctx.tcp_segs_out = Some(tcp_info.tcpi_segs_out);
+                }
+            }
+        }
+
+        // EXTENDED [GWX] LOG with raw metrics
         info!(
-            "[GWX] | ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
-            _ctx.conn_id.clone().unwrap_or("-".into()),
-            _ctx.conn_type.clone().unwrap_or("UNKNOWN".into()),
+            "[GWX] ID:{}, TYPE:RES, CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{}, \
+             DUR:{:.2}, PROTO:{}, METHOD:{}, \
+             TCP_RTT:{}, TCP_RETRANS:{}, TCP_LOST:{}, TCP_SND_WND:{}, TCP_RCV_WND:{}, \
+             TCP_SND_MSS:{}, TCP_RCV_MSS:{}, TCP_BYTES_ACKED:{}, TCP_SEGS_IN:{}, TCP_SEGS_OUT:{}, \
+             TLS_VER:{}, CLIENT:{}:{}, SERVER:{}:{}, REAL_IP:{}",
+            _ctx.conn_id.clone().unwrap_or_else(|| "-".into()),
+            _ctx.conn_type.clone().unwrap_or_else(|| "UNKNOWN".into()),
             _ctx.size_out,
             response_code,
-            _ctx.src_addr.clone().unwrap_or("UNKNOWN".into()),
-            _ctx.peer.clone().unwrap_or("UNKNOWN".into())
+            _ctx.src_addr.clone().unwrap_or_else(|| "UNKNOWN".into()),
+            _ctx.peer.clone().unwrap_or_else(|| "UNKNOWN".into()),
+            _ctx.path_src.clone().unwrap_or_else(|| "-".into()),
+            _ctx.path_dst.clone().unwrap_or_else(|| "-".into()),
+            _ctx.duration_ms.unwrap_or(0.0),
+            _ctx.protocol.clone().unwrap_or_else(|| "-".into()),
+            _ctx.http_method.clone().unwrap_or_else(|| "-".into()),
+            _ctx.tcp_rtt.unwrap_or(0),
+            _ctx.tcp_retrans.unwrap_or(0),
+            _ctx.tcp_lost.unwrap_or(0),
+            _ctx.tcp_send_wnd.unwrap_or(0),
+            _ctx.tcp_recv_wnd.unwrap_or(0),
+            _ctx.tcp_send_mss.unwrap_or(0),
+            _ctx.tcp_recv_mss.unwrap_or(0),
+            _ctx.tcp_bytes_acked.unwrap_or(0),
+            _ctx.tcp_segs_in.unwrap_or(0),
+            _ctx.tcp_segs_out.unwrap_or(0),
+            _ctx.tls_version.clone().unwrap_or_else(|| "-".into()),
+            _ctx.client_ip.clone().unwrap_or_else(|| "-".into()),
+            _ctx.client_port.unwrap_or(0),
+            _ctx.server_ip.clone().unwrap_or_else(|| "-".into()),
+            _ctx.server_port.unwrap_or(0),
+            _ctx.real_ip.clone().unwrap_or_else(|| "-".into())
         );
     }
 

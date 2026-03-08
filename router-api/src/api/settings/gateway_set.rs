@@ -114,7 +114,9 @@ pub async fn set_gateway(
         Ok(Some(_)) => {
             // Gateway node exists, proceed with saving the gateway
             match gateway_queries::save_gateway(&gateway) {
-                Ok(_) => HttpResponse::Ok().json(gateway),
+                Ok(_) => {
+                    HttpResponse::Ok().json(gateway)
+                },
                 Err(err) => {
                     log::error!("Failed to save gateway: {}", err);
                     HttpResponse::InternalServerError().json(serde_json::json!({
@@ -200,9 +202,11 @@ pub async fn delete_gateway(
     let id = &req_body.id;
     
     match gateway_queries::delete_gateway_by_id(id) {
-        Ok(true) => HttpResponse::Ok().json(serde_json::json!({
-            "message": "Gateway deleted successfully"
-        })),
+        Ok(true) => {
+            HttpResponse::Ok().json(serde_json::json!({
+                "message": "Gateway deleted successfully"
+            }))
+        },
         Ok(false) => HttpResponse::NotFound().json(serde_json::json!({
             "error": "Gateway not found"
         })),

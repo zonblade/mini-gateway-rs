@@ -63,8 +63,8 @@ pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
             title TEXT NOT NULL,
             alt_target TEXT NOT NULL,
             priority INTEGER NOT NULL DEFAULT 100,
-            FOREIGN KEY(proxy_id) REFERENCES proxies(id),
-            FOREIGN KEY(domain_id) REFERENCES proxy_domains(id)
+            FOREIGN KEY(proxy_id) REFERENCES proxies(id) ON DELETE CASCADE,
+            FOREIGN KEY(domain_id) REFERENCES proxy_domains(id) ON DELETE SET NULL
         )",
         [],
     )?;

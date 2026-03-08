@@ -293,7 +293,7 @@ impl SharedMemoryProducer {
             // Allow retries for shm_open in case of temporary failures
             let mut attempts = 0;
             let max_attempts = 3;
-            let mut _last_err = Error::new(ErrorKind::Other, "Unknown error");
+            let mut _last_err = Error::other("Unknown error");
 
             loop {
                 let result = libc::shm_open(
@@ -517,7 +517,7 @@ impl SharedMemoryProducer {
 
                                 // Unlock and return error
                                 (*self.control).unlock();
-                                return Err(Error::new(ErrorKind::Other, "Queue is full"));
+                                return Err(Error::other("Queue is full"));
                             }
                             OverflowPolicy::Overwrite => {
                                 // Record overflow event
@@ -580,8 +580,7 @@ impl SharedMemoryProducer {
     #[allow(dead_code)]
     pub fn queue_size(&self) -> usize {
         unsafe {
-            let count = (*self.control).count.load(acquire_ordering());
-            count
+            (*self.control).count.load(acquire_ordering())
         }
     }
 
@@ -714,13 +713,7 @@ impl LogProducer {
         fresh_start: bool,
         overflow_policy: OverflowPolicy,
     ) -> io::Result<Self> {
-        let actual_capacity = if min_capacity < 1_000 {
-            1_000
-        } else if min_capacity > 10_000_000 {
-            10_000_000
-        } else {
-            min_capacity
-        };
+        let actual_capacity = min_capacity.clamp(1_000, 10_000_000);
 
         let shm = match SharedMemoryProducer::create_with_capacity(
             name,
@@ -904,8 +897,7 @@ pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
 
     match &GLOBAL_LOG_PROXY {
         Some(logger) => Ok(logger),
-        None => Err(Error::new(
-            ErrorKind::Other,
+        None => Err(Error::other(
             "Failed to initialize proxy logger",
         )),
     }
@@ -955,8 +947,7 @@ pub unsafe fn gateway_logger() -> io::Result<&'static LogProducer> {
 
     match &GLOBAL_LOG_GATEWAY {
         Some(logger) => Ok(logger),
-        None => Err(Error::new(
-            ErrorKind::Other,
+        None => Err(Error::other(
             "Failed to initialize gateway logger",
         )),
     }

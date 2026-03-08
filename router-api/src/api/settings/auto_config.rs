@@ -10,6 +10,7 @@ use actix_web::{post, get, web, HttpResponse, Responder, HttpRequest};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::{api::users::helper::{is_staff_or_admin, ClaimsFromRequest}, module::httpc::HttpC};
+use crate::module::certificate_automation;
 use super::{
     Proxy, ProxyDomain, GatewayNode, Gateway,
     proxy_queries, proxydomain_queries, gwnode_queries, gateway_queries
@@ -30,7 +31,22 @@ pub struct YamlDomain {
     /// TLS private key content
     #[serde(default)]
     pub tls_key: Option<String>,
+    /// Whether automatic certificate generation is enabled
+    #[serde(default)]
+    pub tls_autron: bool,
+    /// TLS mode for certbot when tls_autron is true ("staging" or "prod")
+    #[serde(default = "default_tls_mode")]
+    pub tls_mode: String,
+    /// Email for Let's Encrypt registration (required when tls_autron is true)
+    #[serde(default)]
+    pub tls_email: Option<String>,
 }
+
+/// Default TLS mode is staging for safety
+fn default_tls_mode() -> String {
+    "staging".to_string()
+}
+
 
 /// Structure representing a gateway path in the YAML configuration
 #[derive(Debug, Serialize, Deserialize)]
@@ -144,7 +160,7 @@ pub async fn upload_config(
         }
     };
 
-    // Delete all existing configurations
+    // Delete all existing gateway configurations
     // First delete all gateways
     if let Err(e) = gateway_queries::delete_all_gateways() {
         return HttpResponse::InternalServerError().json(serde_json::json!({
@@ -206,18 +222,50 @@ pub async fn upload_config(
             )
         }
         created_proxies.push(proxy.clone());
-        
+
+        // Validate tls_email for domains with tls_autron enabled
+        for yaml_domain in &yaml_proxy.domains {
+            if yaml_domain.tls_autron {
+                match &yaml_domain.tls_email {
+                    Some(email) if !email.trim().is_empty() => {
+                        // Valid - continue
+                    }
+                    _ => {
+                        return HttpResponse::BadRequest().json(serde_json::json!({
+                            "error": format!("Domain '{}' has tls_autron=true but missing tls_email. Email is required for Let's Encrypt registration.", yaml_domain.domain)
+                        }));
+                    }
+                }
+            }
+        }
+
         // Process domains
         let mut domain_map = std::collections::HashMap::new();
         for yaml_domain in &yaml_proxy.domains {
             let domain_id = Uuid::new_v4().to_string();
-            let domain = ProxyDomain {
+            // Auto-set tls_mode to "staging" for safety when tls_autron is true but tls_mode is missing or empty
+            let tls_mode = if yaml_domain.tls_autron {
+                if yaml_domain.tls_mode.is_empty() {
+                    log::info!("Domain {} has tls_autron=true but missing tls_mode, defaulting to 'staging' for safety", yaml_domain.domain);
+                    "staging".to_string()
+                } else {
+                    yaml_domain.tls_mode.clone()
+                }
+            } else {
+                yaml_domain.tls_mode.clone()
+            };
+            
+            let mut domain = ProxyDomain {
                 id: domain_id.clone(),
                 proxy_id: Some(proxy_id.clone()),
                 tls: yaml_domain.tls,
                 tls_pem: yaml_domain.tls_cert.clone(),
                 tls_key: yaml_domain.tls_key.clone(),
                 sni: Some(yaml_domain.domain.clone()),
+                tls_autron: yaml_domain.tls_autron,
+                tls_mode: Some(tls_mode.clone()),
+                tls_email: yaml_domain.tls_email.clone(),
+                expected_renew: None, // Will be set during certificate generation
             };
             
             // Save domain
@@ -226,6 +274,37 @@ pub async fn upload_config(
                     serde_json::json!({"error": format!("Failed to create domain '{}': {}", yaml_domain.domain, e)})
                 )
             }
+            
+            // Handle automatic certificate generation if enabled - wait for completion
+            if yaml_domain.tls_autron {
+                log::info!("Automatic certificate generation requested for domain: {}", yaml_domain.domain);
+                
+                // Wait for certificate generation to complete before proceeding
+                // Use the appropriate manager based on tls_mode
+                let email = yaml_domain.tls_email.clone();
+                let manager = if tls_mode == "prod" {
+                    certificate_automation::CertificateAutomationManager::new_production(email)
+                } else {
+                    certificate_automation::CertificateAutomationManager::new_staging_with_email(email)
+                };
+                
+                let cert_result = manager.ensure_certificate_and_save(&yaml_domain.domain, &proxy_id).await;
+                
+                match cert_result {
+                    Ok(updated_domain) => {
+                        log::info!("Successfully generated certificate for domain: {}", yaml_domain.domain);
+                        // Update the domain with the certificate data
+                        domain.tls_pem = updated_domain.tls_pem;
+                        domain.tls_key = updated_domain.tls_key;
+                        domain.expected_renew = updated_domain.expected_renew;
+                    },
+                    Err(e) => {
+                        log::error!("Failed to generate certificate for domain {}: {}", yaml_domain.domain, e);
+                        // Continue without certificates - the domain will still be created but without cert data
+                    }
+                }
+            }
+            
             domain_map.insert(yaml_domain.domain.clone(), domain_id.clone());
             created_domains.push(domain);
         }
@@ -265,7 +344,7 @@ pub async fn upload_config(
                     target: yaml_path.target.clone(),
                     priority: yaml_path.priority,
                 };
-                
+
                 // Save gateway
                 if let Err(e) = gateway_queries::save_gateway(&gateway) {
                     return HttpResponse::BadRequest().json(
@@ -326,7 +405,9 @@ pub async fn upload_config(
         Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
         Err(e) => log::warn!("Failed to sync gateway nodes to registry: {:?}. Continuing anyway.", e),
     }
-    
+
+    log::info!("Auto-config upload completed successfully");
+
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "created": {
@@ -372,7 +453,7 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
             serde_json::json!({"error": "Only administrators and staff can download configurations"})
         );
     }
-    
+
     // Retrieve all proxies
     let proxies = match proxy_queries::get_all_proxies() {
         Ok(proxies) => proxies,
@@ -403,6 +484,9 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
             tls: domain.tls,
             tls_cert: domain.tls_pem.clone(),
             tls_key: domain.tls_key.clone(),
+            tls_autron: domain.tls_autron,
+            tls_mode: domain.tls_mode.clone().unwrap_or_else(|| "staging".to_string()),
+            tls_email: domain.tls_email.clone(),
         }).collect::<Vec<_>>();
         
         // Get gateway nodes for this proxy

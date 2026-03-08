@@ -1,6 +1,6 @@
 <!-- Desktop Sidebar Navigation Component -->
 <script lang="ts">
-    import { Home, BarChart2, Users, Server, Share2, Menu } from 'lucide-svelte';
+    import { Home, BarChart2, Users, Server, Share2, Shield, Menu } from 'lucide-svelte';
     export let username: string;
     
     // Function to handle logout - will be passed from parent
@@ -37,6 +37,10 @@
             <a href="/gwnode" class="group flex items-center px-2 py-3 text-base font-normal hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors border-l-2 border-transparent hover:border-indigo-500">
                 <Share2 class="mr-3 h-6 w-6 text-gray-500 group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white" />
                 Gateway Nodes
+            </a>
+            <a href="/security" class="group flex items-center px-2 py-3 text-base font-normal hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors border-l-2 border-transparent hover:border-indigo-500">
+                <Shield class="mr-3 h-6 w-6 text-gray-500 group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white" />
+                Security
             </a>
         </nav>
         
