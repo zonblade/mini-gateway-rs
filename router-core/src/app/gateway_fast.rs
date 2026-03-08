@@ -708,11 +708,7 @@ impl ProxyHttp for GatewayApp {
         _ctx.real_ip = real_ip.clone();
 
         // Check blocklist (only if active)
-        let blocklist_active = crate::config::RoutingData::BlocklistActive
-            .xget::<bool>()
-            .unwrap_or(false);
-
-        if blocklist_active {
+        if crate::system::prottp::app::blocklist::is_active() {
             if let Some(ip) = &real_ip {
                 if let Some(reason) = crate::system::prottp::app::blocklist::is_blocked(ip) {
                     log::warn!(
