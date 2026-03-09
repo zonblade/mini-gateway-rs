@@ -100,14 +100,14 @@ impl QueueControl {
 
         // Memory fence to ensure lock acquisition is visible
         memory_fence_acquire();
-        
+
         Ok(()) // Successfully acquired lock
     }
 
     pub fn unlock(&self) {
         // Memory fence before unlock to ensure all writes are visible
         memory_fence_release();
-        
+
         // Use Release ordering to ensure all previous writes are visible
         // to the next thread that acquires the lock
         self.lock.store(0, release_ordering());
@@ -117,10 +117,10 @@ impl QueueControl {
         // Update read index with Release ordering
         self.read_index
             .store((read_idx + 1) % capacity, release_ordering());
-        
+
         // Memory fence to ensure index update is visible before count update
         memory_fence_release();
-        
+
         // Update count with Release ordering
         self.count.fetch_sub(1, release_ordering());
     }
@@ -145,8 +145,11 @@ impl SharedMemoryConsumer {
     // Open existing shared memory
     pub fn open(name: &str, expected_size: usize) -> io::Result<Self> {
         // Log architecture for debugging
-        eprintln!("[-LO-] Opening shared memory consumer on {} architecture", ARCH_NAME);
-        
+        eprintln!(
+            "[-LO-] Opening shared memory consumer on {} architecture",
+            ARCH_NAME
+        );
+
         // Create a C-style string for the name
         let c_name =
             CString::new(name).map_err(|_| Error::new(ErrorKind::InvalidInput, "Invalid name"))?;
@@ -155,23 +158,23 @@ impl SharedMemoryConsumer {
         let fd = unsafe {
             let mut attempts = 0;
             let max_attempts = 3;
-            
+
             loop {
                 let result = libc::shm_open(
                     c_name.as_ptr(),
                     libc::O_RDWR, // We need write access for the control structure
                     0o600,
                 );
-                
+
                 if result >= 0 {
                     break result;
                 }
-                
+
                 attempts += 1;
                 if attempts >= max_attempts {
                     break -1;
                 }
-                
+
                 // Small delay between attempts
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
@@ -206,7 +209,7 @@ impl SharedMemoryConsumer {
         unsafe {
             // Memory fence to ensure we see the latest values
             memory_fence_acquire();
-            
+
             let capacity = (*control_ptr).capacity.load(acquire_ordering());
             if capacity == 0 {
                 libc::munmap(ptr, expected_size);
@@ -238,15 +241,17 @@ impl SharedMemoryConsumer {
                     struct LockGuard<'a> {
                         control: &'a QueueControl,
                     }
-                    
+
                     impl<'a> Drop for LockGuard<'a> {
                         fn drop(&mut self) {
                             self.control.unlock();
                         }
                     }
-                    
+
                     // Create a guard that will automatically unlock when it goes out of scope
-                    let _guard = LockGuard { control: &*self.control };
+                    let _guard = LockGuard {
+                        control: &*self.control,
+                    };
 
                     // Use explicit Acquire ordering for cross-process visibility
                     let count = (*self.control).count.load(acquire_ordering());
@@ -322,7 +327,7 @@ impl SharedMemoryConsumer {
                     // Note: Unlock happens automatically via LockGuard drop
 
                     Ok(Some(data))
-                },
+                }
                 Err(e) => Err(e),
             }
         }
@@ -387,11 +392,14 @@ impl Drop for SharedMemoryConsumer {
             if unmap_result != 0 {
                 eprintln!("[-LO-] Failed to unmap memory: {}", Error::last_os_error());
             }
-            
+
             // Close file descriptor
             let close_result = libc::close(self.shm_fd);
             if close_result != 0 {
-                eprintln!("[-LO-] Failed to close file descriptor: {}", Error::last_os_error());
+                eprintln!(
+                    "[-LO-] Failed to close file descriptor: {}",
+                    Error::last_os_error()
+                );
             }
             // Note: We don't unlink here unless explicitly requested
         }

@@ -356,18 +356,31 @@ pub fn init() {
                 let addr_target = px.high_speed_addr.unwrap_or(px.addr_target);
                 eprintln!("[----] Proxy Added: {}", &px.addr_listen);
 
-                if px.tls && px.sni.is_some() && px.tls_pem.is_some() && px.tls_key.is_some() {
-                    let proxy_tls = service::proxy::proxy_service_tls_fast(
-                        &px.addr_listen,
-                        &addr_target,
-                        px.sni.as_ref().unwrap_or(&"localhost".to_string()),
-                        px.tls_pem.as_ref().unwrap(),
-                        px.tls_key.as_ref().unwrap(),
-                    );
+                if px.tls {
+                    let default_sni = "localhost".to_string();
+                    let sni = px.sni.as_ref().unwrap_or(&default_sni);
 
-                    eprintln!("[----] Adding proxy TLS service");
-                    proxies.push(Box::new(proxy_tls));
-                    continue;
+                    match (&px.tls_pem, &px.tls_key) {
+                        (Some(tls_pem), Some(tls_key)) => {
+                            let proxy_tls = service::proxy::proxy_service_tls_fast(
+                                &px.addr_listen,
+                                &addr_target,
+                                sni,
+                                tls_pem,
+                                tls_key,
+                            );
+
+                            eprintln!("[----] Adding proxy TLS service");
+                            proxies.push(Box::new(proxy_tls));
+                            continue;
+                        }
+                        _ => {
+                            eprintln!(
+                                "[WARN] Proxy '{}' has tls=true but missing tls_pem/tls_key, falling back to non-TLS",
+                                &px.addr_listen
+                            );
+                        }
+                    }
                 }
 
                 eprintln!("[----] Adding proxy fast service: {:?}", px.addr_listen);

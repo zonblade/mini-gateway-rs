@@ -6,19 +6,22 @@ pub fn init() {
         let server = core::HttpServer::new("127.0.0.1:30099");
 
         println!("[-PT-] Starting HTTP server on 30099");
-        
+
         if let Err(e) = server.start(|mut request| {
             let body_string = {
                 let string = String::from_utf8_lossy(&request.body); // Returns Cow<str>
                 string.to_string()
             };
 
-            println!("[-PT-] Received request: {} {}", request.method, request.path);
+            println!(
+                "[-PT-] Received request: {} {}",
+                request.method, request.path
+            );
 
             match (request.method.as_str(), request.path.as_str()) {
                 ("GWRX", "/version") => {
                     let version_info = "Mini Gateway";
-                    let _ =  request.send_200(version_info);
+                    let _ = request.send_200(version_info);
                 }
                 ("GWRX", "/gateway/node") => {
                     let res = match app::gateway_node::init(body_string) {
@@ -61,7 +64,7 @@ pub fn init() {
                     let _ = res;
                 }
                 _ => {
-                    let _ =  request.send_404("");
+                    let _ = request.send_404("");
                 }
             }
         }) {

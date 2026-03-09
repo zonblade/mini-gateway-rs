@@ -1,21 +1,19 @@
-
 use std::sync::{Arc, Mutex};
 
 use super::gateway_node_queries;
-use crate::{
-    api::sync::HTTPCResponse,
-    module::httpc::HttpC,
-};
+use crate::{api::sync::HTTPCResponse, module::httpc::HttpC};
 use log::{error, info};
 
-pub async fn sync_gateway_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<HTTPCResponse, HTTPCResponse> {
+pub async fn sync_gateway_nodes_to_registry(
+    client: &Arc<Mutex<HttpC>>,
+) -> Result<HTTPCResponse, HTTPCResponse> {
     log::info!("Syncing gateway nodes to registry...");
 
     let gateway_nodes = match gateway_node_queries::get_all_gateway_nodes() {
         Ok(nodes) => nodes,
         Err(e) => {
             error!("Failed to retrieve gateway nodes from database: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Database error: {}", e),
             });
@@ -34,21 +32,21 @@ pub async fn sync_gateway_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Resul
         Ok(json) => json,
         Err(e) => {
             error!("Failed to serialize proxy nodes to JSON: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Serialization error: {}", e),
             });
         }
     };
 
-    let _ = match client.lock() {
-        Ok(client)=>{
+    match client.lock() {
+        Ok(client) => {
             let _ = client.post_text("/gateway/node", &payload_str);
             info!("Successfully sent proxy nodes to registry");
-        },
-        Err(e)=>{
+        }
+        Err(e) => {
             error!("Failed to lock HTTP client: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Client lock error: {}", e),
             });
@@ -56,17 +54,19 @@ pub async fn sync_gateway_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Resul
     };
     Ok(HTTPCResponse {
         status: "success".to_string(),
-        message: format!("Successfully synced gateway nodes"),
+        message: "Successfully synced gateway nodes".to_string(),
     })
 }
 
-pub async fn sync_gateway_paths_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<HTTPCResponse, HTTPCResponse> {
+pub async fn sync_gateway_paths_to_registry(
+    client: &Arc<Mutex<HttpC>>,
+) -> Result<HTTPCResponse, HTTPCResponse> {
     // Get the gateway nodes from the database using our JOIN query
     let gateway_path = match gateway_node_queries::get_all_gateway_paths() {
         Ok(nodes) => nodes,
         Err(e) => {
             error!("Failed to retrieve gateway paths from database: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Database error: {}", e),
             });
@@ -85,21 +85,21 @@ pub async fn sync_gateway_paths_to_registry(client: &Arc<Mutex<HttpC>>) -> Resul
         Ok(json) => json,
         Err(e) => {
             error!("Failed to serialize proxy nodes to JSON: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Serialization error: {}", e),
             });
         }
     };
 
-    let _ = match client.lock() {
-        Ok(client)=>{
+    match client.lock() {
+        Ok(client) => {
             let _ = client.post_text("/gateway/path", &payload_str);
             info!("Successfully sent proxy nodes to registry");
-        },
-        Err(e)=>{
+        }
+        Err(e) => {
             error!("Failed to lock HTTP client: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Client lock error: {}", e),
             });
@@ -108,6 +108,6 @@ pub async fn sync_gateway_paths_to_registry(client: &Arc<Mutex<HttpC>>) -> Resul
 
     Ok(HTTPCResponse {
         status: "success".to_string(),
-        message: format!("Successfully synced gateway paths"),
+        message: "Successfully synced gateway paths".to_string(),
     })
 }

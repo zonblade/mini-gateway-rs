@@ -1,19 +1,18 @@
-use actix_web::{get, web, HttpResponse, Responder};
+use crate::api::users::models::{Role, User, UserResponse};
 use crate::module::database::get_connection;
-use crate::api::users::models::{User, UserResponse, Role};
+use actix_web::{get, web, HttpResponse, Responder};
 
 // Get a specific user by ID
 #[get("/{user_id}")]
-pub async fn init(
-    path: web::Path<String>
-) -> impl Responder {
+pub async fn init(path: web::Path<String>) -> impl Responder {
     let user_id = path.into_inner();
 
     let db = match get_connection() {
         Ok(db) => db,
-        Err(_) => return HttpResponse::InternalServerError().json(
-            serde_json::json!({"error": "Failed to connect to database"})
-        ),
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to connect to database"}))
+        }
     };
 
     match db.query_one(

@@ -32,7 +32,9 @@ pub async fn delete_ai_model(id: web::Path<String>) -> impl Responder {
     let model = match ai_model_queries::get_ai_model_by_id(&id) {
         Ok(Some(model)) => model,
         Ok(None) => return HttpResponse::NotFound().body("AI model not found"),
-        Err(e) => return HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
+        Err(e) => {
+            return HttpResponse::InternalServerError().body(format!("Database error: {}", e))
+        }
     };
 
     // Delete from database

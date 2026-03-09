@@ -38,38 +38,54 @@ use uuid;
 /// - The SQL statement to create the table could not be executed
 pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
-    
+
     // Define the expected columns for proxies table
-    let expected_columns = ["id", "title", "addr_listen", "addr_target", "high_speed", "high_speed_addr", "high_speed_gwid"];
-    
+    let expected_columns = [
+        "id",
+        "title",
+        "addr_listen",
+        "addr_target",
+        "high_speed",
+        "high_speed_addr",
+        "high_speed_gwid",
+    ];
+
     // Check if the table exists with the expected columns and is not corrupted
     let proxies_table_valid = db.table_exists_with_columns("proxies", &expected_columns)?;
-    
+
     // Define the expected columns for proxy_domains table
-    let expected_domain_columns = ["id", "proxy_id", "tls", "tls_pem", "tls_key", "sni", "tls_autron", "expected_renew"];
-    
+    let expected_domain_columns = [
+        "id",
+        "proxy_id",
+        "tls",
+        "tls_pem",
+        "tls_key",
+        "sni",
+        "tls_autron",
+        "expected_renew",
+    ];
+
     // Check if the proxy_domains table exists with the expected columns and is not corrupted
-    let proxy_domains_table_valid = db.table_exists_with_columns("proxy_domains", &expected_domain_columns)?;
-    
+    let proxy_domains_table_valid =
+        db.table_exists_with_columns("proxy_domains", &expected_domain_columns)?;
+
     if proxies_table_valid && proxy_domains_table_valid {
         log::debug!("proxies and proxy_domains tables exist and have expected structure");
         return Ok(());
     }
-    
+
     log::info!("Creating or repairing proxies and/or proxy_domains tables");
-    
+
     // Handle proxies table
     if !proxies_table_valid {
         // Check if an old version of the proxies table exists (with tls column)
-        let old_table_exists = db.query(
-            "SELECT tls FROM proxies LIMIT 1",
-            [],
-            |_| Ok(true)
-        ).is_ok();
-        
+        let old_table_exists = db
+            .query("SELECT tls FROM proxies LIMIT 1", [], |_| Ok(true))
+            .is_ok();
+
         if old_table_exists {
             log::info!("Migrating proxies table to new structure...");
-            
+
             // Create temporary table with new structure
             db.execute(
                 "CREATE TABLE proxies_new (
@@ -83,19 +99,19 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                 )",
                 [],
             )?;
-            
+
             // Copy data from old table to new table, dropping TLS-related fields
             db.execute(
                 "INSERT INTO proxies_new (id, title, addr_listen, addr_target, high_speed, high_speed_addr)
                 SELECT id, title, addr_listen, addr_target, high_speed, high_speed_addr FROM proxies",
                 [],
             )?;
-            
+
             // Migrate TLS data to proxy_domains table if it exists
             if !proxy_domains_table_valid {
                 // Create proxy_domains table first if it doesn't exist
                 db.execute("DROP TABLE IF EXISTS proxy_domains", [])?;
-                
+
                 db.execute(
                     "CREATE TABLE proxy_domains (
                         id TEXT PRIMARY KEY,
@@ -109,7 +125,7 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                     )",
                     [],
                 )?;
-                
+
                 // Migrate TLS data to proxy_domains table
                 db.execute(
                     "INSERT INTO proxy_domains (id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, expected_renew)
@@ -117,19 +133,19 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                     FROM proxies WHERE tls = 1",
                     [],
                 )?;
-                
+
                 log::info!("Created proxy_domains table with correct structure");
             }
-            
+
             // Rename tables to complete migration
             db.execute("DROP TABLE proxies", [])?;
             db.execute("ALTER TABLE proxies_new RENAME TO proxies", [])?;
-            
+
             log::info!("Migration completed successfully.");
         } else {
             // Drop the table if it exists but is corrupted or missing columns
             db.execute("DROP TABLE IF EXISTS proxies", [])?;
-            
+
             // Create the table with the full correct structure
             db.execute(
                 "CREATE TABLE proxies (
@@ -143,15 +159,15 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
                 )",
                 [],
             )?;
-            
+
             log::info!("Created proxies table with correct structure");
         }
     }
-    
+
     // Handle proxy_domains table separately if needed
     if !proxy_domains_table_valid {
         db.execute("DROP TABLE IF EXISTS proxy_domains", [])?;
-        
+
         db.execute(
             "CREATE TABLE proxy_domains (
                 id TEXT PRIMARY KEY,
@@ -165,7 +181,7 @@ pub fn ensure_proxies_table() -> Result<(), DatabaseError> {
             )",
             [],
         )?;
-        
+
         log::info!("Created proxy_domains table with correct structure");
     }
 
@@ -341,10 +357,10 @@ pub fn get_proxy_by_id(id: &str) -> Result<Option<Proxy>, DatabaseError> {
 pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
     // Ensure the table exists
     ensure_proxies_table()?;
-    
+
     // Get a fresh database connection for this operation
     let db = get_connection()?;
-    
+
     // Insert or replace the proxy with a simple execute operation
     db.execute(
         "INSERT OR REPLACE INTO proxies (id, title, addr_listen, addr_target, high_speed, high_speed_addr, high_speed_gwid) 
@@ -359,7 +375,7 @@ pub fn save_proxy(proxy: &Proxy) -> Result<(), DatabaseError> {
             &proxy.high_speed_gwid.clone().unwrap_or("\u{0000}".to_string()),
         ],
     )?;
-    
+
     // Connection is closed automatically when db goes out of scope
     Ok(())
 }
@@ -505,22 +521,29 @@ pub fn generate_target_address() -> Result<String, String> {
 ///     Err(e) => // eprintln!!("Database error: {}", e),
 /// }
 /// ```
-pub fn has_duplicate_listen_address(listen_addr: &str, exclude_id: Option<&str>) -> Result<bool, DatabaseError> {
+pub fn has_duplicate_listen_address(
+    listen_addr: &str,
+    exclude_id: Option<&str>,
+) -> Result<bool, DatabaseError> {
     ensure_proxies_table()?;
     let db = get_connection()?;
-    
+
     let count: i64;
-    
+
     if let Some(id) = exclude_id {
         // Count proxies with the same listen address, excluding the specified proxy
         let sql = "SELECT COUNT(*) FROM proxies WHERE addr_listen = ? AND id != ?";
-        count = db.query_one(sql, [listen_addr, id], |row| row.get(0))?.unwrap_or(0);
+        count = db
+            .query_one(sql, [listen_addr, id], |row| row.get(0))?
+            .unwrap_or(0);
     } else {
         // Count all proxies with the given listen address
         let sql = "SELECT COUNT(*) FROM proxies WHERE addr_listen = ?";
-        count = db.query_one(sql, [listen_addr], |row| row.get(0))?.unwrap_or(0);
+        count = db
+            .query_one(sql, [listen_addr], |row| row.get(0))?
+            .unwrap_or(0);
     }
-    
+
     Ok(count > 0)
 }
 

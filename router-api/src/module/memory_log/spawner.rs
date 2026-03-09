@@ -2,7 +2,7 @@ use super::logging::{gateway, proxy};
 
 pub fn spawn_all() {
     log::info!("Starting memory log spawners...");
-    
+
     // // Spawn gateway listener thread
     std::thread::spawn(move || {
         log::info!("Gateway listener thread started");
@@ -18,7 +18,6 @@ pub fn spawn_all() {
             .expect("Failed to create Tokio runtime")
             .block_on(proxy::listen());
     });
-    
-    
+
     log::info!("All memory log spawners started and detached");
 }

@@ -26,14 +26,14 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     let log_level = std::env::var("RUST_LOG")
         .map(|level| match level.to_lowercase().as_str() {
             "error" => LevelFilter::Error,
-            "warn"  => LevelFilter::Warn,
-            "info"  => LevelFilter::Info,
+            "warn" => LevelFilter::Warn,
+            "info" => LevelFilter::Info,
             "debug" => LevelFilter::Debug,
             "trace" => LevelFilter::Trace,
             _ => LevelFilter::Info, // Default to Info for unrecognized values
         })
         .unwrap_or(LevelFilter::Info); // Default to Info if RUST_LOG is not set
-    
+
     eprintln!("[----] Log level set to: {:?}", log_level);
     // Define the tags that the logger will recognize and route.
     let tag_writers = vec![
@@ -42,7 +42,10 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
         "[NET]", // Tag for network-related messages
     ];
 
-    eprintln!("[----] Tag-based logging initialized with tags: {:?}", tag_writers);
+    eprintln!(
+        "[----] Tag-based logging initialized with tags: {:?}",
+        tag_writers
+    );
     // Create the TagBasedLogger instance.
     let logger = Box::new(TagBasedLogger {
         tag_writers,
@@ -58,7 +61,7 @@ pub fn setup_tag_based_logging() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("[PXY] Tag-based logging system initialized successfully");
     log::info!("[GWX] This is a gateway-related log message");
     log::info!("[NET] This is a network-related log message");
-    
+
     Ok(())
 }
 

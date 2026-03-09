@@ -7,8 +7,8 @@
 //! The module handles creating the database table, querying, inserting, updating, and
 //! deleting gateway records, as well as managing the relationship with gateway nodes.
 
-use crate::module::database::{get_connection, DatabaseError};
 use super::Gateway;
+use crate::module::database::{get_connection, DatabaseError};
 use uuid::Uuid;
 
 /// Creates the gateways table in the database if it doesn't already exist
@@ -41,21 +41,21 @@ use uuid::Uuid;
 /// - The SQL statement to create the table could not be executed
 pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
-    
+
     // Define the expected columns
     let expected_columns = ["id", "gwnode_id", "pattern", "target", "priority"];
-    
+
     // Check if the table exists with the expected columns and is not corrupted
     if db.table_exists_with_columns("gateways", &expected_columns)? {
         log::debug!("gateways table exists and has expected structure");
         return Ok(());
     }
-    
+
     log::info!("Creating or repairing gateways table");
-    
+
     // Drop the table if it exists but is corrupted or missing columns
     db.execute("DROP TABLE IF EXISTS gateways", [])?;
-    
+
     // Create the table with the full correct structure
     db.execute(
         "CREATE TABLE gateways (
@@ -68,7 +68,7 @@ pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
         )",
         [],
     )?;
-    
+
     log::info!("Created gateways table with correct structure");
     Ok(())
 }
@@ -101,7 +101,7 @@ pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
 ///     Ok(gateways) => {
 ///         println!("Found {} gateways", gateways.len());
 ///         for gateway in gateways {
-///             println!("Gateway: {} (pattern: {}, priority: {})", 
+///             println!("Gateway: {} (pattern: {}, priority: {})",
 ///                     gateway.id, gateway.pattern, gateway.priority);
 ///         }
 ///     },
@@ -110,10 +110,10 @@ pub fn ensure_gateways_table() -> Result<(), DatabaseError> {
 /// ```
 pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_gateways_table()?;
-    
+
     // Query all gateways, ordered by priority
     let gateways = db.query(
         "SELECT id, gwnode_id, pattern, target, priority FROM gateways ORDER BY priority ASC",
@@ -128,7 +128,7 @@ pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
             })
         },
     )?;
-    
+
     Ok(gateways)
 }
 
@@ -163,7 +163,7 @@ pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
 ///
 /// let gateway_id = "a1b2c3d4-e5f6-4321-8765-10293847abcd";
 /// match gateway_queries::get_gateway_by_id(gateway_id) {
-///     Ok(Some(gateway)) => println!("Found gateway: {} (pattern: {}, priority: {})", 
+///     Ok(Some(gateway)) => println!("Found gateway: {} (pattern: {}, priority: {})",
 ///                                   gateway.id, gateway.pattern, gateway.priority),
 ///     Ok(None) => println!("No gateway found with ID: {}", gateway_id),
 ///     Err(err) => // eprintln!!("Error retrieving gateway: {}", err),
@@ -171,10 +171,10 @@ pub fn get_all_gateways() -> Result<Vec<Gateway>, DatabaseError> {
 /// ```
 pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_gateways_table()?;
-    
+
     // Query the gateway by ID
     let gateway = db.query_one(
         "SELECT id, gwnode_id, pattern, target, priority FROM gateways WHERE id = ?1",
@@ -189,13 +189,13 @@ pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
             })
         },
     )?;
-    
+
     Ok(gateway)
 }
 
 /// Retrieves all gateways associated with a specific gateway node
 ///
-/// This function fetches all gateway records that reference the specified 
+/// This function fetches all gateway records that reference the specified
 /// gateway node ID, ordered by priority (lower numbers first). It automatically
 /// ensures the database table exists before performing the query.
 ///
@@ -232,7 +232,7 @@ pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
 ///     Ok(gateways) => {
 ///         println!("Found {} gateways for node {}", gateways.len(), node_id);
 ///         for gateway in gateways {
-///             println!("Gateway: {} (pattern: {}, priority: {})", 
+///             println!("Gateway: {} (pattern: {}, priority: {})",
 ///                     gateway.id, gateway.pattern, gateway.priority);
 ///         }
 ///     },
@@ -241,10 +241,10 @@ pub fn get_gateway_by_id(id: &str) -> Result<Option<Gateway>, DatabaseError> {
 /// ```
 pub fn get_gateways_by_gwnode_id(gwnode_id: &str) -> Result<Vec<Gateway>, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_gateways_table()?;
-    
+
     // Query gateways by gateway node ID, ordered by priority
     let gateways = db.query(
         "SELECT id, gwnode_id, pattern, target, priority FROM gateways WHERE gwnode_id = ?1 ORDER BY priority ASC",
@@ -259,7 +259,7 @@ pub fn get_gateways_by_gwnode_id(gwnode_id: &str) -> Result<Vec<Gateway>, Databa
             })
         },
     )?;
-    
+
     Ok(gateways)
 }
 
@@ -310,10 +310,10 @@ pub fn get_gateways_by_gwnode_id(gwnode_id: &str) -> Result<Vec<Gateway>, Databa
 /// ```
 pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_gateways_table()?;
-    
+
     // Insert or replace the gateway
     db.execute(
         "INSERT OR REPLACE INTO gateways (id, gwnode_id, pattern, target, priority)
@@ -326,7 +326,7 @@ pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
             &gateway.priority.to_string(),
         ],
     )?;
-    
+
     Ok(())
 }
 
@@ -365,13 +365,10 @@ pub fn save_gateway(gateway: &Gateway) -> Result<(), DatabaseError> {
 /// ```
 pub fn delete_gateway_by_id(id: &str) -> Result<bool, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Delete the gateway
-    let affected_rows = db.execute(
-        "DELETE FROM gateways WHERE id = ?1",
-        [id],
-    )?;
-    
+    let affected_rows = db.execute("DELETE FROM gateways WHERE id = ?1", [id])?;
+
     Ok(affected_rows > 0)
 }
 

@@ -1,10 +1,10 @@
 use mini_config::Configure;
-use std::sync::{Arc, RwLock};
 use std::sync::Once;
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone, Configure)]
 pub enum Api {
-    TCPAddress
+    TCPAddress,
 }
 
 // Define a struct for configuration entries
@@ -55,22 +55,22 @@ pub fn append_config(_key: &str, _value: &str) {
     // }
 }
 
-pub fn init(){
+pub fn init() {
     dotenv::dotenv().ok();
 
     Api::TCPAddress.set("127.0.0.1:30099");
-    
+
     // Initialize the global config only once
     INIT.call_once(|| {
         if let Ok(mut gateway_config) = GLOBAL_LOG_GATEWAY.write() {
             *gateway_config = Some(Arc::new(Vec::new()));
         }
-        
+
         if let Ok(mut proxy_config) = GLOBAL_LOG_PROXY.write() {
             *proxy_config = Some(Arc::new(Vec::new()));
         }
     });
-    
+
     // Add initial values
     append_config("tcp_address", "127.0.0.1:30099");
 }
@@ -112,4 +112,3 @@ pub fn clear_all_active_devices() {
         devices.clear();
     }
 }
-

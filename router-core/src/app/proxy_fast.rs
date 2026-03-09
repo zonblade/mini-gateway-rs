@@ -19,17 +19,17 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
 
+use lru::LruCache;
 use pingora::apps::ServerApp;
 use pingora::connectors::TransportConnector;
 use pingora::protocols::Stream;
 use pingora::server::ShutdownWatch;
 use pingora::upstreams::peer::BasicPeer;
 use regex_automata::meta::Regex;
-use std::num::NonZeroUsize;
-use std::sync::RwLock;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use lru::LruCache;
+use std::num::NonZeroUsize;
+use std::sync::RwLock;
 
 use crate::config::{self, GatewayPath};
 use crate::system::writer::rawid::atomic_id;
@@ -82,7 +82,10 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
         match self.shards[shard_index].read() {
             Ok(shard) => shard.peek(key).cloned(),
             Err(e) => {
-                error!("Failed to acquire read lock on cache shard {}: {}", shard_index, e);
+                error!(
+                    "Failed to acquire read lock on cache shard {}: {}",
+                    shard_index, e
+                );
                 None // Handle poisoned lock
             }
         }
@@ -95,9 +98,12 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
         match self.shards[shard_index].write() {
             Ok(mut shard) => {
                 shard.put(key, value); // Discard the return value of put
-            },
+            }
             Err(e) => {
-                error!("Failed to acquire write lock on cache shard {}: {}", shard_index, e);
+                error!(
+                    "Failed to acquire write lock on cache shard {}: {}",
+                    shard_index, e
+                );
                 // Handle poisoned lock - cannot insert
             }
         }
@@ -109,7 +115,10 @@ impl<K: Hash + Eq + Clone, V: Clone> ShardedLruCache<K, V> {
             match shard_lock.write() {
                 Ok(mut shard) => shard.clear(),
                 Err(e) => {
-                    error!("Failed to acquire write lock on cache shard {} for clearing: {}", i, e);
+                    error!(
+                        "Failed to acquire write lock on cache shard {} for clearing: {}",
+                        i, e
+                    );
                     // Handle poisoned lock - cannot clear this shard
                 }
             }
@@ -265,16 +274,20 @@ impl ProxyApp {
     }
 
     // Regex-based HTTP request line parser and rewriter
-    fn rewrite_http_request(&self, buffer: &mut [u8], length: usize) -> (usize, bool, Option<String>, Option<String>, Option<String>) {
+    fn rewrite_http_request(
+        &self,
+        buffer: &mut [u8],
+        length: usize,
+    ) -> (usize, bool, Option<String>, Option<String>, Option<String>) {
         // First convert the buffer to a string for processing
         let request_str = match std::str::from_utf8(&buffer[..length]) {
             Ok(s) => s,
             Err(_) => return (length, false, None, None, None), // Not valid UTF-8, return unchanged
         };
-        
+
         // Initialize extracted_id as None
         let mut extracted_id = None;
-        
+
         // Initialize path tracking variables
         let mut original_path: Option<String> = None;
         let mut rewritten_path: Option<String> = None;
@@ -282,20 +295,20 @@ impl ProxyApp {
         // Flag to track if this is a WebSocket upgrade request
         let is_websocket = request_str.contains("Upgrade: websocket")
             || request_str.contains("Upgrade: WebSocket");
-            
+
         // Only extract ID if this is a WebSocket connection
         if is_websocket {
             // Extract ID from query parameters if present
             if let Some(query_start) = request_str.find('?') {
-                let query_part = &request_str[query_start+1..];
+                let query_part = &request_str[query_start + 1..];
                 if let Some(query_end) = query_part.find(' ') {
                     let query_string = &query_part[..query_end];
-                    
+
                     // Look for id parameter in query string
                     for param in query_string.split('&') {
                         if let Some(eq_pos) = param.find('=') {
                             let key = &param[..eq_pos];
-                            let value = &param[eq_pos+1..];
+                            let value = &param[eq_pos + 1..];
                             if key == "id" {
                                 extracted_id = Some(value.to_string());
                                 debug!("Extracted ID from WebSocket request: {}", value);
@@ -306,11 +319,11 @@ impl ProxyApp {
                 }
             }
         }
-    
+
         // Flag to track if this is a WebSocket upgrade request
         let is_websocket = request_str.contains("Upgrade: websocket")
             || request_str.contains("Upgrade: WebSocket");
-    
+
         // Check if this looks like an HTTP request
         if !request_str.starts_with("GET ")
             && !request_str.starts_with("POST ")
@@ -319,161 +332,214 @@ impl ProxyApp {
             && !request_str.starts_with("CONNECT ")
             && !request_str.starts_with("OPTIONS ")
         {
-            return (length, is_websocket, extracted_id, original_path, rewritten_path);
+            return (
+                length,
+                is_websocket,
+                extracted_id,
+                original_path,
+                rewritten_path,
+            );
         }
-    
+
         // First check for configuration changes at regular intervals
         self.check_and_reload_config_if_needed();
-    
+
         // Check if we already have this request in the cache
         if let Some(cached_request) = self.rewrite_cache.get(&request_str.to_string()) {
             debug!("Cache hit for request rewrite");
             let new_bytes = cached_request.as_bytes();
             let new_len = new_bytes.len();
-    
+
             // Make sure we don't overflow the buffer
             if new_len <= buffer.len() {
                 buffer[..new_len].copy_from_slice(new_bytes);
-                return (new_len, is_websocket, extracted_id, original_path, rewritten_path);
+                return (
+                    new_len,
+                    is_websocket,
+                    extracted_id,
+                    original_path,
+                    rewritten_path,
+                );
             } else {
                 debug!("Cached rewritten request too large for buffer");
                 return (length, false, extracted_id, original_path, rewritten_path);
             }
         }
-    
+
         debug!("Cache miss for request rewrite");
-    
+
         // Find the first line of the request (the request line)
         let line_end = match request_str.find("\r\n") {
             Some(pos) => pos,
-            None => return (length, is_websocket, extracted_id, original_path, rewritten_path), // Not a complete HTTP request line
+            None => {
+                return (
+                    length,
+                    is_websocket,
+                    extracted_id,
+                    original_path,
+                    rewritten_path,
+                )
+            } // Not a complete HTTP request line
         };
-    
+
         let request_line = &request_str[..line_end];
         let rest_of_request = &request_str[line_end..];
-    
+
         // Log the full request line for debugging
         debug!("Received request line: '{}'", request_line);
-    
+
         // Parse the request line to extract Method, Path, and Protocol
         let parts: Vec<&str> = request_line.splitn(3, ' ').collect();
         if parts.len() < 3 {
             debug!("Malformed request line: '{}'", request_line);
-            return (length, is_websocket, extracted_id, original_path, rewritten_path); // Malformed, return original
+            return (
+                length,
+                is_websocket,
+                extracted_id,
+                original_path,
+                rewritten_path,
+            ); // Malformed, return original
         }
         let method = parts[0];
         let request_path_with_query = parts[1];
         let protocol = parts[2];
-        
+
         // CRITICAL FIX: Separate path and query string
         let (request_path, query_string) = match request_path_with_query.find('?') {
             Some(pos) => {
                 let (path, query) = request_path_with_query.split_at(pos);
                 (path, Some(query)) // query includes the '?' character
             }
-            None => (request_path_with_query, None)
+            None => (request_path_with_query, None),
         };
-        
-        debug!("Parsed request path: '{}', query: '{:?}'", request_path, query_string);
-        
+
+        debug!(
+            "Parsed request path: '{}', query: '{:?}'",
+            request_path, query_string
+        );
+
         // Capture original path for logging
         original_path = Some(request_path.to_string());
-    
+
         // Try each rewrite rule
         let rules_guard = match self.path_rewrites.read() {
             Ok(guard) => guard,
             Err(e) => {
                 error!("Failed to acquire read lock on path_rewrites: {}", e);
-                return (length, is_websocket, extracted_id, original_path, rewritten_path); // Return original length and websocket flag if lock acquisition fails
+                return (
+                    length,
+                    is_websocket,
+                    extracted_id,
+                    original_path,
+                    rewritten_path,
+                ); // Return original length and websocket flag if lock acquisition fails
             }
         };
         for rule in rules_guard.iter() {
             // Find all matches in the PATH ONLY (not including query)
             let mut matches = Vec::new();
             let mut captures = Vec::new();
-    
-            log::debug!("Checking rewrite rule pattern for request_path: '{}'", request_path);
-    
+
+            log::debug!(
+                "Checking rewrite rule pattern for request_path: '{}'",
+                request_path
+            );
+
             // Use regex-automata to find matches in the path (excluding query)
             for mat in rule.pattern.find_iter(request_path.as_bytes()) {
                 matches.push((mat.start(), mat.end()));
-    
+
                 // Extract capture groups
                 // This is simplified since regex-automata's Match doesn't directly provide captures
                 // In a real implementation, you'd need to extract captures based on the match bounds
                 let matched_text = &request_path[mat.start()..mat.end()];
                 captures.push(matched_text);
             }
-    
+
             // If we have a match, perform the rewrite
             if let Some((start, end)) = matches.first() {
                 debug!("Matched regex pattern for rewrite");
-    
+
                 // Get parts of the *path* before and after the match
                 let before = &request_path[..*start];
                 let after = &request_path[*end..];
-    
+
                 // Process replacement template with capture references
-                let replacement = self.process_replacement(
-                    &captures.to_vec(),
-                    &rule.replacement,
-                );
-    
+                let replacement = self.process_replacement(&captures.to_vec(), &rule.replacement);
+
                 // Create the new *path* without query, then add query if present
                 let new_request_path_only = format!("{}{}{}", before, replacement, after);
-                
+
                 // Capture rewritten path for logging before consuming new_request_path_only
                 rewritten_path = Some(new_request_path_only.clone());
-                
+
                 // Reconstruct the full path with query string if it was present
                 let new_request_path = match query_string {
                     Some(q) => format!("{}{}", new_request_path_only, q), // q already includes '?'
                     None => new_request_path_only,
                 };
-                
+
                 let new_request_line = format!("{} {} {}", method, new_request_path, protocol);
                 let new_request = format!("{}{}", new_request_line, rest_of_request);
-    
+
                 // Log rewrite information with special note for WebSocket upgrades
                 if is_websocket {
-                    debug!("Rewrote WebSocket upgrade request: {} -> {}", request_line, new_request_line);
+                    debug!(
+                        "Rewrote WebSocket upgrade request: {} -> {}",
+                        request_line, new_request_line
+                    );
                 } else {
                     debug!("Rewrote request: {} -> {}", request_line, new_request_line);
                 }
-    
+
                 // Store the rewritten request in the cache
-                self.rewrite_cache.insert(request_str.to_string(), new_request.clone());
+                self.rewrite_cache
+                    .insert(request_str.to_string(), new_request.clone());
                 debug!("Stored rewritten request in cache");
-    
+
                 // Convert back to bytes and copy to the buffer
                 let new_bytes = new_request.as_bytes();
                 let new_len = new_bytes.len();
-    
+
                 // Make sure we don't overflow the buffer
                 if new_len <= buffer.len() {
                     // Copy the new request into the buffer
                     buffer[..new_len].copy_from_slice(new_bytes);
-                    return (new_len, is_websocket, extracted_id, original_path, rewritten_path);
+                    return (
+                        new_len,
+                        is_websocket,
+                        extracted_id,
+                        original_path,
+                        rewritten_path,
+                    );
                 } else {
                     debug!("Rewritten request too large for buffer");
-                    return (length, is_websocket, extracted_id, original_path, rewritten_path); // Return original length if new request is too large
+                    return (
+                        length,
+                        is_websocket,
+                        extracted_id,
+                        original_path,
+                        rewritten_path,
+                    ); // Return original length if new request is too large
                 }
             }
         }
-    
+
         // No rewrite performed
         debug!("No rewrite rule matched for request path: {}", request_path);
         // should close if no match
         (0, is_websocket, extracted_id, original_path, rewritten_path)
     }
-    
+
     /// Checks if the configuration should be reloaded based on time interval.
     fn check_and_reload_config_if_needed(&self) {
         let now = std::time::Instant::now();
         let needs_check = {
             // Scoped read lock
             match self.last_check_time.read() {
-                Ok(last_check_guard) => now.duration_since(*last_check_guard) >= self.check_interval,
+                Ok(last_check_guard) => {
+                    now.duration_since(*last_check_guard) >= self.check_interval
+                }
                 Err(e) => {
                     error!("Failed to acquire read lock on last_check_time: {}", e);
                     false // Don't check if lock is poisoned
@@ -499,13 +565,16 @@ impl ProxyApp {
 
                         // Compare current rules count with new rules count
                         let current_rules_count = match self.path_rewrites.read() {
-                             Ok(rules_guard) => rules_guard.len(),
-                             Err(e) => {
-                                 error!("Failed to acquire read lock on path_rewrites for count: {}", e);
-                                 // Cannot compare if lock is poisoned, assume no change needed for safety
-                                 // Or potentially return a sentinel value like usize::MAX
-                                 return; // Exit the check function
-                             }
+                            Ok(rules_guard) => rules_guard.len(),
+                            Err(e) => {
+                                error!(
+                                    "Failed to acquire read lock on path_rewrites for count: {}",
+                                    e
+                                );
+                                // Cannot compare if lock is poisoned, assume no change needed for safety
+                                // Or potentially return a sentinel value like usize::MAX
+                                return; // Exit the check function
+                            }
                         };
 
                         // Only update if the rules have changed
@@ -531,10 +600,10 @@ impl ProxyApp {
                             }
                         }
                     }
-                },
+                }
                 Err(e) => {
-                     error!("Failed to acquire write lock on last_check_time: {}", e);
-                     // Cannot update last check time if lock is poisoned
+                    error!("Failed to acquire write lock on last_check_time: {}", e);
+                    // Cannot update last check time if lock is poisoned
                 }
             }
             // Write lock is dropped here
@@ -582,8 +651,8 @@ impl ProxyApp {
             }
             match event {
                 DuplexEvent::DownstreamRead(0) => {
-                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM[OFF], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
-                        temp_record.0, 
+                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM[OFF], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
+                        temp_record.0,
                         {
                             if let Some(data) = temp_record.1 {
                                 if data {
@@ -594,8 +663,8 @@ impl ProxyApp {
                             } else {
                                 "TCP"
                             }
-                        }, 
-                        temp_record.3, 
+                        },
+                        temp_record.3,
                         temp_record.4,
                         self.proxy_source,
                         self.proxy_to._address
@@ -603,8 +672,8 @@ impl ProxyApp {
                     return;
                 }
                 DuplexEvent::UpstreamRead(0) => {
-                    log::info!("[PXY] | ID:{}, TYPE:UPSTREAM[OFF], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
-                        temp_record.0, 
+                    log::info!("[PXY] | ID:{}, TYPE:UPSTREAM[OFF], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
+                        temp_record.0,
                         {
                             if let Some(data) = temp_record.1 {
                                 if data {
@@ -615,8 +684,8 @@ impl ProxyApp {
                             } else {
                                 "TCP"
                             }
-                        }, 
-                        temp_record.2, 
+                        },
+                        temp_record.2,
                         temp_record.4,
                         self.proxy_source,
                         self.proxy_to._address
@@ -625,10 +694,11 @@ impl ProxyApp {
                 }
                 DuplexEvent::DownstreamRead(n) => {
                     // Try to rewrite the request if it's HTTP
-                    let (write_len, websocket, id, path_src, path_dst) = self.rewrite_http_request(&mut upstream_buf, n);
+                    let (write_len, websocket, id, path_src, path_dst) =
+                        self.rewrite_http_request(&mut upstream_buf, n);
 
                     temp_record.3 = write_len;
-                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM[ON], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |", 
+                    log::info!("[PXY] | ID:{}, TYPE:DOWNSTREAM[ON], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
                         {
                             if let Some(id) = id {
                                 if websocket {
@@ -638,7 +708,7 @@ impl ProxyApp {
                             } else {
                                 temp_record.0.clone()
                             }
-                        }, 
+                        },
                         {
                             if websocket {
                                 if temp_record.1.is_none() {
@@ -649,7 +719,7 @@ impl ProxyApp {
                             } else {
                                 "TCP"
                             }
-                        }, 
+                        },
                         temp_record.3,
                         {
                             if websocket{
@@ -659,7 +729,7 @@ impl ProxyApp {
                                 temp_record.4 = "200";
                                 "200"
                             }
-                        }, 
+                        },
                         self.proxy_source,
                         self.proxy_to._address,
                         path_src.as_deref().unwrap_or("-"),
@@ -676,12 +746,10 @@ impl ProxyApp {
                         debug!("Request rewrite failed, closing connection");
                         return; // Close connection on rewrite failure
                     }
-                    if let Err(e) = client_session
-                        .write_all(&upstream_buf[0..write_len])
-                        .await {
-                            debug!("Error writing to upstream client: {}", e);
-                            return; // Close connection on write error
-                        }
+                    if let Err(e) = client_session.write_all(&upstream_buf[0..write_len]).await {
+                        debug!("Error writing to upstream client: {}", e);
+                        return; // Close connection on write error
+                    }
                     if let Err(e) = client_session.flush().await {
                         debug!("Error flushing upstream client: {}", e);
                         return; // Close connection on flush error
@@ -689,8 +757,8 @@ impl ProxyApp {
                 }
                 DuplexEvent::UpstreamRead(n) => {
                     temp_record.2 = n;
-                    log::info!("[PXY] | ID:{}, TYPE:UPSTREAM[ON], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |", 
-                        temp_record.0, 
+                    log::info!("[PXY] | ID:{}, TYPE:UPSTREAM[ON], CONN:{}, SIZE:{}, STAT:{}, SRC:{}, DST:{} |",
+                        temp_record.0,
                         {
                             if let Some(data) = temp_record.1 {
                                 if data {
@@ -701,20 +769,18 @@ impl ProxyApp {
                             } else {
                                 "TCP"
                             }
-                        }, 
-                        temp_record.2, 
+                        },
+                        temp_record.2,
                         temp_record.4,
                         self.proxy_source,
                         self.proxy_to._address
                     );
 
                     log::debug!("Incoming data from upstream: {}", n);
-                     if let Err(e) = server_session
-                        .write_all(&downstream_buf[0..n])
-                        .await {
-                            debug!("Error writing to downstream server: {}", e);
-                            return; // Close connection on write error
-                        }
+                    if let Err(e) = server_session.write_all(&downstream_buf[0..n]).await {
+                        debug!("Error writing to downstream server: {}", e);
+                        return; // Close connection on write error
+                    }
                     if let Err(e) = server_session.flush().await {
                         debug!("Error flushing downstream server: {}", e);
                         return; // Close connection on flush error

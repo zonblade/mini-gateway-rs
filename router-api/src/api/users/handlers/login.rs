@@ -1,7 +1,7 @@
-use actix_web::{post, web, HttpResponse, Responder};
+use crate::api::users::helper::{generate_token, AuthConfig};
+use crate::api::users::models::{Role, User};
 use crate::module::database::get_connection;
-use crate::api::users::models::{User, Role};
-use crate::api::users::helper::{AuthConfig, generate_token};
+use actix_web::{post, web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -21,14 +21,13 @@ pub struct LoginResponse {
 }
 
 #[post("/login")]
-pub async fn init(
-    login_req: web::Json<LoginRequest>
-) -> impl Responder {
+pub async fn init(login_req: web::Json<LoginRequest>) -> impl Responder {
     let db = match get_connection() {
         Ok(db) => db,
-        Err(_) => return HttpResponse::InternalServerError().json(
-            serde_json::json!({"error": "Failed to connect to database"})
-        ),
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to connect to database"}))
+        }
     };
 
     // Find user by username
@@ -51,7 +50,7 @@ pub async fn init(
             // In a real application, you would use a proper password verification
             // Here we just compare with our simple hashed password
             let expected_hash = format!("hashed_{}", login_req.password);
-            
+
             if user.password_hash == expected_hash {
                 // Create JWT token
                 let auth_config = AuthConfig::default();

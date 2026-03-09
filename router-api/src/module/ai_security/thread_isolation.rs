@@ -3,7 +3,7 @@
 //! This module provides the thread handler for Isolation Forest-based anomaly detection.
 //! It receives ML feature logs via a channel and runs inference using an ONNX model.
 
-use super::models::{OnnxModel, ModelError};
+use super::models::{ModelError, OnnxModel};
 use super::thread_xgboost::MlFeatureLog; // Reuse the same feature log struct
 use crate::api::ai_security::ai_model_queries;
 use crate::api::ai_security::ModelType;
@@ -30,11 +30,18 @@ impl IsolationForestHandler {
         let models = ai_model_queries::get_enabled_ai_models()
             .map_err(|e| ModelError::FileNotFound(format!("Database error: {}", e)))?;
 
-        let isolation_model = models.iter()
+        let isolation_model = models
+            .iter()
             .find(|m| m.model_type == ModelType::Isolation)
-            .ok_or_else(|| ModelError::FileNotFound("No enabled Isolation Forest model found".to_string()))?;
+            .ok_or_else(|| {
+                ModelError::FileNotFound("No enabled Isolation Forest model found".to_string())
+            })?;
 
-        log::info!("Loading Isolation Forest model: {} from {}", isolation_model.name, isolation_model.file_path);
+        log::info!(
+            "Loading Isolation Forest model: {} from {}",
+            isolation_model.name,
+            isolation_model.file_path
+        );
 
         let model = OnnxModel::new(isolation_model.file_path.clone());
         self.model_id = Some(isolation_model.id.clone());
@@ -64,7 +71,11 @@ impl IsolationForestHandler {
         while let Ok(log) = receiver.recv() {
             match self.run_inference(&log) {
                 Ok(output) => {
-                    log::info!("Isolation Forest inference for {}: result={:?}", log.conn_id, output);
+                    log::info!(
+                        "Isolation Forest inference for {}: result={:?}",
+                        log.conn_id,
+                        output
+                    );
 
                     // Update inference stats
                     if let Some(model_id) = &self.model_id {
@@ -74,8 +85,12 @@ impl IsolationForestHandler {
                     // Check anomaly threshold and add to blocklist
                     if let Some(score) = output.first() {
                         if *score > 0.8 {
-                            log::warn!("ANOMALY DETECTED by Isolation Forest: conn_id={}, ip={}, score={}",
-                                log.conn_id, log.client_ip, score);
+                            log::warn!(
+                                "ANOMALY DETECTED by Isolation Forest: conn_id={}, ip={}, score={}",
+                                log.conn_id,
+                                log.client_ip,
+                                score
+                            );
 
                             // Add to blocklist (1 hour TTL)
                             let reason = format!("isolation:{:.2}", score);
@@ -88,7 +103,11 @@ impl IsolationForestHandler {
                     }
                 }
                 Err(e) => {
-                    log::error!("Isolation Forest inference error for {}: {}", log.conn_id, e);
+                    log::error!(
+                        "Isolation Forest inference error for {}: {}",
+                        log.conn_id,
+                        e
+                    );
                 }
             }
         }

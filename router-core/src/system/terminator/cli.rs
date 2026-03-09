@@ -1,5 +1,5 @@
 //! # Terminator CLI Module
-//! 
+//!
 //! This module provides functionality to detect keyboard interrupt signals
 //! that can terminate the application's execution. It specifically handles
 //! the detection of the Ctrl+X key combination as an interrupt signal.
@@ -28,7 +28,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 ///
 /// This function temporarily switches the terminal to raw mode (if not already in it)
 /// to capture raw keyboard events. It then polls for keyboard events for the specified
-/// duration, checking specifically for the Ctrl+X combination which serves as the 
+/// duration, checking specifically for the Ctrl+X combination which serves as the
 /// application's interrupt signal.
 ///
 /// # Arguments
@@ -74,12 +74,13 @@ pub fn init(duration: Duration) -> bool {
     }
 
     let result = if event::poll(duration).unwrap_or(false) {
-        if let Ok(Event::Key(KeyEvent { 
-            code: KeyCode::Char('x'),  // Changed from 'c' to 'x'
+        if let Ok(Event::Key(KeyEvent {
+            code: KeyCode::Char('x'), // Changed from 'c' to 'x'
             modifiers,
             ..
-        })) = event::read() {
-            modifiers.contains(KeyModifiers::CONTROL)  // Only check for CONTROL, not SHIFT
+        })) = event::read()
+        {
+            modifiers.contains(KeyModifiers::CONTROL) // Only check for CONTROL, not SHIFT
         } else {
             false
         }

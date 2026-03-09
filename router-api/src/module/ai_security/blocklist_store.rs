@@ -87,7 +87,7 @@ pub fn clear_pending() {
         .unwrap_or_default()
         .as_secs();
 
-    BlocklistStore::LastSyncTime.xset(&now);
+    BlocklistStore::LastSyncTime.xset(now);
 }
 
 /// Get count of pending entries

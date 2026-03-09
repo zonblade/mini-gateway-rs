@@ -1,4 +1,3 @@
-
 use std::sync::{Arc, Mutex};
 
 use crate::module::httpc::HttpC;
@@ -6,7 +5,9 @@ use crate::module::httpc::HttpC;
 use super::{proxy_node_queries, HTTPCResponse};
 use log::{error, info};
 
-pub async fn sync_proxy_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<HTTPCResponse, HTTPCResponse> {
+pub async fn sync_proxy_nodes_to_registry(
+    client: &Arc<Mutex<HttpC>>,
+) -> Result<HTTPCResponse, HTTPCResponse> {
     log::info!("Syncing proxy nodes to registry...");
 
     // Get the proxy nodes from the database using our JOIN query
@@ -14,17 +15,14 @@ pub async fn sync_proxy_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<
         Ok(nodes) => nodes,
         Err(e) => {
             error!("Failed to retrieve proxy nodes from database: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Database error: {}", e),
             });
         }
     };
 
-    info!(
-        "Retrieved {} proxy nodes from database",
-        proxy_nodes.len()
-    );
+    info!("Retrieved {} proxy nodes from database", proxy_nodes.len());
     info!("Proxy nodes: {:#?}", proxy_nodes);
 
     // Create the payload with the nodes
@@ -33,21 +31,21 @@ pub async fn sync_proxy_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<
         Ok(json) => json,
         Err(e) => {
             error!("Failed to serialize proxy nodes to JSON: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Serialization error: {}", e),
             });
         }
     };
 
-    let _ = match client.lock() {
-        Ok(client)=>{
+    match client.lock() {
+        Ok(client) => {
             let _ = client.post_text("/proxy/node", &payload_str);
             info!("Successfully sent proxy nodes to registry");
-        },
-        Err(e)=>{
+        }
+        Err(e) => {
             error!("Failed to lock HTTP client: {}", e);
-            return Err(HTTPCResponse{
+            return Err(HTTPCResponse {
                 status: "error".to_string(),
                 message: format!("Client lock error: {}", e),
             });
@@ -56,6 +54,6 @@ pub async fn sync_proxy_nodes_to_registry(client: &Arc<Mutex<HttpC>>) -> Result<
 
     Ok(HTTPCResponse {
         status: "success".to_string(),
-        message: format!("Successfully sync proxy nodes"),
+        message: "Successfully sync proxy nodes".to_string(),
     })
 }

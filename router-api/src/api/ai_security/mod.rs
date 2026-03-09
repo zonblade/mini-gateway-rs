@@ -35,21 +35,24 @@ impl FromStr for ModelType {
         match s.to_lowercase().as_str() {
             "xgboost" => Ok(ModelType::XGBoost),
             "isolation" => Ok(ModelType::Isolation),
-            _ => Err(format!("Invalid model type: '{}'. Must be 'xgboost' or 'isolation'", s)),
+            _ => Err(format!(
+                "Invalid model type: '{}'. Must be 'xgboost' or 'isolation'",
+                s
+            )),
         }
     }
 }
 
 pub mod ai_model_queries;
-mod model_list;
-mod model_get;
-mod model_upload;
-mod model_set;
-mod model_delete;
 mod inference_stats;
+mod model_delete;
+mod model_get;
+mod model_list;
+mod model_set;
+mod model_upload;
 
-use actix_web::web;
 use crate::api::users::{JwtAuth, RoleAuth};
+use actix_web::web;
 
 /// Configures the AI security API routes
 ///

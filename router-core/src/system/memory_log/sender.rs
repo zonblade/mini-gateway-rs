@@ -1,9 +1,6 @@
 use super::{log_gateway, log_proxy};
 
-
-
-pub fn switcher(marker: &str, level:log::Level, message: &str) {
-    
+pub fn switcher(marker: &str, level: log::Level, message: &str) {
     let level = match level {
         log::Level::Error => super::LEVEL_ERROR,
         log::Level::Warn => super::LEVEL_WARN,
@@ -11,7 +8,7 @@ pub fn switcher(marker: &str, level:log::Level, message: &str) {
         log::Level::Debug => super::LEVEL_DEBUG,
         log::Level::Trace => super::LEVEL_TRACE,
     };
-    
+
     match marker {
         "[PXY]" => unsafe {
             let res = log_proxy(level, message);

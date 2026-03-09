@@ -20,7 +20,7 @@ pub async fn get_proxy(path: web::Path<String>) -> impl Responder {
                         "proxy": proxy,
                         "domains": domains
                     }))
-                },
+                }
                 Err(e) => {
                     log::error!("Error fetching domains for proxy {}: {}", id, e);
                     // Return proxy with empty domains and warning
@@ -31,7 +31,7 @@ pub async fn get_proxy(path: web::Path<String>) -> impl Responder {
                     }))
                 }
             }
-        },
+        }
         Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
             "error": format!("Proxy with ID {} not found", id)
         })),

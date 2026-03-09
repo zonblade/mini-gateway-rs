@@ -7,8 +7,8 @@
 use super::gwnode_queries;
 use super::{proxy_queries, proxydomain_queries, Proxy, ProxyDomain};
 use crate::api::users::helper::{is_staff_or_admin, ClaimsFromRequest};
-use crate::module::database::DatabaseError;
 use crate::module::certificate_automation;
+use crate::module::database::DatabaseError;
 use actix_web::{delete, post, web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -297,7 +297,8 @@ pub async fn set_proxy(req: HttpRequest, input: web::Json<ProxyInputObject>) -> 
                         }
 
                         // Auto-set tls_mode to "staging" for safety when tls_autron is true but tls_mode is missing or empty
-                        if domain.tls_mode.is_none() || domain.tls_mode.as_ref().unwrap().is_empty() {
+                        if domain.tls_mode.is_none() || domain.tls_mode.as_ref().unwrap().is_empty()
+                        {
                             log::info!("Domain {} has tls_autron=true but missing tls_mode, defaulting to 'staging' for safety", domain.id);
                             domain.tls_mode = Some("staging".to_string());
                         }
@@ -353,27 +354,41 @@ pub async fn set_proxy(req: HttpRequest, input: web::Json<ProxyInputObject>) -> 
 
                     // Add to the list of successfully saved domains
                     saved_domain_ids.push(domain.id.clone());
-                    
+
                     // Handle automatic certificate generation if enabled - wait for completion
                     if domain.tls_autron {
                         if let Some(domain_name) = &domain.sni {
                             if !domain_name.is_empty() {
-                                log::info!("Automatic certificate generation requested for domain: {}", domain_name);
-                                
+                                log::info!(
+                                    "Automatic certificate generation requested for domain: {}",
+                                    domain_name
+                                );
+
                                 // Wait for certificate generation to complete before proceeding
                                 match certificate_automation::generate_certificate_staging(
-                                    domain_name, 
-                                    &proxy.id
-                                ).await {
+                                    domain_name,
+                                    &proxy.id,
+                                )
+                                .await
+                                {
                                     Ok(updated_domain) => {
-                                        log::info!("Successfully generated certificate for domain: {}", domain_name);
+                                        log::info!(
+                                            "Successfully generated certificate for domain: {}",
+                                            domain_name
+                                        );
                                         // Update the domain with certificate data
-                                        if let Err(e) = proxydomain_queries::save_proxy_domain(&updated_domain) {
+                                        if let Err(e) =
+                                            proxydomain_queries::save_proxy_domain(&updated_domain)
+                                        {
                                             log::error!("Failed to save updated domain with certificate: {}", e);
                                         }
-                                    },
+                                    }
                                     Err(e) => {
-                                        log::error!("Failed to generate certificate for domain {}: {}", domain_name, e);
+                                        log::error!(
+                                            "Failed to generate certificate for domain {}: {}",
+                                            domain_name,
+                                            e
+                                        );
                                         // Continue without certificates
                                     }
                                 }
@@ -381,7 +396,10 @@ pub async fn set_proxy(req: HttpRequest, input: web::Json<ProxyInputObject>) -> 
                                 log::warn!("Domain {} has tls_autron=true but no domain name (sni) specified", domain.id);
                             }
                         } else {
-                            log::warn!("Domain {} has tls_autron=true but no domain name (sni) specified", domain.id);
+                            log::warn!(
+                                "Domain {} has tls_autron=true but no domain name (sni) specified",
+                                domain.id
+                            );
                         }
                     }
                 }
@@ -445,9 +463,9 @@ pub async fn set_proxy(req: HttpRequest, input: web::Json<ProxyInputObject>) -> 
         }
         Err(e) => {
             log::error!("Error generating target address: {}", e);
-            return HttpResponse::BadRequest().json(serde_json::json!({
+            HttpResponse::BadRequest().json(serde_json::json!({
                 "error": "Failed to generate target address"
-            }));
+            }))
         }
     }
 }

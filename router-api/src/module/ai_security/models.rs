@@ -97,8 +97,9 @@ impl OnnxModel {
 
         // Extract output - ORT 2.0 API
         let output_array = outputs[0].try_extract_array::<f32>()?;
-        let output_slice = output_array.as_slice()
-            .ok_or_else(|| ModelError::InvalidInputShape("Failed to get output as slice".to_string()))?;
+        let output_slice = output_array.as_slice().ok_or_else(|| {
+            ModelError::InvalidInputShape("Failed to get output as slice".to_string())
+        })?;
 
         Ok(output_slice.to_vec())
     }

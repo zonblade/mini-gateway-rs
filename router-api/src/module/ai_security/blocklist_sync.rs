@@ -17,7 +17,10 @@ const PROTTP_ADDR: &str = "127.0.0.1:30099";
 /// Initialize blocklist sync background thread
 pub fn init() {
     std::thread::spawn(|| {
-        eprintln!("[BLKS] Blocklist sync thread started (interval: {}s)", SYNC_INTERVAL_SECS);
+        eprintln!(
+            "[BLKS] Blocklist sync thread started (interval: {}s)",
+            SYNC_INTERVAL_SECS
+        );
 
         loop {
             std::thread::sleep(Duration::from_secs(SYNC_INTERVAL_SECS));
@@ -31,7 +34,10 @@ pub fn init() {
 
             match sync_to_router_core(&pending) {
                 Ok(_) => {
-                    log::info!("Blocklist sync: sent {} entries to router-core", pending.len());
+                    log::info!(
+                        "Blocklist sync: sent {} entries to router-core",
+                        pending.len()
+                    );
                     blocklist_store::clear_pending();
                 }
                 Err(e) => {
@@ -61,8 +67,8 @@ fn sync_to_router_core(entries: &[PendingEntry]) -> Result<(), String> {
         .map_err(|e| format!("JSON serialize error: {}", e))?;
 
     // Connect to prottp server
-    let mut stream = TcpStream::connect(PROTTP_ADDR)
-        .map_err(|e| format!("Connection error: {}", e))?;
+    let mut stream =
+        TcpStream::connect(PROTTP_ADDR).map_err(|e| format!("Connection error: {}", e))?;
 
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -97,6 +103,9 @@ fn sync_to_router_core(entries: &[PendingEntry]) -> Result<(), String> {
     if response_str.contains("200") {
         Ok(())
     } else {
-        Err(format!("Non-200 response: {}", response_str.lines().next().unwrap_or("")))
+        Err(format!(
+            "Non-200 response: {}",
+            response_str.lines().next().unwrap_or("")
+        ))
     }
 }

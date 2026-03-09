@@ -84,7 +84,10 @@ pub fn run_error_page_server(
         Ok(listener) => listener,
         Err(e) => {
             if e.kind() == std::io::ErrorKind::AddrInUse {
-                log::warn!("Failed to bind {} server, address already in use", server_type);
+                log::warn!(
+                    "Failed to bind {} server, address already in use",
+                    server_type
+                );
                 return;
             }
             panic!("Failed to bind {} server: {}", server_type, e);

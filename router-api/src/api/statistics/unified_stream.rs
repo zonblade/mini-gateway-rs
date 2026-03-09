@@ -56,11 +56,20 @@ impl UnifiedStatsBroadcaster {
 
     /// Remove clients that fail to receive ping
     async fn remove_stale_clients(&self) {
-        let clients = self.inner.lock().iter().map(|c| c.sender.clone()).collect::<Vec<_>>();
+        let clients = self
+            .inner
+            .lock()
+            .iter()
+            .map(|c| c.sender.clone())
+            .collect::<Vec<_>>();
         let mut ok_senders = Vec::new();
 
         for sender in clients {
-            if sender.send(sse::Event::Comment("ping".into())).await.is_ok() {
+            if sender
+                .send(sse::Event::Comment("ping".into()))
+                .await
+                .is_ok()
+            {
                 ok_senders.push(sender);
             }
         }
@@ -101,19 +110,28 @@ impl UnifiedStatsBroadcaster {
             }
         };
 
-        let clients = self.inner.lock().iter().map(|c| c.sender.clone()).collect::<Vec<_>>();
+        let clients = self
+            .inner
+            .lock()
+            .iter()
+            .map(|c| c.sender.clone())
+            .collect::<Vec<_>>();
 
         // Log when there's data or clients
         if stats.gateway.req > 0 || stats.proxy.req > 0 {
             log::debug!(
                 "[Stats] Broadcasting: gw(req={},res={}) prx(req={},res={}) to {} clients",
-                stats.gateway.req, stats.gateway.res,
-                stats.proxy.req, stats.proxy.res,
+                stats.gateway.req,
+                stats.gateway.res,
+                stats.proxy.req,
+                stats.proxy.res,
                 clients.len()
             );
         }
 
-        let send_futures = clients.iter().map(|sender| sender.send(sse::Data::new(json.clone()).into()));
+        let send_futures = clients
+            .iter()
+            .map(|sender| sender.send(sse::Data::new(json.clone()).into()));
         let _ = future::join_all(send_futures).await;
     }
 
@@ -162,7 +180,11 @@ fn aggregate_stats(
 
     let target_name = if is_gateway { "gateway" } else { "proxy" };
     if !logs.is_empty() {
-        log::debug!("[Stats] {} found {} logs in window", target_name, logs.len());
+        log::debug!(
+            "[Stats] {} found {} logs in window",
+            target_name,
+            logs.len()
+        );
     }
 
     let mut stats = TargetStats::new();
@@ -200,7 +222,8 @@ fn aggregate_stats(
     if !bytes_in_values.is_empty() {
         stats.bytes_in_min = *bytes_in_values.iter().min().unwrap_or(&0);
         stats.bytes_in_max = *bytes_in_values.iter().max().unwrap_or(&0);
-        stats.bytes_in_avg = bytes_in_values.iter().sum::<i64>() as f64 / bytes_in_values.len() as f64;
+        stats.bytes_in_avg =
+            bytes_in_values.iter().sum::<i64>() as f64 / bytes_in_values.len() as f64;
     }
 
     // Calculate bytes_out statistics
@@ -218,11 +241,15 @@ fn aggregate_stats(
     if !bytes_out_values.is_empty() {
         stats.bytes_out_min = *bytes_out_values.iter().min().unwrap_or(&0);
         stats.bytes_out_max = *bytes_out_values.iter().max().unwrap_or(&0);
-        stats.bytes_out_avg = bytes_out_values.iter().sum::<i64>() as f64 / bytes_out_values.len() as f64;
+        stats.bytes_out_avg =
+            bytes_out_values.iter().sum::<i64>() as f64 / bytes_out_values.len() as f64;
     }
 
     // Calculate stalled connections
-    stats.stalled_count = logs.iter().filter(|log| log.conn_req == 1 && log.conn_res == 0).count() as i64;
+    stats.stalled_count = logs
+        .iter()
+        .filter(|log| log.conn_req == 1 && log.conn_res == 0)
+        .count() as i64;
 
     stats
 }

@@ -1,10 +1,10 @@
-/// UUID Generation Endpoint
-///
-/// Provides a secure UUID generation service for frontend applications that need
-/// unique identifiers but may have limited crypto support in older browsers.
-///
-/// This endpoint generates UUIDs using the system's secure random number generator
-/// instead of relying on client-side crypto APIs.
+//! UUID Generation Endpoint
+//!
+//! Provides a secure UUID generation service for frontend applications that need
+//! unique identifiers but may have limited crypto support in older browsers.
+//!
+//! This endpoint generates UUIDs using the system's secure random number generator
+//! instead of relying on client-side crypto APIs.
 
 use actix_web::{get, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
@@ -42,12 +42,12 @@ pub struct UuidResponse {
 pub async fn generate_uuid() -> impl Responder {
     let uuid = Uuid::new_v4();
     let generated_at = chrono::Utc::now().to_rfc3339();
-    
+
     let response = UuidResponse {
         uuid: uuid.to_string(),
         generated_at,
     };
-    
+
     log::debug!("Generated UUID: {}", response.uuid);
     HttpResponse::Ok().json(response)
 }

@@ -110,7 +110,12 @@ pub fn is_blocked(ip: &str) -> Option<String> {
             Some(expiry) if now >= expiry => continue, // Expired, skip
             _ => {
                 // Not expired or permanent
-                return Some(entry.reason.clone().unwrap_or_else(|| "blocked".to_string()));
+                return Some(
+                    entry
+                        .reason
+                        .clone()
+                        .unwrap_or_else(|| "blocked".to_string()),
+                );
             }
         }
     }

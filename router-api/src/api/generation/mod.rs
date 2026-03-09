@@ -16,8 +16,8 @@
 
 mod uuid_generate;
 
-use actix_web::web;
 use super::users::JwtAuth;
+use actix_web::web;
 
 /// Configure and mount all generation API routes
 ///
@@ -54,6 +54,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             // This ensures only authenticated users can generate UUIDs
             .wrap(JwtAuth::new())
             // UUID generation endpoint
-            .service(uuid_generate::generate_uuid)
+            .service(uuid_generate::generate_uuid),
     );
 }

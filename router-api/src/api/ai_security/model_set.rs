@@ -45,7 +45,9 @@ pub async fn set_ai_model(req: web::Json<UpdateModelRequest>) -> impl Responder 
     let mut model = match ai_model_queries::get_ai_model_by_id(&req.id) {
         Ok(Some(model)) => model,
         Ok(None) => return HttpResponse::NotFound().body("AI model not found"),
-        Err(e) => return HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
+        Err(e) => {
+            return HttpResponse::InternalServerError().body(format!("Database error: {}", e))
+        }
     };
 
     // Update fields if provided

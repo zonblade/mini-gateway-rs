@@ -3,12 +3,12 @@
 //! This module provides AI-based security and anomaly detection using ONNX models.
 //! It supports XGBoost and Isolation Forest models for analyzing network traffic patterns.
 
+pub mod blocklist_store;
+pub mod blocklist_sync;
 pub mod models;
 pub mod state;
 pub mod thread_isolation;
 pub mod thread_xgboost;
-pub mod blocklist_store;
-pub mod blocklist_sync;
 
 use crate::api::ai_security::{ai_model_queries, ModelType};
 use thread_isolation::spawn_isolation_thread;

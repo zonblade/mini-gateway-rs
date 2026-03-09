@@ -1,15 +1,16 @@
-use actix_web::{get, HttpResponse, Responder};
+use crate::api::users::models::{Role, User, UserResponse};
 use crate::module::database::get_connection;
-use crate::api::users::models::{User, UserResponse, Role};
+use actix_web::{get, HttpResponse, Responder};
 
 // Get all users
 #[get("")]
 pub async fn init() -> impl Responder {
     let db = match get_connection() {
         Ok(db) => db,
-        Err(_) => return HttpResponse::InternalServerError().json(
-            serde_json::json!({"error": "Failed to connect to database"})
-        ),
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to connect to database"}))
+        }
     };
 
     match db.query(
@@ -28,15 +29,11 @@ pub async fn init() -> impl Responder {
         },
     ) {
         Ok(users) => {
-            let user_responses: Vec<UserResponse> = users.into_iter()
-                .map(UserResponse::from)
-                .collect();
+            let user_responses: Vec<UserResponse> =
+                users.into_iter().map(UserResponse::from).collect();
             HttpResponse::Ok().json(user_responses)
-        },
-        Err(err) => {
-            HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": format!("Database error: {}", err)})
-            )
         }
+        Err(err) => HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": format!("Database error: {}", err)})),
     }
 }

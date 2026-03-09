@@ -1,6 +1,6 @@
+use std::future::Future;
 use std::sync::mpsc;
 use std::thread;
-use std::future::Future;
 
 #[allow(dead_code)]
 pub struct BrokerClient;

@@ -1,57 +1,54 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
+use crate::api::users::helper::{can_modify_user, is_admin, ClaimsFromRequest};
+use crate::api::users::models::{Role, UpdateUserRequest, User, UserResponse};
 use crate::module::database::get_connection;
-use crate::api::users::models::{User, UpdateUserRequest, UserResponse, Role};
-use crate::api::users::helper::{ClaimsFromRequest, is_admin, can_modify_user};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 
 pub async fn init(
     req: HttpRequest,
     path: web::Path<String>,
-    update_req: web::Json<UpdateUserRequest>
+    update_req: web::Json<UpdateUserRequest>,
 ) -> impl Responder {
     let user_id = path.into_inner();
-    
+
     // Extract authenticated user's claims
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": "Failed to get user authentication"})
-            )
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to get user authentication"}))
         }
     };
-    
+
     // Check if user is authorized to update this user
     if !can_modify_user(&claims.sub, &claims.role, &user_id) {
-        return HttpResponse::Forbidden().json(
-            serde_json::json!({"error": "You are not authorized to update this user"})
-        );
+        return HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "You are not authorized to update this user"}));
     }
-    
+
     // Create a vector to hold any dynamically created strings
     let mut constructed_values: Vec<String> = Vec::new();
-    
+
     // Check if this is a role update attempt and if the user has permissions
     if update_req.role.is_some() {
         // Prevent users from upgrading their own role
         if claims.sub == user_id {
-            return HttpResponse::Forbidden().json(
-                serde_json::json!({"error": "Cannot update your own role"})
-            );
+            return HttpResponse::Forbidden()
+                .json(serde_json::json!({"error": "Cannot update your own role"}));
         }
-        
+
         // Only admins can update roles
         if !is_admin(&claims.role) {
-            return HttpResponse::Forbidden().json(
-                serde_json::json!({"error": "Only administrators can update user roles"})
-            );
+            return HttpResponse::Forbidden()
+                .json(serde_json::json!({"error": "Only administrators can update user roles"}));
         }
     }
 
     let db = match get_connection() {
         Ok(db) => db,
-        Err(_) => return HttpResponse::InternalServerError().json(
-            serde_json::json!({"error": "Failed to connect to database"})
-        ),
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to connect to database"}))
+        }
     };
 
     // Check if user exists
@@ -92,15 +89,13 @@ pub async fn init(
                 |row| row.get::<_, String>(0),
             ) {
                 Ok(Some(_)) => {
-                    return HttpResponse::BadRequest().json(
-                        serde_json::json!({"error": "Username already exists"})
-                    );
-                },
-                Ok(None) => {},
+                    return HttpResponse::BadRequest()
+                        .json(serde_json::json!({"error": "Username already exists"}));
+                }
+                Ok(None) => {}
                 Err(err) => {
-                    return HttpResponse::InternalServerError().json(
-                        serde_json::json!({"error": format!("Database error: {}", err)})
-                    );
+                    return HttpResponse::InternalServerError()
+                        .json(serde_json::json!({"error": format!("Database error: {}", err)}));
                 }
             }
         }
@@ -115,15 +110,13 @@ pub async fn init(
                 |row| row.get::<_, String>(0),
             ) {
                 Ok(Some(_)) => {
-                    return HttpResponse::BadRequest().json(
-                        serde_json::json!({"error": "Email already exists"})
-                    );
-                },
-                Ok(None) => {},
+                    return HttpResponse::BadRequest()
+                        .json(serde_json::json!({"error": "Email already exists"}));
+                }
+                Ok(None) => {}
                 Err(err) => {
-                    return HttpResponse::InternalServerError().json(
-                        serde_json::json!({"error": format!("Database error: {}", err)})
-                    );
+                    return HttpResponse::InternalServerError()
+                        .json(serde_json::json!({"error": format!("Database error: {}", err)}));
                 }
             }
         }
@@ -148,7 +141,7 @@ pub async fn init(
         constructed_values.push(password_hash);
         query_parts.push("password_hash = ?");
     }
-    
+
     if let Some(role) = &update_req.role {
         let role_str = role.to_string();
         constructed_values.push(role_str);
@@ -157,7 +150,10 @@ pub async fn init(
 
     for (i, part) in query_parts.iter().enumerate() {
         if part.contains("password_hash") || part.contains("role") {
-            params.push(&constructed_values[i - (query_parts.len() - constructed_values.len())] as &dyn rusqlite::ToSql);
+            params.push(
+                &constructed_values[i - (query_parts.len() - constructed_values.len())]
+                    as &dyn rusqlite::ToSql,
+            );
         }
     }
 
@@ -165,16 +161,12 @@ pub async fn init(
     query_parts.push("updated_at = CURRENT_TIMESTAMP");
 
     if query_parts.is_empty() {
-        return HttpResponse::BadRequest().json(
-            serde_json::json!({"error": "No fields to update"})
-        );
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "No fields to update"}));
     }
 
-    let query = format!(
-        "UPDATE users SET {} WHERE id = ?",
-        query_parts.join(", ")
-    );
-    
+    let query = format!("UPDATE users SET {} WHERE id = ?", query_parts.join(", "));
+
     // Add id parameter for WHERE clause
     params.push(&user_id as &dyn rusqlite::ToSql);
 

@@ -3,7 +3,7 @@
 //! This module provides the thread handler for XGBoost-based anomaly detection.
 //! It receives ML feature logs via a channel and runs inference using an ONNX model.
 
-use super::models::{OnnxModel, ModelError};
+use super::models::{ModelError, OnnxModel};
 use crate::api::ai_security::ai_model_queries;
 use crate::api::ai_security::ModelType;
 use std::sync::mpsc::Receiver;
@@ -128,11 +128,18 @@ impl XGBoostHandler {
         let models = ai_model_queries::get_enabled_ai_models()
             .map_err(|e| ModelError::FileNotFound(format!("Database error: {}", e)))?;
 
-        let xgboost_model = models.iter()
+        let xgboost_model = models
+            .iter()
             .find(|m| m.model_type == ModelType::XGBoost)
-            .ok_or_else(|| ModelError::FileNotFound("No enabled XGBoost model found".to_string()))?;
+            .ok_or_else(|| {
+                ModelError::FileNotFound("No enabled XGBoost model found".to_string())
+            })?;
 
-        log::info!("Loading XGBoost model: {} from {}", xgboost_model.name, xgboost_model.file_path);
+        log::info!(
+            "Loading XGBoost model: {} from {}",
+            xgboost_model.name,
+            xgboost_model.file_path
+        );
 
         let model = OnnxModel::new(xgboost_model.file_path.clone());
         self.model_id = Some(xgboost_model.id.clone());
@@ -172,8 +179,12 @@ impl XGBoostHandler {
                     // Check anomaly threshold and add to blocklist
                     if let Some(score) = output.first() {
                         if *score > 0.8 {
-                            log::warn!("ANOMALY DETECTED by XGBoost: conn_id={}, ip={}, score={}",
-                                log.conn_id, log.client_ip, score);
+                            log::warn!(
+                                "ANOMALY DETECTED by XGBoost: conn_id={}, ip={}, score={}",
+                                log.conn_id,
+                                log.client_ip,
+                                score
+                            );
 
                             // Add to blocklist (1 hour TTL)
                             let reason = format!("xgboost:{:.2}", score);

@@ -2,7 +2,10 @@
 //!
 //! This module provides the HTTP endpoint for uploading ONNX model files.
 
-use super::{ai_model_queries::{self, AiModel}, ModelType};
+use super::{
+    ai_model_queries::{self, AiModel},
+    ModelType,
+};
 use actix_multipart::Multipart;
 use actix_web::{post, HttpResponse, Responder};
 use chrono::Utc;
@@ -59,7 +62,9 @@ pub async fn upload_ai_model(mut payload: Multipart) -> impl Responder {
         };
 
         let content_disposition = field.content_disposition();
-        let field_name = content_disposition.and_then(|cd| cd.get_name()).unwrap_or("");
+        let field_name = content_disposition
+            .and_then(|cd| cd.get_name())
+            .unwrap_or("");
 
         match field_name {
             "name" => {
@@ -67,7 +72,10 @@ pub async fn upload_ai_model(mut payload: Multipart) -> impl Responder {
                 while let Some(chunk) = field.next().await {
                     let chunk = match chunk {
                         Ok(chunk) => chunk,
-                        Err(e) => return HttpResponse::BadRequest().body(format!("Error reading field: {}", e)),
+                        Err(e) => {
+                            return HttpResponse::BadRequest()
+                                .body(format!("Error reading field: {}", e))
+                        }
                     };
                     data.extend_from_slice(&chunk);
                 }
@@ -78,7 +86,10 @@ pub async fn upload_ai_model(mut payload: Multipart) -> impl Responder {
                 while let Some(chunk) = field.next().await {
                     let chunk = match chunk {
                         Ok(chunk) => chunk,
-                        Err(e) => return HttpResponse::BadRequest().body(format!("Error reading field: {}", e)),
+                        Err(e) => {
+                            return HttpResponse::BadRequest()
+                                .body(format!("Error reading field: {}", e))
+                        }
                     };
                     data.extend_from_slice(&chunk);
                 }
@@ -89,7 +100,10 @@ pub async fn upload_ai_model(mut payload: Multipart) -> impl Responder {
                 while let Some(chunk) = field.next().await {
                     let chunk = match chunk {
                         Ok(chunk) => chunk,
-                        Err(e) => return HttpResponse::BadRequest().body(format!("Error reading field: {}", e)),
+                        Err(e) => {
+                            return HttpResponse::BadRequest()
+                                .body(format!("Error reading field: {}", e))
+                        }
                     };
                     data.extend_from_slice(&chunk);
                 }
@@ -100,14 +114,19 @@ pub async fn upload_ai_model(mut payload: Multipart) -> impl Responder {
                 let file_path = models_dir.join(format!("{}.onnx", model_id));
                 let mut file = match fs::File::create(&file_path) {
                     Ok(file) => file,
-                    Err(e) => return HttpResponse::InternalServerError()
-                        .body(format!("Failed to create file: {}", e)),
+                    Err(e) => {
+                        return HttpResponse::InternalServerError()
+                            .body(format!("Failed to create file: {}", e))
+                    }
                 };
 
                 while let Some(chunk) = field.next().await {
                     let chunk = match chunk {
                         Ok(chunk) => chunk,
-                        Err(e) => return HttpResponse::BadRequest().body(format!("Error reading file: {}", e)),
+                        Err(e) => {
+                            return HttpResponse::BadRequest()
+                                .body(format!("Error reading file: {}", e))
+                        }
                     };
 
                     if let Err(e) = file.write_all(&chunk) {

@@ -113,7 +113,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config::init();
     }
 
-
     {
         log::info!("Starting memory log spawner...");
         memory_log::spawner::spawn_all();
@@ -170,7 +169,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::error!("Invalid TCP address format: {}", address);
             return Err("Invalid TCP address format".into());
         }
-        (parts[0].to_string(), parts[1].parse::<u16>().unwrap_or(24042))
+        (
+            parts[0].to_string(),
+            parts[1].parse::<u16>().unwrap_or(24042),
+        )
     };
 
     let client = module::httpc::HttpC::new(&u_address, u_port);
@@ -181,17 +183,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Try to sync with registry but don't fail startup if it doesn't work
         match sync::proxy_node_tcp::sync_proxy_nodes_to_registry(&client).await {
             Ok(_) => log::info!("Successfully synced proxy nodes to registry"),
-            Err(e) => log::warn!("Failed to sync proxy nodes to registry: {:?}. Continuing startup anyway.", e),
+            Err(e) => log::warn!(
+                "Failed to sync proxy nodes to registry: {:?}. Continuing startup anyway.",
+                e
+            ),
         }
-        
+
         match sync::gateway_node_tcp::sync_gateway_nodes_to_registry(&client).await {
             Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
-            Err(e) => log::warn!("Failed to sync gateway nodes to registry: {:?}. Continuing startup anyway.", e),
+            Err(e) => log::warn!(
+                "Failed to sync gateway nodes to registry: {:?}. Continuing startup anyway.",
+                e
+            ),
         }
 
         match sync::gateway_node_tcp::sync_gateway_paths_to_registry(&client).await {
             Ok(_) => log::info!("Successfully synced gateway paths to registry"),
-            Err(e) => log::warn!("Failed to sync gateway paths to registry: {:?}. Continuing startup anyway.", e),
+            Err(e) => log::warn!(
+                "Failed to sync gateway paths to registry: {:?}. Continuing startup anyway.",
+                e
+            ),
         }
     }
 
@@ -199,7 +210,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async {
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
         let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt()).unwrap();
-        
+
         tokio::select! {
             _ = sigterm.recv() => {
                 log::info!("Received SIGTERM");
