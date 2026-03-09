@@ -1,0 +1,84 @@
+name: Removal Request
+description: Request the removal or deprecation of a feature, component, or dependency
+title: "[Removal]: "
+labels: ["removal", "discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to request the removal or deprecation of an existing feature, component, or dependency. Removal requests are taken seriously and will be discussed with the community before action is taken.
+
+  - type: textarea
+    id: target
+    attributes:
+      label: What Should Be Removed?
+      description: Clearly identify the feature, component, API endpoint, dependency, or code that you believe should be removed.
+      placeholder: e.g., The X endpoint in router-api, the Y module in router-core, dependency Z...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of Removal
+      description: What kind of removal are you requesting?
+      options:
+        - Feature removal
+        - API endpoint removal
+        - Dependency removal
+        - Module / component removal
+        - Configuration option removal
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Rationale
+      description: Why should this be removed? Provide a clear justification.
+      placeholder: |
+        This should be removed because:
+        - It is no longer maintained...
+        - It introduces security concerns...
+        - It conflicts with...
+        - It is redundant with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact Assessment
+      description: What is the impact of this removal? Who or what would be affected?
+      placeholder: |
+        - Users who rely on feature X would need to...
+        - API consumers using endpoint Y would need to...
+        - No downstream impact because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or Migration Path
+      description: If applicable, suggest alternatives or a migration path for affected users.
+      placeholder: Users can instead use... / This can be replaced by...
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgent is this removal?
+      options:
+        - Low -- can be scheduled for a future release
+        - Medium -- should be addressed in the next minor release
+        - High -- security or stability concern, needs prompt attention
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, references, or evidence supporting this removal request.

@@ -1,0 +1,87 @@
+name: Milestone Implementation
+description: Propose implementation of a roadmap milestone or major feature
+title: "[Milestone]: "
+labels: ["milestone", "proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to propose working on a significant piece of the project roadmap. Milestone proposals are reviewed carefully -- please provide a thorough implementation plan.
+
+  - type: textarea
+    id: milestone
+    attributes:
+      label: Milestone / Feature
+      description: Which roadmap item or major feature are you proposing to implement?
+      placeholder: e.g., Scripting Plugin, CLI Live Monitoring, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why should this milestone be prioritized? What value does it bring?
+      placeholder: This milestone would enable...
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Implementation Plan
+      description: Describe your proposed approach. Include architecture decisions, affected components, and key design choices.
+      placeholder: |
+        1. Modify router-core to...
+        2. Add new module for...
+        3. Update API endpoints in router-api to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: breaking
+    attributes:
+      label: Breaking Changes
+      description: Will this introduce any breaking changes? If so, describe them and your migration strategy.
+      placeholder: This change will / will not introduce breaking changes...
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing Strategy
+      description: How do you plan to test this implementation?
+      placeholder: |
+        - Unit tests for...
+        - Integration tests for...
+        - Manual testing of...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Estimated Scope
+      description: How large is this implementation?
+      options:
+        - Small (a few files, < 500 lines)
+        - Medium (multiple files, 500-2000 lines)
+        - Large (cross-component, > 2000 lines)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: ai_disclosure
+    attributes:
+      label: AI Assistance Disclosure
+      description: Please confirm the following.
+      options:
+        - label: I understand that contributions must be at least 90% human-written code, and any AI assistance must be disclosed in the pull request.
+          required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any diagrams, references, or additional information about your proposal.
