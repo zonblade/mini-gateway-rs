@@ -4,7 +4,6 @@ members = [
     "router-api"
     ,"router-cli"
     ,"router-core"
-    ,"router-gui"
     #,"router-client/src-tauri"
 , "router-rds"]
 
