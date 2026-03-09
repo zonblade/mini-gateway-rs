@@ -33,11 +33,14 @@
 //! ```
 
 use crate::api::users::models::{Role, User};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm, errors::Error as JwtError};
-use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use jsonwebtoken::{
+    decode, encode, errors::Error as JwtError, Algorithm, DecodingKey, EncodingKey, Header,
+    Validation,
+};
 use rand::{distributions::Alphanumeric, Rng};
+use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 static GLOBAL_SECRET: LazyLock<String> = LazyLock::new(|| {
     // Generate a 64-character random secret key when first accessed
@@ -65,16 +68,16 @@ static GLOBAL_SECRET: LazyLock<String> = LazyLock::new(|| {
 pub struct Claims {
     /// Subject (the user ID)
     pub sub: String,
-    
+
     /// Username for information purposes
     pub username: String,
-    
+
     /// User role for authorization
     pub role: String,
-    
+
     /// Expiration time (Unix timestamp)
     pub exp: u64,
-    
+
     /// Issued at time (Unix timestamp)
     pub iat: u64,
 }
@@ -90,7 +93,7 @@ pub struct Claims {
 pub struct AuthConfig {
     /// Secret key for signing and verifying tokens
     secret_key: String,
-    
+
     /// Token validity duration in minutes
     token_validity: u64,
 }
@@ -165,9 +168,9 @@ pub fn generate_token(user: &User, config: &AuthConfig) -> Result<String, JwtErr
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
         .as_secs();
-    
+
     let expiration = now + (config.token_validity * 60); // Convert minutes to seconds
-    
+
     let claims = Claims {
         sub: user.id.clone(),
         username: user.username.clone(),
@@ -175,11 +178,11 @@ pub fn generate_token(user: &User, config: &AuthConfig) -> Result<String, JwtErr
         exp: expiration,
         iat: now,
     };
-    
+
     encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(config.secret_key.as_bytes())
+        &EncodingKey::from_secret(config.secret_key.as_bytes()),
     )
 }
 
@@ -206,13 +209,13 @@ pub fn generate_token(user: &User, config: &AuthConfig) -> Result<String, JwtErr
 /// - Required claims are missing
 pub fn validate_token(token: &str, config: &AuthConfig) -> Result<Claims, JwtError> {
     let validation = Validation::new(Algorithm::HS256);
-    
+
     let token_data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(config.secret_key.as_bytes()),
-        &validation
+        &validation,
     )?;
-    
+
     Ok(token_data.claims)
 }
 
@@ -283,12 +286,12 @@ pub fn can_modify_user(user_id: &str, user_role: &str, target_id: &str) -> bool 
     if is_admin(user_role) {
         return true;
     }
-    
+
     // Staff can modify any user except admins (determined at the controller level)
     if is_staff_or_admin(user_role) {
         return true;
     }
-    
+
     // Regular users can only modify themselves
     user_id == target_id
 }

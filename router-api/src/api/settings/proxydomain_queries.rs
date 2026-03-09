@@ -4,8 +4,8 @@
 //! It handles creating the database table, querying, inserting, updating, and
 //! deleting proxy domain records.
 
-use crate::module::database::{get_connection, DatabaseError};
 use super::ProxyDomain;
+use crate::module::database::{get_connection, DatabaseError};
 use uuid::Uuid;
 
 /// Creates the proxy_domains table in the database if it doesn't already exist
@@ -39,21 +39,32 @@ use uuid::Uuid;
 /// - The SQL statement to create the table could not be executed
 pub fn ensure_proxy_domains_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
-    
+
     // Define the expected columns including new certificate automation fields
-    let expected_columns = ["id", "proxy_id", "tls", "tls_pem", "tls_key", "sni", "tls_autron", "tls_mode", "tls_email", "expected_renew"];
-    
+    let expected_columns = [
+        "id",
+        "proxy_id",
+        "tls",
+        "tls_pem",
+        "tls_key",
+        "sni",
+        "tls_autron",
+        "tls_mode",
+        "tls_email",
+        "expected_renew",
+    ];
+
     // Check if the table exists with the expected columns and is not corrupted
     if db.table_exists_with_columns("proxy_domains", &expected_columns)? {
         log::debug!("proxy_domains table exists and has expected structure");
         return Ok(());
     }
-    
+
     log::info!("Creating or repairing proxy_domains table");
-    
+
     // Drop the table if it exists but is corrupted or missing columns
     db.execute("DROP TABLE IF EXISTS proxy_domains", [])?;
-    
+
     // Create the table with the full correct structure including certificate automation fields
     db.execute(
         "CREATE TABLE proxy_domains (
@@ -71,7 +82,7 @@ pub fn ensure_proxy_domains_table() -> Result<(), DatabaseError> {
         )",
         [],
     )?;
-    
+
     log::info!("Created proxy_domains table with correct structure");
     Ok(())
 }
@@ -213,10 +224,10 @@ pub fn get_proxy_domain_by_id(id: &str) -> Result<Option<ProxyDomain>, DatabaseE
 /// - There was an error mapping the database rows to `ProxyDomain` structures
 pub fn get_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<Vec<ProxyDomain>, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_proxy_domains_table()?;
-    
+
     // Query proxy domains by proxy ID
     let domains = db.query(
         "SELECT id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, tls_mode, tls_email, expected_renew FROM proxy_domains WHERE proxy_id = ?1",
@@ -236,7 +247,7 @@ pub fn get_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<Vec<ProxyDomain>,
             })
         },
     )?;
-    
+
     Ok(domains)
 }
 
@@ -268,18 +279,22 @@ pub fn save_proxy_domain(domain: &ProxyDomain) -> Result<(), DatabaseError> {
 
     // Ensure the table exists
     ensure_proxy_domains_table()?;
-    
+
     // Validate that proxy_id is valid - return more specific error if not present
     let proxy_id = match &domain.proxy_id {
         Some(id) if !id.is_empty() => id.clone(),
         Some(_) => return Err(DatabaseError::from_msg("Proxy ID is empty")),
-        None => return Err(DatabaseError::from_msg("Proxy ID is missing (null)"))
+        None => return Err(DatabaseError::from_msg("Proxy ID is missing (null)")),
     };
-    
+
     // Log the domain data we're trying to save
-    log::debug!("Attempting to save domain: id={}, proxy_id={}, sni={:?}", 
-               domain.id, proxy_id, domain.sni);
-    
+    log::debug!(
+        "Attempting to save domain: id={}, proxy_id={}, sni={:?}",
+        domain.id,
+        proxy_id,
+        domain.sni
+    );
+
     // Insert or replace the proxy domain with validated proxy_id and proper NULL handling
     db.execute(
         "INSERT OR REPLACE INTO proxy_domains (id, proxy_id, tls, tls_pem, tls_key, sni, tls_autron, tls_mode, tls_email, expected_renew)
@@ -298,7 +313,7 @@ pub fn save_proxy_domain(domain: &ProxyDomain) -> Result<(), DatabaseError> {
         ],
     ).map_err(|e| {
         log::error!("Database error when saving domain {}: {}", domain.id, e);
-        DatabaseError::from(e)
+        e
     })?;
 
     Ok(())
@@ -359,16 +374,13 @@ pub fn delete_proxy_domain_by_id(id: &str) -> Result<bool, DatabaseError> {
 /// - The SQL statement could not be executed
 pub fn delete_proxy_domains_by_proxy_id(proxy_id: &str) -> Result<usize, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure the table exists
     ensure_proxy_domains_table()?;
-    
+
     // Delete all proxy domains associated with this proxy
-    let affected_rows = db.execute(
-        "DELETE FROM proxy_domains WHERE proxy_id = ?1",
-        [proxy_id],
-    )?;
-    
+    let affected_rows = db.execute("DELETE FROM proxy_domains WHERE proxy_id = ?1", [proxy_id])?;
+
     Ok(affected_rows)
 }
 

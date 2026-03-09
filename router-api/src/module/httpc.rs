@@ -40,40 +40,44 @@ impl HttpC {
         );
 
         // Send headers
-        stream.write_all(request.as_bytes())
+        stream
+            .write_all(request.as_bytes())
             .map_err(|e| format!("Failed to send request: {}", e))?;
-        
+
         // Send body if present
         if !body.is_empty() {
-            stream.write_all(body)
+            stream
+                .write_all(body)
                 .map_err(|e| format!("Failed to send body: {}", e))?;
         }
-        
-        stream.flush()
+
+        stream
+            .flush()
             .map_err(|e| format!("Failed to flush: {}", e))?;
 
         // Read only the status line
         let mut buffer = [0; 1024];
-        let bytes_read = stream.read(&mut buffer)
+        let bytes_read = stream
+            .read(&mut buffer)
             .map_err(|e| format!("Failed to read response: {}", e))?;
-        
+
         let response = String::from_utf8_lossy(&buffer[..bytes_read]);
-        
+
         // Parse status line (first line)
-        let status_line = response.lines().next()
-            .ok_or("No status line found")?;
-        
+        let status_line = response.lines().next().ok_or("No status line found")?;
+
         // Extract status code
         let parts: Vec<&str> = status_line.split_whitespace().collect();
         if parts.len() < 2 {
             return Err("Invalid status line format".to_string());
         }
-        
-        let status_code: u16 = parts[1].parse()
+
+        let status_code: u16 = parts[1]
+            .parse()
             .map_err(|_| "Invalid status code".to_string())?;
-        
+
         // Check if status is success (2xx)
-        if status_code >= 200 && status_code < 300 {
+        if (200..300).contains(&status_code) {
             Ok(())
         } else {
             Err(format!("HTTP error: {}", status_code))

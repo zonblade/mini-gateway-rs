@@ -1,19 +1,19 @@
 //! # Configuration Module for Mini-Gateway Router Core
-//! 
+//!
 //! This module provides configuration structures and utilities for the router core component
-//! of the mini-gateway system. It defines data structures for routing configuration, 
+//! of the mini-gateway system. It defines data structures for routing configuration,
 //! connection endpoints, and provides utilities for loading and managing configuration.
-//! 
+//!
 //! ## Configuration Categories
-//! 
+//!
 //! This module includes several key configuration components:
 //! - Default port configurations for error handling and TLS honeypot
 //! - Routing data enums for configuration storage and retrieval
 //! - Proxy and Gateway node structures that define connection endpoints
 //! - Utility functions for configuration initialization and data conversion
-//! 
+//!
 //! ## Usage
-//! 
+//!
 //! The configuration system uses the `mini-config` crate for settings management,
 //! which provides the `Configure` trait for simple configuration storage and retrieval.
 
@@ -29,10 +29,10 @@ use serde::{Deserialize, Serialize};
 pub struct DefaultPort {
     /// Port for handling 404 (Not Found) errors
     pub p404: &'static str,
-    
+
     /// Port for handling 500 (Internal Server Error) errors
     pub p500: &'static str,
-    
+
     /// Port for TLS honeypot service to monitor and log suspicious connection attempts
     pub tls_honeypot: &'static str,
 }
@@ -48,7 +48,7 @@ pub(crate) const DEFAULT_PORT: DefaultPort = DefaultPort {
 
 /// Routing data configuration keys.
 ///
-/// This enum defines the configuration keys used to store and retrieve 
+/// This enum defines the configuration keys used to store and retrieve
 /// routing-related data through the `mini-config` system. Each variant
 /// corresponds to a specific piece of routing configuration.
 ///
@@ -65,13 +65,13 @@ pub(crate) const DEFAULT_PORT: DefaultPort = DefaultPort {
 pub enum RoutingData {
     /// Key for the current proxy identifier
     ProxyID,
-    
+
     /// Key for proxy routing configuration data
     ProxyRouting,
-    
+
     /// Key for the current gateway identifier
     GatewayID,
-    
+
     /// Key for gateway routing configuration data
     GatewayRouting,
 
@@ -112,36 +112,36 @@ pub enum RoutingData {
 pub struct ProxyNode {
     /// Whether TLS is enabled for this proxy node
     pub tls: bool,
-    
+
     /// Server Name Indication value for TLS connections
     pub sni: Option<String>,
-    
+
     /// Path to the TLS certificate PEM file
     pub tls_pem: Option<String>,
-    
+
     /// Path to the TLS private key file
     pub tls_key: Option<String>,
-    
+
     /// Network address this proxy listens on (e.g., "0.0.0.0:443")
     pub addr_listen: String,
-    
+
     /// Target address to forward traffic to (e.g., "127.0.0.1:8080")
     pub addr_target: String,
 
-    #[serde(default)]    
+    #[serde(default)]
     pub high_speed: bool,
-    
-    #[serde(default)]    
+
+    #[serde(default)]
     pub high_speed_addr: Option<String>,
-    
+
     /// Custom buffer size in bytes (optional)
-    #[serde(default)]    
+    #[serde(default)]
     pub buffer_size: Option<usize>,
-    
+
     /// Custom connection timeout in seconds (optional)
     #[serde(default)]
     pub timeout_secs: Option<u64>,
-    
+
     /// Whether to use adaptive buffer sizing based on traffic patterns
     #[serde(default)]
     pub adaptive_buffer: bool,
@@ -176,15 +176,15 @@ pub struct GatewayNode {
     pub addr_target: String,
     pub addr_listen: String,
     pub addr_bind: String,
-    pub tls: Vec<GatewayNodeSNI>
+    pub tls: Vec<GatewayNodeSNI>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayNodeSNI {
-    pub tls : bool,
-    pub sni : Option<String>,
-    pub tls_pem : Option<String>,
-    pub tls_key : Option<String>,
+    pub tls: bool,
+    pub sni: Option<String>,
+    pub tls_pem: Option<String>,
+    pub tls_key: Option<String>,
 }
 
 /// Blocklist entry for Zero Trust IP blocking
@@ -208,7 +208,7 @@ pub struct BlocklistEntry {
 ///
 /// This should be called once during system startup before any
 /// configuration is loaded or routing is performed.
-pub fn init(){
+pub fn init() {
     // initiate the routing id
     RoutingData::ProxyID.set("-");
     RoutingData::GatewayID.set("-");

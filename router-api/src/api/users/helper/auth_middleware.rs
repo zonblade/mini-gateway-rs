@@ -9,8 +9,8 @@ use actix_web::{
     Error, HttpMessage,
 };
 
+use crate::api::users::helper::auth_token::{self, AuthConfig, Claims};
 use futures_util::future::LocalBoxFuture;
-use crate::api::users::helper::auth_token::{self, Claims, AuthConfig};
 
 // New JWT-based authentication middleware
 pub struct JwtAuth {
@@ -262,7 +262,7 @@ impl UserSelfCheck {
     pub fn self_and_staff() -> Self {
         Self {
             auth_config: Rc::new(AuthConfig::default()),
-            allow_admin: true, 
+            allow_admin: true,
             allow_staff: true,
         }
     }
@@ -368,12 +368,12 @@ where
             let is_staff = auth_token::is_staff_or_admin(&claims.role) && !is_admin;
             let is_self = claims.sub == target_id;
 
-            let has_permission = is_self
-                || (allow_admin && is_admin)
-                || (allow_staff && is_staff);
+            let has_permission = is_self || (allow_admin && is_admin) || (allow_staff && is_staff);
 
             if !has_permission {
-                return Err(ErrorUnauthorized("You don't have permission to access this resource"));
+                return Err(ErrorUnauthorized(
+                    "You don't have permission to access this resource",
+                ));
             }
 
             // Store claims in request extensions for access in handlers

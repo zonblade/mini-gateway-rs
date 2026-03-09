@@ -1,6 +1,6 @@
 // filepath: /Users/zonblade/Project/runegram/mini-gateway-rs/router-api/src/api/settings/gwnode_list.rs
-use actix_web::{get, web, HttpResponse, Responder};
 use super::gwnode_queries;
+use actix_web::{get, web, HttpResponse, Responder};
 
 /// List all gateway nodes
 ///
@@ -26,11 +26,15 @@ pub async fn list_gateway_nodes() -> impl Responder {
 #[get("/gwnode/list/{proxy_id}")]
 pub async fn list_gateway_nodes_by_proxy(path: web::Path<String>) -> impl Responder {
     let proxy_id = path.into_inner();
-    
+
     match gwnode_queries::get_gateway_nodes_by_proxy_id(&proxy_id) {
         Ok(nodes) => HttpResponse::Ok().json(nodes),
         Err(err) => {
-            log::error!("Failed to list gateway nodes for proxy {}: {}", proxy_id, err);
+            log::error!(
+                "Failed to list gateway nodes for proxy {}: {}",
+                proxy_id,
+                err
+            );
             HttpResponse::InternalServerError().json(format!("Error: {}", err))
         }
     }

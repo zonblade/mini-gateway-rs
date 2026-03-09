@@ -1,27 +1,29 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{api::settings::{gwnode_queries, proxydomain_queries}, module::database::{get_connection, DatabaseError}};
 use crate::api::settings::proxy_queries;
+use crate::{
+    api::settings::{gwnode_queries, proxydomain_queries},
+    module::database::{get_connection, DatabaseError},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QProxyNode {
-    pub tls: bool,                      // from proxy table
-    pub sni: Option<String>,            // from proxy table
-    pub tls_pem: Option<String>,        // from proxy table
-    pub tls_key: Option<String>,        // from proxy table
-    pub addr_listen: String,            // from proxy table
-    pub addr_target: String,            // from proxy table
-    pub high_speed: bool,               // always true
-    pub high_speed_addr: Option<String>,// always Some
-    pub buffer_size: Option<usize>,     // always None, because unused now
-    pub timeout_secs: Option<u64>,      // always None, because unused now
-    pub adaptive_buffer: bool,          // always false, because unused now
+    pub tls: bool,                       // from proxy table
+    pub sni: Option<String>,             // from proxy table
+    pub tls_pem: Option<String>,         // from proxy table
+    pub tls_key: Option<String>,         // from proxy table
+    pub addr_listen: String,             // from proxy table
+    pub addr_target: String,             // from proxy table
+    pub high_speed: bool,                // always true
+    pub high_speed_addr: Option<String>, // always Some
+    pub buffer_size: Option<usize>,      // always None, because unused now
+    pub timeout_secs: Option<u64>,       // always None, because unused now
+    pub adaptive_buffer: bool,           // always false, because unused now
 }
 
-
-/// 
+///
 /// table infomation
-/// 
+///
 /// ```sql
 /// CREATE TABLE proxy_domains (
 ///   id TEXT PRIMARY KEY,
@@ -45,13 +47,13 @@ pub struct QProxyNode {
 /// ```
 pub fn get_all_proxy_nodes() -> Result<Vec<QProxyNode>, DatabaseError> {
     let db = get_connection()?;
-    
+
     // Ensure tables exist in the correct order (parent tables first)
     // This prevents foreign key constraint violations during table creation
     proxy_queries::ensure_proxies_table()?;
     proxydomain_queries::ensure_proxy_domains_table()?;
     gwnode_queries::ensure_gateway_nodes_table()?;
-    
+
     // Query to retrieve proxy nodes with TLS information via gateway_nodes
     // Filtering for proxies where high_speed is enabled (true/1)
     let query = "
@@ -76,7 +78,7 @@ pub fn get_all_proxy_nodes() -> Result<Vec<QProxyNode>, DatabaseError> {
         WHERE
             p.high_speed = 1
     ";
-    
+
     let proxy_nodes = db.query(query, [], |row| {
         Ok(QProxyNode {
             tls: row.get(0)?,
@@ -92,6 +94,6 @@ pub fn get_all_proxy_nodes() -> Result<Vec<QProxyNode>, DatabaseError> {
             adaptive_buffer: row.get(10)?,
         })
     })?;
-    
+
     Ok(proxy_nodes)
 }

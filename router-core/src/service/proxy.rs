@@ -4,9 +4,7 @@ use pingora::listeners::Listeners;
 use pingora::services::listening::Service;
 use pingora::upstreams::peer::BasicPeer;
 
-
 pub fn proxy_service_fast(addr: &str, addr_to: &str) -> Service<proxy_fast::ProxyApp> {
-
     let mut addr_target = addr_to.to_string();
     let is_ip = addr_to.bytes().filter(|&b| b == b'.').count() == 4;
     if !is_ip {
@@ -51,16 +49,16 @@ pub fn proxy_service_tls_fast(
     }
 
     let peer = BasicPeer::new(&addr_target);
-    
+
     // Check if certificate and key files exist
     if !std::path::Path::new(cert_path).exists() {
         log::error!("TLS certificate file not found: {}", cert_path);
     }
-    
+
     if !std::path::Path::new(key_path).exists() {
         log::error!("TLS key file not found: {}", key_path);
     }
-    
+
     let listeners = match Listeners::tls(addr, cert_path, key_path) {
         Ok(l) => l,
         Err(e) => {
@@ -69,10 +67,10 @@ pub fn proxy_service_tls_fast(
             panic!("TLS setup failed: {}", e);
         }
     };
-    
+
     Service::with_listeners(
         "Proxy Service TLS".to_string(),
         listeners,
-        proxy_fast::ProxyApp::new(peer,String::from(addr)),
+        proxy_fast::ProxyApp::new(peer, String::from(addr)),
     )
 }

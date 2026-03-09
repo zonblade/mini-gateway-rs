@@ -43,7 +43,9 @@ pub struct ModelStats {
 pub async fn get_inference_stats() -> impl Responder {
     let models = match ai_model_queries::get_all_ai_models() {
         Ok(models) => models,
-        Err(e) => return HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
+        Err(e) => {
+            return HttpResponse::InternalServerError().body(format!("Database error: {}", e))
+        }
     };
 
     let enabled_count = models.iter().filter(|m| m.enabled).count();

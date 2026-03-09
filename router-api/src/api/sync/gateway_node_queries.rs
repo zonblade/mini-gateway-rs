@@ -2,26 +2,25 @@ use crate::api::settings::{gateway_queries, gwnode_queries, proxy_queries, proxy
 use crate::module::database::{get_connection, DatabaseError};
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QGatewayNode {
-    pub priority: u8,               // from gateway_node table set to 0 since we dont use it
-    pub addr_listen: String,        // from proxy table
-    pub addr_target: String,       // from proxy table
-    pub addr_bind: String,          // from proxy table (proxy.addr_target)
+    pub priority: u8,        // from gateway_node table set to 0 since we dont use it
+    pub addr_listen: String, // from proxy table
+    pub addr_target: String, // from proxy table
+    pub addr_bind: String,   // from proxy table (proxy.addr_target)
     pub tls: Vec<QGatewayNodeSNI>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QGatewayNodeSNI {
-    pub tls: bool,               // from proxy_domain table associated with the proxy used in gateway_node
-    pub sni: Option<String>,     // from proxy_domain table associated with the proxy used in gateway_node
+    pub tls: bool, // from proxy_domain table associated with the proxy used in gateway_node
+    pub sni: Option<String>, // from proxy_domain table associated with the proxy used in gateway_node
     pub tls_pem: Option<String>, // from proxy_domain table associated with the proxy used in gateway_node
     pub tls_key: Option<String>, // from proxy_domain table associated with the proxy used in gateway_node
 }
 
 /// sync all path
-/// 
+///
 /// table infomation
 /// ```sql
 /// CREATE TABLE gateway_nodes (
@@ -65,7 +64,7 @@ pub struct QGatewayNodeSNI {
 ///   high_speed_addr TEXT
 /// )
 /// ```
-/// 
+///
 // sync all nodes
 pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
     let db = get_connection()?;
@@ -99,7 +98,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
     })?;
 
     let mut gateway_nodes = Vec::new();
-    
+
     // For each unique listening address
     for (addr_listen, addr_bind, addr_target) in listening_addresses {
         // Find all gateway nodes using this listening address
@@ -114,9 +113,7 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
                 p.addr_listen = ?
         ";
 
-        let node_ids = db.query(nodes_query, [&addr_listen], |row| {
-            row.get::<_, String>(0)
-        })?;
+        let node_ids = db.query(nodes_query, [&addr_listen], |row| row.get::<_, String>(0))?;
 
         // Collect all TLS configurations for all nodes with this listening address
         let mut tls_configs = Vec::new();
@@ -171,10 +168,10 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
 
         // Create a single gateway node for this listening address with combined TLS configs
         gateway_nodes.push(QGatewayNode {
-            priority: 0,  // set to 0 as specified
+            priority: 0, // set to 0 as specified
             addr_listen,
             addr_target,
-            addr_bind,    // Added addr_bind from proxy.addr_target
+            addr_bind, // Added addr_bind from proxy.addr_target
             tls: tls_configs,
         });
     }
@@ -182,19 +179,18 @@ pub fn get_all_gateway_nodes() -> Result<Vec<QGatewayNode>, DatabaseError> {
     Ok(gateway_nodes)
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QGatewayPath {
     pub priority: u8,        // from gateway table
-    pub tls: bool,          // from proxy_domain table
+    pub tls: bool,           // from proxy_domain table
     pub sni: Option<String>, // from proxy_domain table
-    pub addr_bind: String, // from proxy table
+    pub addr_bind: String,   // from proxy table
     pub addr_target: String, // from gateway node table
     pub path_listen: String, // from gateway table
     pub path_target: String, // from gateway table
 }
 /// sync all path
-/// 
+///
 /// table infomation
 /// ```sql
 /// CREATE TABLE gateway_nodes (
@@ -238,7 +234,7 @@ pub struct QGatewayPath {
 ///   high_speed_addr TEXT
 /// )
 /// ```
-/// 
+///
 pub fn get_all_gateway_paths() -> Result<Vec<QGatewayPath>, DatabaseError> {
     let db = get_connection()?;
 
@@ -273,6 +269,6 @@ pub fn get_all_gateway_paths() -> Result<Vec<QGatewayPath>, DatabaseError> {
             tls: row.get(6)?,
         })
     })?;
-    
+
     Ok(rows)
 }

@@ -6,16 +6,19 @@
 
 use std::sync::{Arc, Mutex};
 
-use actix_web::{post, get, web, HttpResponse, Responder, HttpRequest};
+use super::{
+    gateway_queries, gwnode_queries, proxy_queries, proxydomain_queries, Gateway, GatewayNode,
+    Proxy, ProxyDomain,
+};
+use crate::module::certificate_automation;
+use crate::sync;
+use crate::{
+    api::users::helper::{is_staff_or_admin, ClaimsFromRequest},
+    module::httpc::HttpC,
+};
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::{api::users::helper::{is_staff_or_admin, ClaimsFromRequest}, module::httpc::HttpC};
-use crate::module::certificate_automation;
-use super::{
-    Proxy, ProxyDomain, GatewayNode, Gateway,
-    proxy_queries, proxydomain_queries, gwnode_queries, gateway_queries
-};
-use crate::sync;
 
 /// Structure representing a domain in the YAML configuration
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,7 +49,6 @@ pub struct YamlDomain {
 fn default_tls_mode() -> String {
     "staging".to_string()
 }
-
 
 /// Structure representing a gateway path in the YAML configuration
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,33 +132,31 @@ pub struct YamlConfig {
 pub async fn upload_config(
     req: HttpRequest,
     body: web::Bytes,
-    client: web::Data<Arc<Mutex<HttpC>>>
+    client: web::Data<Arc<Mutex<HttpC>>>,
 ) -> impl Responder {
     let client = client.as_ref();
     // Extract authenticated user's claims
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::BadRequest().json(
-                serde_json::json!({"error": "Failed to get user authentication"})
-            )
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Failed to get user authentication"}))
         }
     };
-    
+
     // Verify user has admin or staff role
     if !is_staff_or_admin(&claims.role) {
         return HttpResponse::Forbidden().json(
-            serde_json::json!({"error": "Only administrators and staff can upload configurations"})
+            serde_json::json!({"error": "Only administrators and staff can upload configurations"}),
         );
     }
-    
+
     // Parse YAML configuration
     let config: YamlConfig = match serde_yaml::from_slice(&body) {
         Ok(config) => config,
         Err(e) => {
-            return HttpResponse::BadRequest().json(
-                serde_json::json!({"error": format!("Invalid YAML configuration: {}", e)})
-            )
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": format!("Invalid YAML configuration: {}", e)}))
         }
     };
 
@@ -188,13 +188,13 @@ pub async fn upload_config(
             "error": format!("Failed to delete existing proxies: {}", e)
         }));
     }
-    
+
     // Process each proxy in the configuration
     let mut created_proxies = Vec::new();
     let mut created_domains = Vec::new();
     let mut created_gwnodes = Vec::new();
     let mut created_gateways = Vec::new();
-    
+
     for yaml_proxy in config.proxy {
         // Create proxy
         let proxy_id = Uuid::new_v4().to_string();
@@ -210,16 +210,16 @@ pub async fn upload_config(
                     )
                 }
             },
-            high_speed: yaml_proxy.highspeed.as_ref().map_or(false, |hs| hs.enabled),
+            high_speed: yaml_proxy.highspeed.as_ref().is_some_and(|hs| hs.enabled),
             high_speed_addr: None,
             high_speed_gwid: None,
         };
-        
+
         // Save proxy
         if let Err(e) = proxy_queries::save_proxy(&proxy) {
             return HttpResponse::BadRequest().json(
                 serde_json::json!({"error": format!("Failed to create proxy '{}': {}", yaml_proxy.name, e)})
-            )
+            );
         }
         created_proxies.push(proxy.clone());
 
@@ -254,7 +254,7 @@ pub async fn upload_config(
             } else {
                 yaml_domain.tls_mode.clone()
             };
-            
+
             let mut domain = ProxyDomain {
                 id: domain_id.clone(),
                 proxy_id: Some(proxy_id.clone()),
@@ -267,54 +267,68 @@ pub async fn upload_config(
                 tls_email: yaml_domain.tls_email.clone(),
                 expected_renew: None, // Will be set during certificate generation
             };
-            
+
             // Save domain
             if let Err(e) = proxydomain_queries::save_proxy_domain(&domain) {
                 return HttpResponse::BadRequest().json(
                     serde_json::json!({"error": format!("Failed to create domain '{}': {}", yaml_domain.domain, e)})
-                )
+                );
             }
-            
+
             // Handle automatic certificate generation if enabled - wait for completion
             if yaml_domain.tls_autron {
-                log::info!("Automatic certificate generation requested for domain: {}", yaml_domain.domain);
-                
+                log::info!(
+                    "Automatic certificate generation requested for domain: {}",
+                    yaml_domain.domain
+                );
+
                 // Wait for certificate generation to complete before proceeding
                 // Use the appropriate manager based on tls_mode
                 let email = yaml_domain.tls_email.clone();
                 let manager = if tls_mode == "prod" {
                     certificate_automation::CertificateAutomationManager::new_production(email)
                 } else {
-                    certificate_automation::CertificateAutomationManager::new_staging_with_email(email)
+                    certificate_automation::CertificateAutomationManager::new_staging_with_email(
+                        email,
+                    )
                 };
-                
-                let cert_result = manager.ensure_certificate_and_save(&yaml_domain.domain, &proxy_id).await;
-                
+
+                let cert_result = manager
+                    .ensure_certificate_and_save(&yaml_domain.domain, &proxy_id)
+                    .await;
+
                 match cert_result {
                     Ok(updated_domain) => {
-                        log::info!("Successfully generated certificate for domain: {}", yaml_domain.domain);
+                        log::info!(
+                            "Successfully generated certificate for domain: {}",
+                            yaml_domain.domain
+                        );
                         // Update the domain with the certificate data
                         domain.tls_pem = updated_domain.tls_pem;
                         domain.tls_key = updated_domain.tls_key;
                         domain.expected_renew = updated_domain.expected_renew;
-                    },
+                    }
                     Err(e) => {
-                        log::error!("Failed to generate certificate for domain {}: {}", yaml_domain.domain, e);
+                        log::error!(
+                            "Failed to generate certificate for domain {}: {}",
+                            yaml_domain.domain,
+                            e
+                        );
                         // Continue without certificates - the domain will still be created but without cert data
                     }
                 }
             }
-            
+
             domain_map.insert(yaml_domain.domain.clone(), domain_id.clone());
             created_domains.push(domain);
         }
-        
+
         // Process gateways
         let mut gwnode_map = std::collections::HashMap::new();
         for yaml_gateway in &yaml_proxy.gateway {
             let gwnode_id = Uuid::new_v4().to_string();
             let domain_id = domain_map.get(&yaml_gateway.domain).cloned();
-            
+
             let gwnode = GatewayNode {
                 id: gwnode_id.clone(),
                 proxy_id: proxy_id.clone(),
@@ -324,16 +338,16 @@ pub async fn upload_config(
                 domain_id,
                 domain_name: Some(yaml_gateway.domain.clone()),
             };
-            
+
             // Save gateway node
             if let Err(e) = gwnode_queries::save_gateway_node(&gwnode) {
                 return HttpResponse::BadRequest().json(
                     serde_json::json!({"error": format!("Failed to create gateway node '{}': {}", yaml_gateway.name, e)})
-                )
+                );
             }
             gwnode_map.insert(yaml_gateway.name.clone(), gwnode_id.clone());
             created_gwnodes.push(gwnode);
-            
+
             // Process paths
             for yaml_path in &yaml_gateway.path {
                 let gateway_id = Uuid::new_v4().to_string();
@@ -349,12 +363,12 @@ pub async fn upload_config(
                 if let Err(e) = gateway_queries::save_gateway(&gateway) {
                     return HttpResponse::BadRequest().json(
                         serde_json::json!({"error": format!("Failed to create gateway path for '{}': {}", yaml_gateway.name, e)})
-                    )
+                    );
                 }
                 created_gateways.push(gateway);
             }
         }
-        
+
         // Handle highspeed if enabled
         if let Some(highspeed) = &yaml_proxy.highspeed {
             if highspeed.enabled {
@@ -362,7 +376,7 @@ pub async fn upload_config(
                     // Update the proxy with highspeed information
                     proxy.high_speed = true;
                     proxy.high_speed_gwid = Some(gwnode_id.clone());
-                    
+
                     // Retrieve the gwnode to get its alt_target for high_speed_addr
                     match gwnode_queries::get_gateway_node_by_id(gwnode_id) {
                         Ok(Some(gwnode)) => {
@@ -389,21 +403,30 @@ pub async fn upload_config(
             }
         }
     }
-    
+
     // Add sync calls after successful configuration
     match sync::gateway_node_tcp::sync_gateway_paths_to_registry(client).await {
         Ok(_) => log::info!("Successfully synced gateway paths to registry"),
-        Err(e) => log::warn!("Failed to sync gateway paths to registry: {:?}. Continuing anyway.", e),
+        Err(e) => log::warn!(
+            "Failed to sync gateway paths to registry: {:?}. Continuing anyway.",
+            e
+        ),
     }
-    
+
     match sync::proxy_node_tcp::sync_proxy_nodes_to_registry(client).await {
         Ok(_) => log::info!("Successfully synced proxy nodes to registry"),
-        Err(e) => log::warn!("Failed to sync proxy nodes to registry: {:?}. Continuing anyway.", e),
+        Err(e) => log::warn!(
+            "Failed to sync proxy nodes to registry: {:?}. Continuing anyway.",
+            e
+        ),
     }
 
     match sync::gateway_node_tcp::sync_gateway_nodes_to_registry(client).await {
         Ok(_) => log::info!("Successfully synced gateway nodes to registry"),
-        Err(e) => log::warn!("Failed to sync gateway nodes to registry: {:?}. Continuing anyway.", e),
+        Err(e) => log::warn!(
+            "Failed to sync gateway nodes to registry: {:?}. Continuing anyway.",
+            e
+        ),
     }
 
     log::info!("Auto-config upload completed successfully");
@@ -441,12 +464,11 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::BadRequest().json(
-                serde_json::json!({"error": "Failed to get user authentication"})
-            )
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Failed to get user authentication"}))
         }
     };
-    
+
     // Verify user has admin or staff role
     if !is_staff_or_admin(&claims.role) {
         return HttpResponse::Forbidden().json(
@@ -458,15 +480,14 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
     let proxies = match proxy_queries::get_all_proxies() {
         Ok(proxies) => proxies,
         Err(e) => {
-            return HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": format!("Failed to retrieve proxies: {}", e)})
-            )
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": format!("Failed to retrieve proxies: {}", e)}))
         }
     };
-    
+
     // Build YAML configuration
     let mut yaml_proxies = Vec::new();
-    
+
     for proxy in proxies {
         // Get domains for this proxy
         let domains = match proxydomain_queries::get_proxy_domains_by_proxy_id(&proxy.id) {
@@ -477,18 +498,24 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
                 )
             }
         };
-        
+
         // Convert domains to YAML format
-        let yaml_domains = domains.iter().map(|domain| YamlDomain {
-            domain: domain.sni.clone().unwrap_or_default(),
-            tls: domain.tls,
-            tls_cert: domain.tls_pem.clone(),
-            tls_key: domain.tls_key.clone(),
-            tls_autron: domain.tls_autron,
-            tls_mode: domain.tls_mode.clone().unwrap_or_else(|| "staging".to_string()),
-            tls_email: domain.tls_email.clone(),
-        }).collect::<Vec<_>>();
-        
+        let yaml_domains = domains
+            .iter()
+            .map(|domain| YamlDomain {
+                domain: domain.sni.clone().unwrap_or_default(),
+                tls: domain.tls,
+                tls_cert: domain.tls_pem.clone(),
+                tls_key: domain.tls_key.clone(),
+                tls_autron: domain.tls_autron,
+                tls_mode: domain
+                    .tls_mode
+                    .clone()
+                    .unwrap_or_else(|| "staging".to_string()),
+                tls_email: domain.tls_email.clone(),
+            })
+            .collect::<Vec<_>>();
+
         // Get gateway nodes for this proxy
         let gwnodes = match gwnode_queries::get_gateway_nodes_by_proxy_id(&proxy.id) {
             Ok(gwnodes) => gwnodes,
@@ -498,7 +525,7 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
                 )
             }
         };
-        
+
         // Build gateways with their paths
         let mut yaml_gateways = Vec::new();
         for gwnode in &gwnodes {
@@ -511,14 +538,17 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
                     )
                 }
             };
-            
+
             // Convert paths to YAML format
-            let yaml_paths = gateways.iter().map(|gateway| YamlPath {
-                priority: gateway.priority,
-                pattern: gateway.pattern.clone(),
-                target: gateway.target.clone(),
-            }).collect::<Vec<_>>();
-            
+            let yaml_paths = gateways
+                .iter()
+                .map(|gateway| YamlPath {
+                    priority: gateway.priority,
+                    pattern: gateway.pattern.clone(),
+                    target: gateway.target.clone(),
+                })
+                .collect::<Vec<_>>();
+
             // Add gateway to list
             if !yaml_paths.is_empty() {
                 yaml_gateways.push(YamlGateway {
@@ -529,16 +559,17 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
                 });
             }
         }
-        
+
         // Create highspeed configuration if enabled
         let yaml_highspeed = if proxy.high_speed {
             if let Some(gwid) = &proxy.high_speed_gwid {
                 // Find the gwnode name from the ID
-                let target_name = gwnodes.iter()
+                let target_name = gwnodes
+                    .iter()
                     .find(|gw| &gw.id == gwid)
                     .map(|gw| gw.title.clone())
                     .unwrap_or_else(|| "unknown".to_string());
-                
+
                 Some(YamlHighspeed {
                     enabled: true,
                     target: target_name,
@@ -549,7 +580,7 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
         } else {
             None
         };
-        
+
         // Add proxy to list
         yaml_proxies.push(YamlProxy {
             name: proxy.title,
@@ -559,12 +590,12 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
             gateway: yaml_gateways,
         });
     }
-    
+
     // Create final YAML config
     let yaml_config = YamlConfig {
         proxy: yaml_proxies,
     };
-    
+
     // Convert to YAML string
     let yaml_str = match serde_yaml::to_string(&yaml_config) {
         Ok(yaml) => yaml,
@@ -574,9 +605,12 @@ pub async fn download_config(req: HttpRequest) -> impl Responder {
             )
         }
     };
-    
+
     HttpResponse::Ok()
         .content_type("application/yaml")
-        .append_header(("Content-Disposition", "attachment; filename=\"gateway-config.yaml\""))
+        .append_header((
+            "Content-Disposition",
+            "attachment; filename=\"gateway-config.yaml\"",
+        ))
         .body(yaml_str)
-} 
+}

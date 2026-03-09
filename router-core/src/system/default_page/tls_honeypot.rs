@@ -7,6 +7,6 @@ pub fn init() {
         DEFAULT_PORT.tls_honeypot,
         403,
         "Forbidden",
-        "Default TLS Forbidden page"
+        "Default TLS Forbidden page",
     );
 }

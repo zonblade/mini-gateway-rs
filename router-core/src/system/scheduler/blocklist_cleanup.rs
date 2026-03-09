@@ -11,7 +11,10 @@ const CLEANUP_INTERVAL_SECS: u64 = 300; // 5 minutes
 
 pub fn init() {
     std::thread::spawn(|| {
-        log::info!("Blocklist cleanup scheduler started (interval: {}s)", CLEANUP_INTERVAL_SECS);
+        log::info!(
+            "Blocklist cleanup scheduler started (interval: {}s)",
+            CLEANUP_INTERVAL_SECS
+        );
 
         loop {
             std::thread::sleep(Duration::from_secs(CLEANUP_INTERVAL_SECS));

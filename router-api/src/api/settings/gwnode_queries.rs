@@ -39,21 +39,28 @@ use uuid::Uuid;
 /// - The SQL statement to create the table could not be executed
 pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
     let db = get_connection()?;
-    
+
     // Define the expected columns
-    let expected_columns = ["id", "proxy_id", "domain_id", "title", "alt_target", "priority"];
-    
+    let expected_columns = [
+        "id",
+        "proxy_id",
+        "domain_id",
+        "title",
+        "alt_target",
+        "priority",
+    ];
+
     // Check if the table exists with the expected columns and is not corrupted
     if db.table_exists_with_columns("gateway_nodes", &expected_columns)? {
         log::debug!("gateway_nodes table exists and has expected structure");
         return Ok(());
     }
-    
+
     log::info!("Creating or repairing gateway_nodes table");
-    
+
     // Drop the table if it exists but is corrupted or missing columns
     db.execute("DROP TABLE IF EXISTS gateway_nodes", [])?;
-    
+
     // Create the table with the full correct structure
     db.execute(
         "CREATE TABLE gateway_nodes (
@@ -68,7 +75,7 @@ pub fn ensure_gateway_nodes_table() -> Result<(), DatabaseError> {
         )",
         [],
     )?;
-    
+
     log::info!("Created gateway_nodes table with correct structure");
     Ok(())
 }

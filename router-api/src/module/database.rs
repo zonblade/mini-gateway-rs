@@ -65,20 +65,20 @@ pub enum DatabaseError {
     /// This variant wraps the original rusqlite error to preserve its context.
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
-    
+
     /// An error from the file system.
     ///
     /// This can occur when creating directories or accessing database files.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     /// Error when attempting to access a database connection that has not been initialized.
     ///
     /// This typically occurs when there is a mutex poisoning or other threading issues.
     #[error("Database connection not initialized")]
     #[allow(dead_code)]
     NotInitialized,
-    
+
     /// Custom error with a specific message.
     ///
     /// This is useful for domain-specific errors that are not directly
@@ -138,12 +138,12 @@ impl Database {
         if !db_dir.exists() {
             fs::create_dir_all(db_dir)?;
         }
-        
+
         let db_path = db_dir.join("core.sqlite").to_string_lossy().to_string();
-        
+
         Ok(Self { db_path })
     }
-    
+
     /// Creates a new database connection to the logging database.
     ///
     /// The database file is located at `/tmp/gwrs/data/core_logging.sqlite`.
@@ -158,12 +158,15 @@ impl Database {
         if !db_dir.exists() {
             fs::create_dir_all(db_dir)?;
         }
-        
-        let db_path = db_dir.join("core_logging.sqlite").to_string_lossy().to_string();
-        
+
+        let db_path = db_dir
+            .join("core_logging.sqlite")
+            .to_string_lossy()
+            .to_string();
+
         Ok(Self { db_path })
     }
-    
+
     /// Creates a new connection to the database.
     ///
     /// This function is used internally to open a fresh connection for each operation.
@@ -174,18 +177,20 @@ impl Database {
     /// A `DatabaseResult` containing either the new Connection or an error
     fn connect(&self) -> DatabaseResult<Connection> {
         let conn = Connection::open(&self.db_path)?;
-        
+
         // Configure SQLite for better reliability
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA busy_timeout = 1000;
             PRAGMA foreign_keys = ON;
-        ")?;
-        
+        ",
+        )?;
+
         Ok(conn)
     }
-    
+
     /// Executes a raw SQL query with optional parameters.
     ///
     /// This method creates a new connection, executes the statement, and then
@@ -237,7 +242,7 @@ impl Database {
     ///     Ok(())
     /// }
     /// ```
-    pub fn execute<P>(&self, sql: &str, params: P) -> DatabaseResult<usize> 
+    pub fn execute<P>(&self, sql: &str, params: P) -> DatabaseResult<usize>
     where
         P: rusqlite::Params,
     {
@@ -245,7 +250,7 @@ impl Database {
         let result = conn.execute(sql, params)?;
         Ok(result)
     }
-    
+
     /// Executes a query and maps the results using the provided function.
     ///
     /// This method is used for SELECT statements that return multiple rows.
@@ -319,15 +324,15 @@ impl Database {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params, f)?;
-        
+
         let mut results = Vec::new();
         for row_result in rows {
             results.push(row_result?);
         }
-        
+
         Ok(results)
     }
-    
+
     /// Executes a query that returns a single result or None.
     ///
     /// This method is optimized for queries that should return at most one row,
@@ -407,14 +412,14 @@ impl Database {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query_map(params, f)?;
-        
+
         if let Some(row_result) = rows.next() {
             return Ok(Some(row_result?));
         }
-        
+
         Ok(None)
     }
-    
+
     /// Executes a function within a transaction.
     ///
     /// This method provides a convenient way to execute multiple statements within
@@ -469,7 +474,7 @@ impl Database {
     ///         
     ///         // Log the transaction
     ///         conn.execute(
-    ///             "INSERT INTO transactions (from_account, to_account, amount, timestamp) 
+    ///             "INSERT INTO transactions (from_account, to_account, amount, timestamp)
     ///              VALUES (?1, ?2, ?3, datetime('now'))",
     ///             [from_account, to_account, amount],
     ///         )?;
@@ -497,7 +502,7 @@ impl Database {
         tx.commit()?;
         Ok(result)
     }
-    
+
     /// Checks if a table exists and has the expected columns
     ///
     /// This is a simple utility method to check if a table exists with its expected structure.
@@ -523,52 +528,48 @@ impl Database {
     /// }
     /// ```
     pub fn table_exists_with_columns(
-        &self, 
-        table_name: &str, 
-        expected_columns: &[&str]
+        &self,
+        table_name: &str,
+        expected_columns: &[&str],
     ) -> DatabaseResult<bool> {
         let conn = self.connect()?;
-        
+
         // First check if the table exists
         let table_exists: bool = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
                 [table_name],
-                |row| row.get::<_, i64>(0)
+                |row| row.get::<_, i64>(0),
             )
             .map(|count| count > 0)
             .map_err(DatabaseError::from)?;
-            
+
         if !table_exists {
             return Ok(false);
         }
-        
+
         // Then check if the table has the expected columns
         for column_name in expected_columns {
             let column_exists: bool = conn
                 .query_row(
                     "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?",
                     rusqlite::params![table_name, column_name],
-                    |row| row.get::<_, i64>(0)
+                    |row| row.get::<_, i64>(0),
                 )
                 .map(|count| count > 0)
                 .map_err(DatabaseError::from)?;
-                
+
             if !column_exists {
                 return Ok(false);
             }
         }
-        
+
         // Run a quick integrity check on the table
-        let result = conn.query_row(
-            "PRAGMA quick_check", 
-            [],
-            |row| row.get::<_, String>(0)
-        );
-        
+        let result = conn.query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0));
+
         match result {
             Ok(ok_msg) if ok_msg == "ok" => Ok(true),
-            Ok(_) => Ok(false),  // If we get any message other than "ok", table is corrupt
+            Ok(_) => Ok(false), // If we get any message other than "ok", table is corrupt
             Err(_) => Ok(false), // Error during quick_check indicates issues with the table
         }
     }
@@ -617,10 +618,10 @@ impl Database {
 pub struct Query<T> {
     /// The SQL query string.
     sql: String,
-    
+
     /// The parameters to bind to the query.
     params: Vec<Box<dyn rusqlite::ToSql>>,
-    
+
     /// Phantom data to maintain the type parameter.
     _marker: std::marker::PhantomData<T>,
 }
@@ -657,7 +658,7 @@ impl<T> Query<T> {
             _marker: std::marker::PhantomData,
         }
     }
-    
+
     /// Adds a parameter to the query.
     ///
     /// This method adds a parameter to the query and returns the modified
@@ -735,7 +736,7 @@ pub fn get_connection_log() -> DatabaseResult<Database> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     /// Tests the database connection and basic CRUD operations.
     ///
     /// This test:
@@ -748,29 +749,31 @@ mod tests {
     #[test]
     fn test_database_connection() {
         let db = Database::new().expect("Failed to connect to database");
-        
+
         // Create a test table
         db.execute(
             "CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
             [],
-        ).expect("Failed to create test table");
-        
+        )
+        .expect("Failed to create test table");
+
         // Insert data
-        db.execute(
-            "INSERT INTO test_table (name) VALUES (?1)",
-            ["Test Name"],
-        ).expect("Failed to insert data");
-        
+        db.execute("INSERT INTO test_table (name) VALUES (?1)", ["Test Name"])
+            .expect("Failed to insert data");
+
         // Query data
-        let results = db.query(
-            "SELECT id, name FROM test_table WHERE name = ?1",
-            ["Test Name"],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-        ).expect("Failed to query data");
-        
+        let results = db
+            .query(
+                "SELECT id, name FROM test_table WHERE name = ?1",
+                ["Test Name"],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("Failed to query data");
+
         assert!(!results.is_empty());
-        
+
         // Clean up
-        db.execute("DROP TABLE test_table", []).expect("Failed to drop test table");
+        db.execute("DROP TABLE test_table", [])
+            .expect("Failed to drop test table");
     }
 }

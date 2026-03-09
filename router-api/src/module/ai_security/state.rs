@@ -2,12 +2,12 @@
 //!
 //! Uses OnceLock for lazy initialization and AtomicBool for fast flag checks.
 
+use super::thread_xgboost::MlFeatureLog;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::Sender,
     OnceLock,
 };
-use super::thread_xgboost::MlFeatureLog;
 
 // === Global Flags (fast atomic checks) ===
 static AI_ENABLED: AtomicBool = AtomicBool::new(false);

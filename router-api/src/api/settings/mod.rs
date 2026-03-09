@@ -9,6 +9,8 @@
 //! The module is structured with a clear separation between data models, database queries, and HTTP endpoints.
 //! Each component has dedicated submodules for listing, retrieving, creating, updating, and deleting resources.
 
+mod auto_config;
+mod certificate_management;
 mod gateway_get;
 mod gateway_list;
 mod gateway_set;
@@ -18,8 +20,6 @@ mod gwnode_set;
 mod proxy_get;
 mod proxy_list;
 mod proxy_set;
-mod auto_config;
-mod certificate_management;
 
 pub mod gateway_queries;
 pub mod gwnode_queries;

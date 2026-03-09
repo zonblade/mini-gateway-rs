@@ -100,9 +100,7 @@ pub async fn listen() {
 }
 
 // Extract batch processing to a separate function
-async fn process_batch(
-    batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>,
-) {
+async fn process_batch(batch: &Vec<(chrono::DateTime<chrono::Utc>, u8, String)>) {
     // Replace with actual batch processing logic
     for (datetime, _level, message) in batch {
         // This log line is active - if you're not seeing this, there might be a log level issue
@@ -173,14 +171,14 @@ async fn process_batch(
         let conn_type2 = {
             if conn_type == "WS:[ON]" || conn_type == "WS:[OFF]" || conn_type == "WS:[CONNECTED]" {
                 conn_type.split(":").collect::<Vec<&str>>()[0].to_string()
-            }else{
+            } else {
                 conn_type.to_string()
             }
         };
 
         // Create and append the TemporaryLog
         let log_entry = TemporaryLog {
-            date_time: datetime.clone(),
+            date_time: *datetime,
             conn_id,
             conn_type: conn_type2,
             peer: (source, destination),
@@ -189,8 +187,16 @@ async fn process_batch(
             conn_res,
             bytes_in: bytes_in as i32,
             bytes_out: bytes_out as i32,
-            path_src: if path_src.is_empty() { None } else { Some(path_src) },
-            path_dst: if path_dst.is_empty() { None } else { Some(path_dst) },
+            path_src: if path_src.is_empty() {
+                None
+            } else {
+                Some(path_src)
+            },
+            path_dst: if path_dst.is_empty() {
+                None
+            } else {
+                Some(path_dst)
+            },
         };
 
         let _ = tlog_proxy::append_data(log_entry);

@@ -89,7 +89,7 @@ impl QueueControl {
             _reserved: [0; 2048],
         }
     }
-    
+
     pub fn lock(&self) -> Result<(), io::Error> {
         // Add a timeout to prevent indefinite spinning
         let start = std::time::Instant::now();
@@ -115,14 +115,14 @@ impl QueueControl {
 
         // Memory fence to ensure lock acquisition is visible
         memory_fence_acquire();
-        
+
         Ok(()) // Successfully acquired lock
     }
 
     pub fn unlock(&self) {
         // Memory fence before unlock to ensure all writes are visible
         memory_fence_release();
-        
+
         // Only unlock if currently locked
         // Use Release ordering to ensure all previous writes are visible
         // to the next thread that acquires the lock
@@ -208,7 +208,7 @@ impl QueueControl {
         self.count.store(0, release_ordering());
         self.capacity.store(capacity, release_ordering());
         self.overflow_count.store(0, release_ordering());
-        
+
         // Ensure all stores are visible
         memory_fence_release();
     }
@@ -245,8 +245,11 @@ impl SharedMemoryProducer {
         overflow_policy: OverflowPolicy,
     ) -> io::Result<Self> {
         // Log architecture for debugging
-        eprintln!("[-LO-] Creating shared memory on {} architecture", ARCH_NAME);
-        
+        eprintln!(
+            "[-LO-] Creating shared memory on {} architecture",
+            ARCH_NAME
+        );
+
         // Calculate capacity based on total size and entry size
         let data_size = total_size.saturating_sub(SHM_METADATA_SIZE);
         let capacity = data_size / ENTRY_MAX_SIZE;
@@ -356,7 +359,7 @@ impl SharedMemoryProducer {
         unsafe {
             // Memory fence to ensure we see the latest values
             memory_fence_acquire();
-            
+
             // Check if we can read the capacity field to determine if memory was already initialized
             let existing_capacity = (*control_ptr).capacity.load(acquire_ordering());
 
@@ -486,16 +489,18 @@ impl SharedMemoryProducer {
                     struct LockGuard<'a> {
                         control: &'a QueueControl,
                     }
-                    
+
                     impl<'a> Drop for LockGuard<'a> {
                         fn drop(&mut self) {
                             self.control.unlock();
                         }
                     }
-                    
+
                     // Create a guard that will automatically unlock when it goes out of scope
-                    let _guard = LockGuard { control: &*self.control };
-                    
+                    let _guard = LockGuard {
+                        control: &*self.control,
+                    };
+
                     // After getting the lock, run a full validation of the control structure
                     let count = (*self.control).count.load(acquire_ordering());
                     let capacity = (*self.control).capacity.load(acquire_ordering());
@@ -565,7 +570,7 @@ impl SharedMemoryProducer {
                     }
 
                     // Note: Unlock happens automatically via LockGuard drop
-                },
+                }
 
                 Err(e) => {
                     return Err(e);
@@ -579,9 +584,7 @@ impl SharedMemoryProducer {
     // Get current number of items in queue
     #[allow(dead_code)]
     pub fn queue_size(&self) -> usize {
-        unsafe {
-            (*self.control).count.load(acquire_ordering())
-        }
+        unsafe { (*self.control).count.load(acquire_ordering()) }
     }
 
     // Get maximum capacity of the queue
@@ -621,7 +624,10 @@ impl Drop for SharedMemoryProducer {
             // Close file descriptor
             let close_result = libc::close(self.shm_fd);
             if close_result != 0 {
-                eprintln!("[-LO-] Failed to close file descriptor: {}", Error::last_os_error());
+                eprintln!(
+                    "[-LO-] Failed to close file descriptor: {}",
+                    Error::last_os_error()
+                );
             }
         }
     }
@@ -738,7 +744,7 @@ impl LogProducer {
             println!("Empty message received");
             return Ok(());
         }
-        
+
         // Maximum size an entry can hold for its payload (LogEntry + message)
         let max_payload_in_shm_entry = ENTRY_MAX_SIZE - mem::size_of::<usize>();
 
@@ -814,9 +820,7 @@ impl LogProducer {
 
         // Send to shared memory with better error reporting
         match self.shm.enqueue(&buffer) {
-            Ok(_) => {
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err(e) => Err(e),
         }
     }
@@ -897,9 +901,7 @@ pub unsafe fn proxy_logger() -> io::Result<&'static LogProducer> {
 
     match &GLOBAL_LOG_PROXY {
         Some(logger) => Ok(logger),
-        None => Err(Error::other(
-            "Failed to initialize proxy logger",
-        )),
+        None => Err(Error::other("Failed to initialize proxy logger")),
     }
 }
 
@@ -947,9 +949,7 @@ pub unsafe fn gateway_logger() -> io::Result<&'static LogProducer> {
 
     match &GLOBAL_LOG_GATEWAY {
         Some(logger) => Ok(logger),
-        None => Err(Error::other(
-            "Failed to initialize gateway logger",
-        )),
+        None => Err(Error::other("Failed to initialize gateway logger")),
     }
 }
 

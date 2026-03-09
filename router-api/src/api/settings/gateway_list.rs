@@ -4,8 +4,8 @@
 //! either retrieving all gateways in the system or filtering by a specific gateway node.
 //! These endpoints are read-only and do not modify any data.
 
-use actix_web::{get, web, HttpResponse, Responder};
 use super::gateway_queries;
+use actix_web::{get, web, HttpResponse, Responder};
 
 /// Lists all gateway routing rules
 ///
@@ -101,11 +101,15 @@ pub async fn list_gateways() -> impl Responder {
 #[get("/gateway/list/{gwnode_id}")]
 pub async fn list_gateways_by_gwnode(path: web::Path<String>) -> impl Responder {
     let gwnode_id = path.into_inner();
-    
+
     match gateway_queries::get_gateways_by_gwnode_id(&gwnode_id) {
         Ok(gateways) => HttpResponse::Ok().json(gateways),
         Err(err) => {
-            log::error!("Failed to list gateways for gateway node {}: {}", gwnode_id, err);
+            log::error!(
+                "Failed to list gateways for gateway node {}: {}",
+                gwnode_id,
+                err
+            );
             HttpResponse::InternalServerError().json(format!("Error: {}", err))
         }
     }

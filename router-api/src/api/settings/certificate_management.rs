@@ -3,10 +3,12 @@
 //! This module provides HTTP endpoints for managing SSL/TLS certificates using the
 //! integrated certbot automation system.
 
-use actix_web::{post, get, web, HttpRequest, HttpResponse, Responder};
-use serde::{Deserialize, Serialize};
 use crate::api::users::helper::{is_staff_or_admin, ClaimsFromRequest};
-use crate::module::certificate_automation::{CertificateAutomationManager, CertificateAutomationError};
+use crate::module::certificate_automation::{
+    CertificateAutomationError, CertificateAutomationManager,
+};
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
+use serde::{Deserialize, Serialize};
 
 /// Request structure for manual certificate generation
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,38 +112,48 @@ pub async fn generate_certificate(
     };
 
     // Generate certificate
-    match manager.ensure_certificate_and_save(&req_data.domain, &req_data.proxy_id).await {
+    match manager
+        .ensure_certificate_and_save(&req_data.domain, &req_data.proxy_id)
+        .await
+    {
         Ok(domain) => {
             let response = CertificateResponse {
                 status: "success".to_string(),
-                message: format!("Certificate successfully generated for domain {}", req_data.domain),
+                message: format!(
+                    "Certificate successfully generated for domain {}",
+                    req_data.domain
+                ),
                 domain: req_data.domain,
                 expected_renew: domain.expected_renew,
             };
-            
+
             HttpResponse::Ok().json(response)
-        },
+        }
         Err(e) => {
-            log::error!("Certificate generation failed for domain {}: {}", req_data.domain, e);
-            
+            log::error!(
+                "Certificate generation failed for domain {}: {}",
+                req_data.domain,
+                e
+            );
+
             let error_message = match e {
                 CertificateAutomationError::CertbotError(certbot_err) => {
                     format!("Certbot error: {}", certbot_err)
-                },
+                }
                 CertificateAutomationError::DatabaseError(db_err) => {
                     format!("Database error: {}", db_err)
-                },
+                }
                 CertificateAutomationError::DomainValidation(msg) => {
                     format!("Domain validation error: {}", msg)
-                },
+                }
                 CertificateAutomationError::CertificateParsing(msg) => {
                     format!("Certificate parsing error: {}", msg)
-                },
+                }
                 CertificateAutomationError::Configuration(msg) => {
                     format!("Configuration error: {}", msg)
-                },
+                }
             };
-            
+
             HttpResponse::BadRequest().json(serde_json::json!({
                 "error": format!("Failed to generate certificate: {}", error_message)
             }))
@@ -246,23 +258,26 @@ pub async fn get_due_for_renewal(req: HttpRequest) -> impl Responder {
     // Get domains due for renewal
     match manager.get_domains_due_for_renewal() {
         Ok(domains) => {
-            let domain_info: Vec<_> = domains.iter().map(|domain| {
-                serde_json::json!({
-                    "id": domain.id,
-                    "domain": domain.sni,
-                    "proxy_id": domain.proxy_id,
-                    "expected_renew": domain.expected_renew,
-                    "tls_autron": domain.tls_autron,
-                    "has_certificate": domain.tls_pem.is_some() && domain.tls_key.is_some()
+            let domain_info: Vec<_> = domains
+                .iter()
+                .map(|domain| {
+                    serde_json::json!({
+                        "id": domain.id,
+                        "domain": domain.sni,
+                        "proxy_id": domain.proxy_id,
+                        "expected_renew": domain.expected_renew,
+                        "tls_autron": domain.tls_autron,
+                        "has_certificate": domain.tls_pem.is_some() && domain.tls_key.is_some()
+                    })
                 })
-            }).collect();
+                .collect();
 
             HttpResponse::Ok().json(serde_json::json!({
                 "status": "success",
                 "domains": domain_info,
                 "count": domains.len()
             }))
-        },
+        }
         Err(e) => {
             log::error!("Failed to get domains due for renewal: {}", e);
             HttpResponse::BadRequest().json(serde_json::json!({

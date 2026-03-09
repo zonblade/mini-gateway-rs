@@ -1,36 +1,32 @@
-use actix_web::{post, web, HttpResponse, Responder, HttpRequest};
+use crate::api::users::helper::{is_admin, ClaimsFromRequest};
+use crate::api::users::models::{CreateUserRequest, Role, User, UserResponse};
 use crate::module::database::get_connection;
-use crate::api::users::models::{User, CreateUserRequest, UserResponse, Role};
-use crate::api::users::helper::{ClaimsFromRequest, is_admin};
+use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
 
 // Create a new user - only admins can perform this action
 #[post("")]
-pub async fn init(
-    req: HttpRequest,
-    create_req: web::Json<CreateUserRequest>
-) -> impl Responder {
+pub async fn init(req: HttpRequest, create_req: web::Json<CreateUserRequest>) -> impl Responder {
     // Extract authenticated user's claims and verify admin role
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": "Failed to get user authentication"})
-            )
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to get user authentication"}))
         }
     };
-    
+
     // Only admins can create users
     if !is_admin(&claims.role) {
-        return HttpResponse::Forbidden().json(
-            serde_json::json!({"error": "Only administrators can create users"})
-        );
+        return HttpResponse::Forbidden()
+            .json(serde_json::json!({"error": "Only administrators can create users"}));
     }
 
     let db = match get_connection() {
         Ok(db) => db,
-        Err(_) => return HttpResponse::InternalServerError().json(
-            serde_json::json!({"error": "Failed to connect to database"})
-        ),
+        Err(_) => {
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to connect to database"}))
+        }
     };
 
     // Check if username or email already exists
@@ -40,15 +36,13 @@ pub async fn init(
         |row| row.get::<_, String>(0),
     ) {
         Ok(Some(_)) => {
-            return HttpResponse::BadRequest().json(
-                serde_json::json!({"error": "Username or email already exists"})
-            );
-        },
-        Ok(None) => {},
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "Username or email already exists"}));
+        }
+        Ok(None) => {}
         Err(err) => {
-            return HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": format!("Database error: {}", err)})
-            );
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": format!("Database error: {}", err)}));
         }
     }
 
@@ -104,11 +98,8 @@ pub async fn init(
                     HttpResponse::Created().json(response)
                 }
             }
-        },
-        Err(err) => {
-            HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": format!("Failed to create user: {}", err)})
-            )
         }
+        Err(err) => HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": format!("Failed to create user: {}", err)})),
     }
 }

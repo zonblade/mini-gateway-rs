@@ -11,6 +11,7 @@ use std::ptr;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum LogStoreError {
     #[error("IO error: {0}")]
     IoError(#[from] io::Error),
@@ -24,7 +25,7 @@ pub enum LogStoreError {
 
 // Enum for selecting bytes metric type
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::enum_variant_names)]
 pub enum BytesMetric {
     BytesIn,
     BytesOut,
@@ -38,10 +39,10 @@ pub struct TemporaryLog {
     pub peer: (String, String),
     pub conn_id: String,
     pub conn_type: String,
-    pub conn_req: i8,   // 1 indicate connection in
-    pub conn_res: i8,   // 1 indicate connection dirupted
-    pub bytes_in: i32,  // bytes in
-    pub bytes_out: i32, // bytes out
+    pub conn_req: i8,             // 1 indicate connection in
+    pub conn_res: i8,             // 1 indicate connection dirupted
+    pub bytes_in: i32,            // bytes in
+    pub bytes_out: i32,           // bytes out
     pub path_src: Option<String>, // source path (before routing)
     pub path_dst: Option<String>, // destination path (after routing)
 }
@@ -78,11 +79,7 @@ impl bincode::de::Decode<()> for TemporaryLog {
         let nanos: u32 = u32::decode(decoder)?;
         let date_time = match Utc.timestamp_opt(timestamp, nanos) {
             chrono::LocalResult::Single(dt) => dt,
-            _ => {
-                return Err(bincode::error::DecodeError::Other(
-                    "Invalid DateTime".into(),
-                ))
-            }
+            _ => return Err(bincode::error::DecodeError::Other("Invalid DateTime")),
         };
         Ok(TemporaryLog {
             date_time,
@@ -292,6 +289,7 @@ impl LogStore {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .open(&segment_file_path)
             {
                 Ok(f) => {
@@ -299,7 +297,11 @@ impl LogStore {
                     break;
                 }
                 Err(e) => {
-                    log::warn!("Failed to open segment file (attempt {}): {}", retry_count + 1, e);
+                    log::warn!(
+                        "Failed to open segment file (attempt {}): {}",
+                        retry_count + 1,
+                        e
+                    );
                     last_error = Some(e);
                     retry_count += 1;
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -320,10 +322,10 @@ impl LogStore {
         }
 
         let fd = file.into_raw_fd();
-        
+
         let mut mmap_ptr = ptr::null_mut();
         let mut mmap_retry_count = 0;
-        
+
         while mmap_retry_count < max_retries {
             let ptr = unsafe {
                 libc::mmap(
@@ -335,21 +337,21 @@ impl LogStore {
                     0,
                 )
             };
-            
+
             if ptr != libc::MAP_FAILED {
                 mmap_ptr = ptr;
                 break;
             }
-            
+
             let err = io::Error::last_os_error();
             log::warn!("mmap failed (attempt {}): {}", mmap_retry_count + 1, err);
             mmap_retry_count += 1;
-            
+
             if mmap_retry_count >= max_retries {
                 unsafe { libc::close(fd) };
                 return Err(LogStoreError::IoError(err));
             }
-            
+
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
@@ -432,7 +434,8 @@ impl LogStore {
                     segment_to_archive.mmap_ptr as *mut libc::c_void,
                     segment_to_archive.write_offset,
                     libc::MS_SYNC,
-                ) == -1 {
+                ) == -1
+                {
                     log::warn!("msync failed: {}", io::Error::last_os_error());
                     // Continue anyway - this is not fatal
                 }
@@ -444,16 +447,17 @@ impl LogStore {
             // Unmap memory and close file descriptor with error handling
             let mut unmap_error = false;
             let mut close_error = false;
-            
+
             unsafe {
                 if libc::munmap(
                     segment_to_archive.mmap_ptr as *mut libc::c_void,
                     segment_to_archive.size,
-                ) == -1 {
+                ) == -1
+                {
                     log::error!("munmap failed: {}", io::Error::last_os_error());
                     unmap_error = true;
                 }
-                
+
                 if libc::close(segment_to_archive.file_descriptor) == -1 {
                     log::error!("close failed: {}", io::Error::last_os_error());
                     close_error = true;
@@ -502,7 +506,7 @@ impl LogStore {
                     Ok(mut file_handle) => {
                         if file_handle.read_to_end(&mut input_file_data).is_ok() {
                             if input_file_data.is_empty() {
-                                if fs::remove_file(&final_archived_file_path).is_err() {}
+                                let _ = fs::remove_file(&final_archived_file_path);
                                 return;
                             }
 
@@ -532,7 +536,6 @@ impl LogStore {
                                     );
                                 }
                             }
-                        } else {
                         }
                     }
                     Err(e) => {
@@ -594,8 +597,7 @@ impl LogStore {
         self.ensure_active_segment()?;
 
         let active_seg_ref = self.active_segment.as_mut().ok_or_else(|| {
-            LogStoreError::IoError(io::Error::new(
-                io::ErrorKind::Other,
+            LogStoreError::IoError(io::Error::other(
                 "Active segment unexpectedly None after ensure",
             ))
         })?;
@@ -609,8 +611,7 @@ impl LogStore {
             self.rotate_segment(Utc::now())?;
 
             let new_active_seg_ref = self.active_segment.as_mut().ok_or_else(|| {
-                LogStoreError::IoError(io::Error::new(
-                    io::ErrorKind::Other,
+                LogStoreError::IoError(io::Error::other(
                     "New active segment not available immediately after rotation",
                 ))
             })?;
@@ -664,9 +665,11 @@ impl LogStore {
             if Utc::now().signed_duration_since(oldest_log_entry.date_time) > self.retention_period
             {
                 let cutoff_datetime_for_memory = Utc::now() - self.retention_period;
-                while self.current_logs.front().map_or(false, |log_to_check| {
-                    log_to_check.date_time < cutoff_datetime_for_memory
-                }) {
+                while self
+                    .current_logs
+                    .front()
+                    .is_some_and(|log_to_check| log_to_check.date_time < cutoff_datetime_for_memory)
+                {
                     self.current_logs.pop_front();
                 }
             }
@@ -825,7 +828,6 @@ impl LogStore {
         }
 
         let mut interval_results = HashMap::new();
-        if time_groups.is_empty() && !logs.is_empty() {}
 
         for (interval_block_ts, interval_logs_in_group) in time_groups {
             let interval_datetime = Utc
@@ -841,7 +843,7 @@ impl LogStore {
             let mut res_count = 0_i32;
 
             if !interval_logs_in_group.is_empty() {
-                for (_idx, log_entry) in interval_logs_in_group.iter().enumerate() {
+                for log_entry in interval_logs_in_group.iter() {
                     // Using conn_req and conn_res directly as per your updated logic
                     req_count += log_entry.conn_req as i32;
                     res_count += log_entry.conn_res as i32;
@@ -926,7 +928,7 @@ impl LogStore {
         let mut interval_response_times_map: HashMap<i64, Vec<i64>> = HashMap::new();
         let mut interval_direct_status_counts_map: HashMap<i64, i32> = HashMap::new();
 
-        for (_conn_id_key, single_conn_logs_vec) in &conn_logs_map {
+        for single_conn_logs_vec in conn_logs_map.values() {
             let mut sorted_logs_for_conn = single_conn_logs_vec.clone();
             sorted_logs_for_conn.sort_by_key(|log_item| log_item.date_time);
 
@@ -1344,10 +1346,7 @@ pub mod tlog_proxy {
             PROXY_LOG_STORE
                 .as_mut()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Proxy log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Proxy log store not initialized"))
                 })?
                 .append_data(log)
         }
@@ -1363,10 +1362,7 @@ pub mod tlog_proxy {
             PROXY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Proxy log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Proxy log store not initialized"))
                 })?
                 .get_data_time_frame(start, end)
         }
@@ -1383,10 +1379,7 @@ pub mod tlog_proxy {
             PROXY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Proxy log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Proxy log store not initialized"))
                 })?
                 .get_data_time_frame_by_status_code(start, end, status_filter)
         }
@@ -1402,10 +1395,7 @@ pub mod tlog_proxy {
             PROXY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Proxy log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Proxy log store not initialized"))
                 })?
                 .get_data_time_frame_by_conn_stall(start, end)
         }
@@ -1422,10 +1412,7 @@ pub mod tlog_proxy {
             PROXY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Proxy log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Proxy log store not initialized"))
                 })?
                 .get_bytes_io_frame(start, end, metric)
         }
@@ -1441,10 +1428,7 @@ pub mod tlog_proxy {
             PROXY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Proxy log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Proxy log store not initialized"))
                 })?
                 .load_logs(start, end)
         }
@@ -1462,10 +1446,7 @@ pub mod tlog_gateway {
             GATEWAY_LOG_STORE
                 .as_mut()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Gateway log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Gateway log store not initialized"))
                 })?
                 .append_data(log)
         }
@@ -1481,10 +1462,7 @@ pub mod tlog_gateway {
             GATEWAY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Gateway log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Gateway log store not initialized"))
                 })?
                 .get_data_time_frame(start, end)
         }
@@ -1501,10 +1479,7 @@ pub mod tlog_gateway {
             GATEWAY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Gateway log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Gateway log store not initialized"))
                 })?
                 .get_data_time_frame_by_status_code(start, end, status_filter)
         }
@@ -1520,10 +1495,7 @@ pub mod tlog_gateway {
             GATEWAY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Gateway log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Gateway log store not initialized"))
                 })?
                 .get_data_time_frame_by_conn_stall(start, end)
         }
@@ -1540,10 +1512,7 @@ pub mod tlog_gateway {
             GATEWAY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Gateway log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Gateway log store not initialized"))
                 })?
                 .get_bytes_io_frame(start, end, metric)
         }
@@ -1559,10 +1528,7 @@ pub mod tlog_gateway {
             GATEWAY_LOG_STORE
                 .as_ref()
                 .ok_or_else(|| {
-                    LogStoreError::IoError(io::Error::new(
-                        io::ErrorKind::Other,
-                        "Gateway log store not initialized",
-                    ))
+                    LogStoreError::IoError(io::Error::other("Gateway log store not initialized"))
                 })?
                 .load_logs(start, end)
         }

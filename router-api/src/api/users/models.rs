@@ -41,30 +41,22 @@ pub enum Role {
     /// Administrator role with full system access
     #[serde(rename = "admin")]
     Admin,
-    
+
     /// Staff role with elevated privileges
     #[serde(rename = "staff")]
     Staff,
-    
+
     /// Regular user role with basic permissions
     #[serde(rename = "user")]
     User,
 }
 
-impl ToString for Role {
-    /// Converts a Role enum to its string representation
-    ///
-    /// This method is used when storing roles in the database or
-    /// serializing for API responses.
-    ///
-    /// # Returns
-    ///
-    /// A lowercase string representation of the role: "admin", "staff", or "user"
-    fn to_string(&self) -> String {
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Role::Admin => "admin".to_string(),
-            Role::Staff => "staff".to_string(),
-            Role::User => "user".to_string(),
+            Role::Admin => write!(f, "admin"),
+            Role::Staff => write!(f, "staff"),
+            Role::User => write!(f, "user"),
         }
     }
 }
@@ -105,23 +97,23 @@ impl From<String> for Role {
 pub struct User {
     /// Unique identifier (UUID)
     pub id: String,
-    
+
     /// Unique username for login and display
     pub username: String,
-    
+
     /// User's email address
     pub email: String,
-    
+
     /// Hashed password (never exposed in API responses)
     #[serde(skip_serializing)]
     pub password_hash: String,
-    
+
     /// User's authorization role
     pub role: Role,
-    
+
     /// Timestamp when the user was created
     pub created_at: Option<String>,
-    
+
     /// Timestamp when the user was last updated
     pub updated_at: Option<String>,
 }
@@ -167,13 +159,13 @@ impl User {
 pub struct CreateUserRequest {
     /// Unique username for login and display
     pub username: String,
-    
+
     /// User's email address
     pub email: String,
-    
+
     /// Password in plaintext (will be hashed during processing)
     pub password: String,
-    
+
     /// Optional role (defaults to User if not specified)
     pub role: Option<Role>,
 }
@@ -186,13 +178,13 @@ pub struct CreateUserRequest {
 pub struct UpdateUserRequest {
     /// New username (if changing)
     pub username: Option<String>,
-    
+
     /// New email address (if changing)
     pub email: Option<String>,
-    
+
     /// New password (if changing)
     pub password: Option<String>,
-    
+
     /// New role (if changing)
     pub role: Option<Role>,
 }
@@ -206,19 +198,19 @@ pub struct UpdateUserRequest {
 pub struct UserResponse {
     /// Unique identifier (UUID)
     pub id: String,
-    
+
     /// Username for login and display
     pub username: String,
-    
+
     /// User's email address
     pub email: String,
-    
+
     /// User's authorization role
     pub role: Role,
-    
+
     /// Timestamp when the user was created
     pub created_at: Option<String>,
-    
+
     /// Timestamp when the user was last updated
     pub updated_at: Option<String>,
 }

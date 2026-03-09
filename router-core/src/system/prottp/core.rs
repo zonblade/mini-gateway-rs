@@ -57,52 +57,52 @@ where
     F: Fn(HttpRequest) + Send + Sync,
 {
     let mut reader = BufReader::new(&stream);
-    
+
     // Read request line
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
-    
+
     // Parse method and path
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 2 {
         return Ok(()); // Invalid request, just close
     }
-    
+
     let method = parts[0].to_string();
     let path = parts[1].to_string();
-    
+
     // Read headers
     let mut headers = std::collections::HashMap::new();
     let mut content_length = 0;
-    
+
     loop {
         let mut line = String::new();
         reader.read_line(&mut line)?;
         let line = line.trim();
-        
+
         if line.is_empty() {
             break; // End of headers
         }
-        
+
         if let Some(pos) = line.find(':') {
             let key = line[..pos].trim().to_lowercase();
             let value = line[pos + 1..].trim().to_string();
-            
+
             if key == "content-length" {
                 content_length = value.parse().unwrap_or(0);
             }
-            
+
             headers.insert(key, value);
         }
     }
-    
+
     // Read body if present
     let mut body = Vec::new();
     if content_length > 0 {
         body = vec![0; content_length];
         reader.read_exact(&mut body)?;
     }
-    
+
     // // Parse body as JSON
     // let json = if !body.is_empty() {
     //     match serde_json::from_slice::<Value>(&body) {
@@ -112,7 +112,7 @@ where
     // } else {
     //     None
     // };
-    
+
     // Create request and pass to handler
     let request = HttpRequest {
         method,
@@ -122,9 +122,9 @@ where
         // json,
         stream,
     };
-    
+
     handler(request);
-    
+
     Ok(())
 }
 

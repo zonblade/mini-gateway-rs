@@ -4,14 +4,14 @@
 //! Gateways are the actual routing rules that define how incoming requests are matched and forwarded
 //! based on patterns and priorities.
 
-use actix_web::{post, web, HttpResponse, Responder, HttpRequest};
-use super::{Gateway, gateway_queries, gwnode_queries};
-use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
+use super::{gateway_queries, gwnode_queries, Gateway};
+use crate::api::users::helper::{is_staff_or_admin, ClaimsFromRequest};
+use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
 
 /// Creates or updates a gateway routing rule
 ///
 /// This endpoint processes HTTP POST requests to create new gateways or update
-/// existing ones. It validates that the referenced gateway node exists before 
+/// existing ones. It validates that the referenced gateway node exists before
 /// saving the gateway configuration.
 ///
 /// # Endpoint
@@ -81,42 +81,36 @@ use crate::api::users::helper::{ClaimsFromRequest, is_staff_or_admin};
 /// }
 /// ```
 #[post("/gateway/set")]
-pub async fn set_gateway(
-    req: HttpRequest,
-    req_body: web::Json<Gateway>
-) -> impl Responder {
+pub async fn set_gateway(req: HttpRequest, req_body: web::Json<Gateway>) -> impl Responder {
     // Extract authenticated user's claims
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": "Failed to get user authentication"})
-            )
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to get user authentication"}))
         }
     };
-    
+
     // Verify user has admin or staff role
     if !is_staff_or_admin(&claims.role) {
         return HttpResponse::Forbidden().json(
             serde_json::json!({"error": "Only administrators and staff can modify gateway settings"})
         );
     }
-    
+
     let mut gateway = req_body.into_inner();
-    
+
     // If no ID provided, generate a new one
     if gateway.id.is_empty() {
         gateway.id = gateway_queries::generate_gateway_id();
     }
-    
+
     // Verify that the referenced gateway node exists
     match gwnode_queries::get_gateway_node_by_id(&gateway.gwnode_id) {
         Ok(Some(_)) => {
             // Gateway node exists, proceed with saving the gateway
             match gateway_queries::save_gateway(&gateway) {
-                Ok(_) => {
-                    HttpResponse::Ok().json(gateway)
-                },
+                Ok(_) => HttpResponse::Ok().json(gateway),
                 Err(err) => {
                     log::error!("Failed to save gateway: {}", err);
                     HttpResponse::InternalServerError().json(serde_json::json!({
@@ -124,14 +118,17 @@ pub async fn set_gateway(
                     }))
                 }
             }
-        },
+        }
         Ok(None) => {
             // Gateway node does not exist
-            log::error!("Cannot create gateway: Gateway Node ID {} not found", gateway.gwnode_id);
+            log::error!(
+                "Cannot create gateway: Gateway Node ID {} not found",
+                gateway.gwnode_id
+            );
             HttpResponse::BadRequest().json(serde_json::json!({
                 "error": format!("Gateway Node ID {} not found", gateway.gwnode_id)
             }))
-        },
+        }
         Err(err) => {
             // Error retrieving gateway node
             log::error!("Failed to check gateway node existence: {}", err);
@@ -180,33 +177,30 @@ pub async fn set_gateway(
 #[post("/gateway/delete")]
 pub async fn delete_gateway(
     req: HttpRequest,
-    req_body: web::Json<DeleteRequest>
+    req_body: web::Json<DeleteRequest>,
 ) -> impl Responder {
     // Extract authenticated user's claims
     let claims = match req.get_claims() {
         Some(claims) => claims,
         None => {
-            return HttpResponse::InternalServerError().json(
-                serde_json::json!({"error": "Failed to get user authentication"})
-            )
+            return HttpResponse::InternalServerError()
+                .json(serde_json::json!({"error": "Failed to get user authentication"}))
         }
     };
-    
+
     // Verify user has admin or staff role
     if !is_staff_or_admin(&claims.role) {
         return HttpResponse::Forbidden().json(
             serde_json::json!({"error": "Only administrators and staff can delete gateway settings"})
         );
     }
-    
+
     let id = &req_body.id;
-    
+
     match gateway_queries::delete_gateway_by_id(id) {
-        Ok(true) => {
-            HttpResponse::Ok().json(serde_json::json!({
-                "message": "Gateway deleted successfully"
-            }))
-        },
+        Ok(true) => HttpResponse::Ok().json(serde_json::json!({
+            "message": "Gateway deleted successfully"
+        })),
         Ok(false) => HttpResponse::NotFound().json(serde_json::json!({
             "error": "Gateway not found"
         })),

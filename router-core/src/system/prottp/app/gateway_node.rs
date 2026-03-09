@@ -5,15 +5,15 @@ use crate::system::terminator;
 fn extract_first_certificate(pem_chain: &str) -> String {
     const BEGIN_CERT: &str = "-----BEGIN CERTIFICATE-----";
     const END_CERT: &str = "-----END CERTIFICATE-----";
-    
+
     // Early return for empty input
     if pem_chain.trim().is_empty() {
         eprintln!("[----] Empty PEM data provided");
         return String::new();
     }
-    
+
     let cert_count = pem_chain.matches(BEGIN_CERT).count();
-    
+
     match cert_count {
         0 => {
             eprintln!("[----] No valid certificates found in PEM data");
@@ -23,13 +23,16 @@ fn extract_first_certificate(pem_chain: &str) -> String {
             eprintln!("[----] Single certificate found, no splitting needed");
         }
         _ => {
-            eprintln!("[----] Certificate chain contains {} certificates, extracting first one only", cert_count);
+            eprintln!(
+                "[----] Certificate chain contains {} certificates, extracting first one only",
+                cert_count
+            );
         }
     }
-    
+
     // Normalize line endings and trim whitespace
     let normalized = pem_chain.trim().replace("\r\n", "\n");
-    
+
     // Find the first certificate using more efficient approach
     if let Some(start) = normalized.find(BEGIN_CERT) {
         // Search for END_CERT starting from the position after BEGIN_CERT
@@ -37,20 +40,23 @@ fn extract_first_certificate(pem_chain: &str) -> String {
         if let Some(relative_end) = normalized[search_start..].find(END_CERT) {
             let end_pos = search_start + relative_end + END_CERT.len();
             let first_cert = &normalized[start..end_pos];
-            
+
             // Ensure proper PEM format with trailing newline
             let result = if first_cert.ends_with('\n') {
                 first_cert.to_string()
             } else {
                 format!("{}\n", first_cert)
             };
-            
-            eprintln!("[----] Extracted first certificate: {} bytes from total {} bytes", 
-                      result.len(), pem_chain.len());
+
+            eprintln!(
+                "[----] Extracted first certificate: {} bytes from total {} bytes",
+                result.len(),
+                pem_chain.len()
+            );
             return result;
         }
     }
-    
+
     eprintln!("[----] Could not extract first certificate from PEM chain, using original");
     pem_chain.to_string()
 }
@@ -78,8 +84,9 @@ pub fn init(payload: String) -> Result<(), serde_json::Error> {
                     let mut tls_key = None;
                     let mut tls_pem = None;
                     if tls.tls {
-                        let first_cert_only = extract_first_certificate(&tls.tls_pem.clone().unwrap_or_default());
-                        
+                        let first_cert_only =
+                            extract_first_certificate(&tls.tls_pem.clone().unwrap_or_default());
+
                         let (pem_path, key_path) = AppTlsTools::gateway(
                             tls.clone(),
                             first_cert_only,

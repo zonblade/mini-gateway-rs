@@ -2,7 +2,12 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
-use std::{env, fs::File, io::{Read, Write}, path::PathBuf};
+use std::{
+    env,
+    fs::File,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
 
 /// Mini-Gateway Router CLI Tool
 #[derive(Parser)]
@@ -98,7 +103,7 @@ fn main() -> Result<()> {
             let (username, password) = get_credentials(&Credentials {
                 osenv: cli.osenv,
                 user: cli.user,
-                pass: cli.pass
+                pass: cli.pass,
             })?;
 
             debug!("Using API URL: {}", cli.url);
@@ -116,7 +121,7 @@ fn main() -> Result<()> {
             let (username, password) = get_credentials(&Credentials {
                 osenv: cli.osenv,
                 user: cli.user,
-                pass: cli.pass
+                pass: cli.pass,
             })?;
 
             let output_path = output.unwrap_or_else(|| PathBuf::from("gateway-config.yaml"));
@@ -137,8 +142,8 @@ fn main() -> Result<()> {
                 // Get credentials
                 let (username, password) = get_credentials(&Credentials {
                     osenv: cli.osenv,
-                    user: cli.user, 
-                    pass: cli.pass 
+                    user: cli.user,
+                    pass: cli.pass,
                 })?;
 
                 debug!("Using API URL: {}", cli.url);
@@ -152,7 +157,9 @@ fn main() -> Result<()> {
                 upload_config(&cli.url, &token, &config)?;
             } else {
                 error!("No configuration file specified. Use --config or the config subcommand");
-                anyhow::bail!("No configuration file specified. Use --config or the config subcommand");
+                anyhow::bail!(
+                    "No configuration file specified. Use --config or the config subcommand"
+                );
             }
         }
     }
@@ -182,7 +189,7 @@ fn get_credentials(cli: &Credentials) -> Result<(String, String)> {
     }
 }
 
-fn init_config(location: &PathBuf) -> Result<()> {
+fn init_config(location: &Path) -> Result<()> {
     info!("Initializing configuration file in: {}", location.display());
 
     let config_path = location.join("router-config.yaml");
@@ -225,9 +232,8 @@ proxy:
             target: "/health"
 "#;
 
-    let mut file = File::create(&config_path)
-        .context("Failed to create configuration file")?;
-    
+    let mut file = File::create(&config_path).context("Failed to create configuration file")?;
+
     file.write_all(config_content.as_bytes())
         .context("Failed to write configuration file")?;
 
@@ -295,11 +301,7 @@ fn authenticate(base_url: &str, username: &str, password: &str) -> Result<String
     }
 }
 
-fn upload_config(
-    base_url: &str,
-    token: &str,
-    config_path: &PathBuf,
-) -> Result<()> {
+fn upload_config(base_url: &str, token: &str, config_path: &PathBuf) -> Result<()> {
     info!("Uploading configuration from: {}", config_path.display());
 
     // Read the configuration file
@@ -360,11 +362,7 @@ fn upload_config(
     Ok(())
 }
 
-fn download_config(
-    base_url: &str,
-    token: &str,
-    output_path: &PathBuf,
-) -> Result<()> {
+fn download_config(base_url: &str, token: &str, output_path: &PathBuf) -> Result<()> {
     info!("Downloading configuration to: {}", output_path.display());
 
     let download_url = format!("{}/api/v1/settings/auto-config", base_url);
@@ -393,13 +391,15 @@ fn download_config(
         anyhow::bail!("Invalid YAML format in response: {}", e);
     }
 
-    let mut file = File::create(output_path)
-        .context("Failed to create output file")?;
+    let mut file = File::create(output_path).context("Failed to create output file")?;
     file.write_all(contents.as_bytes())
         .context("Failed to write output file")?;
 
     info!("Configuration downloaded successfully");
-    println!("Configuration downloaded successfully to {}", output_path.display());
+    println!(
+        "Configuration downloaded successfully to {}",
+        output_path.display()
+    );
 
     Ok(())
 }

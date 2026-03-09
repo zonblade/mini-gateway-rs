@@ -1,7 +1,7 @@
 //! # Terminator Service
 //!
 //! This module provides functionality for graceful termination of the router process.
-//! 
+//!
 //! The terminator service allows the router to self-terminate by sending appropriate
 //! signals to itself, enabling clean shutdown procedures to be executed.
 //!
@@ -11,7 +11,7 @@
 //! When received, this signal allows the application to perform cleanup operations
 //! before shutting down.
 
-use std::process::{id as pid, Command, exit};
+use std::process::{exit, id as pid, Command};
 
 /// Initializes the termination process for the router.
 ///
@@ -40,28 +40,26 @@ use std::process::{id as pid, Command, exit};
 ///
 /// This implementation primarily uses the UNIX/Linux `kill` command, but has a
 /// fallback mechanism for platforms where it's not available (e.g., Windows).
-pub fn init(){
+pub fn init() {
     let pid = pid();
-    log::debug!(
-        "Sample termination: sending SIGINT to process id: {}",
-        pid
-    );
-    
+    log::debug!("Sample termination: sending SIGINT to process id: {}", pid);
+
     // Try to use the `kill` command to send SIGINT to self
     match Command::new("kill")
         .arg("-SIGINT")
         .arg(pid.to_string())
-        .status() {
-            Ok(status) => {
-                log::debug!("Kill command exited with status: {}", status);
-            },
-            Err(e) => {
-                // Log the error but don't panic
-                log::warn!("Failed to execute kill command: {}", e);
-                log::debug!("Using process::exit as fallback termination method");
-                
-                // Use exit as a fallback
-                exit(0);
-            }
+        .status()
+    {
+        Ok(status) => {
+            log::debug!("Kill command exited with status: {}", status);
+        }
+        Err(e) => {
+            // Log the error but don't panic
+            log::warn!("Failed to execute kill command: {}", e);
+            log::debug!("Using process::exit as fallback termination method");
+
+            // Use exit as a fallback
+            exit(0);
+        }
     }
 }

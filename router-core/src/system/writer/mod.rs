@@ -30,20 +30,20 @@ pub fn writer_start() {
         eprintln!("[----] Tag-based logging initialized successfully");
         return;
     }
-    
+
     // Log failure to standard error as the logging system isn't fully up yet.
     eprintln!("[----] Failed to initialize tag-based logging");
-    
+
     // Fall back to standard logging (currently env_logger)
     if setup_standard_logging().is_ok() {
         // This log might go to stderr depending on env_logger config.
         log::info!("Standard env_logger-based logging initialized successfully");
         return;
     }
-    
+
     // Log failure to standard error.
     eprintln!("[----] Failed to initialize standard logging");
-    
+
     // Last resort: standard env_logger to stderr
     // Ensure RUST_LOG is set for env_logger.
     std::env::set_var("RUST_LOG", "info");

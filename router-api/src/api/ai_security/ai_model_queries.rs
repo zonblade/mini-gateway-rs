@@ -4,9 +4,9 @@
 //! It handles creating the database table, querying, inserting, updating, and
 //! deleting AI model records.
 
+use super::ModelType;
 use crate::module::database::{get_connection, DatabaseError};
 use chrono::Utc;
-use super::ModelType;
 
 /// Represents an AI model configuration
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

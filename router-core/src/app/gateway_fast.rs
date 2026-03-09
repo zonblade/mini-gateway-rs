@@ -54,8 +54,8 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, LazyLock, RwLock};
 use std::time::{Duration, Instant};
 // lazy_static is not used anymore
-use lru::LruCache; // Use the standard LRU crate
 use dns_lookup::{self, lookup_host};
+use lru::LruCache; // Use the standard LRU crate
 
 // Assuming these are correctly defined in your project structure
 use crate::config::{self, GatewayPath, DEFAULT_PORT};
@@ -86,7 +86,7 @@ pub struct ContextGw {
     // Network
     pub client_ip: Option<String>,
     pub client_port: Option<u16>,
-    pub real_ip: Option<String>,  // X-Forwarded-For or client_ip for Zero Trust
+    pub real_ip: Option<String>, // X-Forwarded-For or client_ip for Zero Trust
     pub server_ip: Option<String>,
     pub server_port: Option<u16>,
     pub protocol: Option<String>,
@@ -111,7 +111,6 @@ pub struct ContextGw {
     // TLS
     pub tls_version: Option<String>,
 }
-
 
 // --- Sharded LRU Cache Implementation ---
 // Uses the `lru` crate for efficient O(1) operations.
@@ -650,12 +649,15 @@ impl ProxyHttp for GatewayApp {
         // HTTP info
         let req_header = session.req_header();
         _ctx.http_method = Some(req_header.method.to_string());
-        _ctx.protocol = Some(match req_header.version {
-            http::Version::HTTP_11 => "HTTP/1.1",
-            http::Version::HTTP_2 => "HTTP/2",
-            http::Version::HTTP_3 => "HTTP/3",
-            _ => "HTTP/1.0",
-        }.to_string());
+        _ctx.protocol = Some(
+            match req_header.version {
+                http::Version::HTTP_11 => "HTTP/1.1",
+                http::Version::HTTP_2 => "HTTP/2",
+                http::Version::HTTP_3 => "HTTP/3",
+                _ => "HTTP/1.0",
+            }
+            .to_string(),
+        );
 
         // === ZERO TRUST: Extract real IP and check blocklist ===
         // Priority: X-Forwarded-For > client_ip
@@ -689,8 +691,12 @@ impl ProxyHttp for GatewayApp {
                     header.insert_header("X-Blocked-Reason", &reason).unwrap();
                     header.insert_header("Retry-After", "3600").unwrap(); // 1 hour
 
-                    session.write_response_header(Box::new(header), false).await?;
-                    session.write_response_body(Some(bytes::Bytes::from("Too Many Requests")), true).await?;
+                    session
+                        .write_response_header(Box::new(header), false)
+                        .await?;
+                    session
+                        .write_response_body(Some(bytes::Bytes::from("Too Many Requests")), true)
+                        .await?;
 
                     return Ok(false); // Don't continue to upstream
                 }
@@ -700,11 +706,11 @@ impl ProxyHttp for GatewayApp {
 
         // === EXISTING CODE CONTINUES ===
         _ctx.conn_id = Some(atomic_id());
-        
+
         // Set the original source path early for all logging
         let path = session.req_header().uri.path();
         _ctx.path_src = Some(path.to_string());
-        
+
         //
         //
         // --- validate domain if using TLS ---
@@ -736,7 +742,6 @@ impl ProxyHttp for GatewayApp {
         };
 
         if upgrade_conn == "websocket" {
-
             let uri_query = session.req_header().uri.query();
             let query_id = match uri_query {
                 Some(q) => {
@@ -751,18 +756,18 @@ impl ProxyHttp for GatewayApp {
                                 &q[start + 3..]
                             };
                             Some(id_str.to_string())
-                        },
-                        None => None
+                        }
+                        None => None,
                     }
-                },
-                None => None
+                }
+                None => None,
             };
 
             if query_id.is_some() {
-                _ctx.conn_id    = query_id;
-                _ctx.websocket  = true;
-                _ctx.conn_type  = Some("WS".into());
-    
+                _ctx.conn_id = query_id;
+                _ctx.websocket = true;
+                _ctx.conn_type = Some("WS".into());
+
                 info!(
                     "[GWX] | ID:{}, TYPE:INIT, CONN:{}, SIZE:{}, STAT:101, SRC:{}, DST:{}, PTH_SRC:{}, PTH_DST:{} |",
                     _ctx.conn_id.clone().unwrap_or("-".into()),
@@ -801,7 +806,7 @@ impl ProxyHttp for GatewayApp {
         {
             // Cache Hit!
             debug!("Cache hit for key: {}", cache_key);
-            
+
             // Set the destination path from cache
             _ctx.path_dst = Some(rewritten_path_query.clone());
             if let Some(sni) = sni {
@@ -886,7 +891,7 @@ impl ProxyHttp for GatewayApp {
                     Some(q) => format!("{}?{}", rewritten_path, q),
                     None => rewritten_path, // Already a String
                 };
-                
+
                 // Set the destination path for cache miss scenario
                 _ctx.path_dst = Some(final_path_query.clone());
 
@@ -942,12 +947,12 @@ impl ProxyHttp for GatewayApp {
             "No matching rules for path '{}', using default fallback.",
             path
         );
-        
+
         // Set destination path same as source since no rewriting occurred
         if _ctx.path_dst.is_none() {
             _ctx.path_dst = _ctx.path_src.clone();
         }
-        
+
         // Clone the precomputed Box<HttpPeer>
         // Ok(DEFAULT_FALLBACK_PEER.clone())
         Ok(true)
@@ -974,13 +979,12 @@ impl ProxyHttp for GatewayApp {
         //     _ctx.peer.clone().unwrap_or("UNKNOWN".into())
         // );
         let header = &_session.req_header().headers;
-        
+
         let _header_str = header
             .iter()
             .map(|(k, v)| format!("{}: {}", k, v.to_str().unwrap_or("")))
             .collect::<Vec<_>>()
             .join("\n");
-
 
         // println!("Request Header: {}", header_str);
         info!(

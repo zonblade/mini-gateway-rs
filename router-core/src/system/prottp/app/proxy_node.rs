@@ -6,43 +6,45 @@ use crate::system::terminator;
 fn extract_first_certificate_with_logging(pem_chain: &str) -> String {
     let begin_cert = "-----BEGIN CERTIFICATE-----";
     let end_cert = "-----END CERTIFICATE-----";
-    
+
     // Count how many certificates are in the chain
     let cert_count = pem_chain.matches(begin_cert).count();
-    
+
     if cert_count > 1 {
-        eprintln!("[----] Certificate chain contains {} certificates, extracting first one only", cert_count);
+        eprintln!(
+            "[----] Certificate chain contains {} certificates, extracting first one only",
+            cert_count
+        );
     } else if cert_count == 1 {
         eprintln!("[----] Single certificate found, no splitting needed");
     } else {
         eprintln!("[----] No valid certificates found in PEM data");
         return pem_chain.to_string();
     }
-    
+
     // Trim whitespace and normalize line endings
     let normalized = pem_chain.trim().replace("\r\n", "\n");
-    
+
     if let Some(start) = normalized.find(begin_cert) {
         if let Some(end) = normalized[start..].find(end_cert) {
             let end_pos = start + end + end_cert.len();
             let first_cert = &normalized[start..end_pos];
-            
+
             // Ensure the certificate ends with a newline for proper PEM format
             let result = if first_cert.ends_with('\n') {
                 first_cert.to_string()
             } else {
                 format!("{}\n", first_cert)
             };
-            
+
             eprintln!("[----] Extracted first certificate: {} bytes", result.len());
             return result;
         }
     }
-    
+
     eprintln!("[----] Could not extract first certificate from PEM chain, using original");
     pem_chain.to_string()
 }
-
 
 /// now proxy data always accept high speed.
 pub fn init(payload: String) -> Result<(), serde_json::Error> {
@@ -66,8 +68,9 @@ pub fn init(payload: String) -> Result<(), serde_json::Error> {
                 let mut tls_key = None;
                 let mut tls_pem = None;
                 if node.tls {
-
-                    let first_cert_only = extract_first_certificate_with_logging(&node.clone().tls_pem.unwrap_or_default());
+                    let first_cert_only = extract_first_certificate_with_logging(
+                        &node.clone().tls_pem.unwrap_or_default(),
+                    );
 
                     let (pem_path, key_path) = AppTlsTools::proxy(
                         node.clone(),

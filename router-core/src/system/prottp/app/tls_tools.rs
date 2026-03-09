@@ -128,5 +128,4 @@ impl AppTlsTools {
 
         (pem_path, key_path)
     }
-
 }
