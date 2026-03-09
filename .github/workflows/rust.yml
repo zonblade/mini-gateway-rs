@@ -9,14 +9,35 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# ignore jobs for now.
-
 jobs:
-  build:
-
+  check:
+    name: Check, Clippy & Format
     runs-on: ubuntu-latest
 
-#     steps:
-#     - uses: actions/checkout@v4
-#     - name: Cargo Check
-#       run: cargo check --verbose
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cargo Check
+        run: cargo check --workspace --verbose
+
+      - name: Cargo Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Cargo Fmt
+        run: cargo fmt --all -- --check
