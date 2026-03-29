@@ -1,8 +1,45 @@
-use crate::cli::GwnodeAction;
+pub mod models;
+
 use crate::client::ApiClient;
+use crate::common::{IdBody, MessageResponse};
 use crate::error::CliError;
-use crate::models::{GatewayNode, IdBody, MessageResponse};
 use crate::output::{self, Format};
+use clap::Subcommand;
+use models::GatewayNode;
+
+#[derive(Subcommand)]
+pub enum GwnodeAction {
+    /// List gateway nodes
+    List {
+        /// Filter by proxy ID
+        #[arg(long)]
+        proxy_id: Option<String>,
+    },
+    /// Get a gateway node by ID
+    Get { id: String },
+    /// Create a new gateway node
+    Create {
+        /// Proxy ID to associate with
+        #[arg(long)]
+        proxy_id: String,
+        /// Gateway node title
+        #[arg(long)]
+        title: String,
+        /// Alternative target address (e.g. 127.0.0.1:3000)
+        #[arg(long)]
+        target: String,
+        /// Priority (default: 100, higher = higher priority)
+        #[arg(long, default_value = "100")]
+        priority: i32,
+    },
+    /// Delete a gateway node
+    Delete {
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
 
 pub async fn run(
     client: &mut ApiClient,

@@ -1,7 +1,15 @@
-use crate::cli::SyncAction;
 use crate::client::ApiClient;
+use crate::common::SyncResponse;
 use crate::error::CliError;
-use crate::models::SyncResponse;
+use clap::Subcommand;
+
+#[derive(Subcommand)]
+pub enum SyncAction {
+    /// Sync proxy nodes to core
+    Proxy,
+    /// Sync gateway nodes to core
+    Gateway,
+}
 
 pub async fn run(client: &mut ApiClient, action: &SyncAction) -> Result<(), CliError> {
     match action {

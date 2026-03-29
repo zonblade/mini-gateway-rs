@@ -1,8 +1,43 @@
-use crate::cli::DomainAction;
+use super::proxy::models::ProxyDomain;
 use crate::client::ApiClient;
+use crate::common::{IdBody, MessageResponse};
 use crate::error::CliError;
-use crate::models::{IdBody, MessageResponse, ProxyDomain};
 use crate::output::{self, Format};
+use clap::Subcommand;
+
+#[derive(Subcommand)]
+pub enum DomainAction {
+    /// List proxy domains
+    List {
+        /// Filter by proxy ID
+        #[arg(long)]
+        proxy_id: Option<String>,
+        /// Filter by gateway node ID
+        #[arg(long)]
+        gwnode_id: Option<String>,
+    },
+    /// Get a proxy domain by ID
+    Get { id: String },
+    /// Create a new proxy domain
+    Create {
+        /// Proxy ID to associate with
+        #[arg(long)]
+        proxy_id: String,
+        /// Enable TLS
+        #[arg(long)]
+        tls: bool,
+        /// SNI hostname
+        #[arg(long)]
+        sni: Option<String>,
+    },
+    /// Delete a proxy domain
+    Delete {
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
 
 pub async fn run(
     client: &mut ApiClient,

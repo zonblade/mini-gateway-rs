@@ -1,8 +1,45 @@
-use crate::cli::GatewayAction;
+pub mod models;
+
 use crate::client::ApiClient;
+use crate::common::{IdBody, MessageResponse};
 use crate::error::CliError;
-use crate::models::{Gateway, IdBody, MessageResponse};
 use crate::output::{self, Format};
+use clap::Subcommand;
+use models::Gateway;
+
+#[derive(Subcommand)]
+pub enum GatewayAction {
+    /// List gateways
+    List {
+        /// Filter by gateway node ID
+        #[arg(long)]
+        gwnode_id: Option<String>,
+    },
+    /// Get a gateway by ID
+    Get { id: String },
+    /// Create a new gateway routing rule
+    Create {
+        /// Gateway node ID to associate with
+        #[arg(long)]
+        gwnode_id: String,
+        /// URL pattern (regex)
+        #[arg(long)]
+        pattern: String,
+        /// Target URL pattern
+        #[arg(long)]
+        target: String,
+        /// Priority (lower = higher priority)
+        #[arg(long)]
+        priority: i32,
+    },
+    /// Delete a gateway
+    Delete {
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
 
 pub async fn run(
     client: &mut ApiClient,

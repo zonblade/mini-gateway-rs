@@ -2,8 +2,8 @@ mod auth;
 mod cli;
 mod client;
 mod commands;
+mod common;
 mod error;
-mod models;
 mod output;
 mod tui;
 

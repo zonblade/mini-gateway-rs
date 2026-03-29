@@ -1,14 +1,40 @@
-use crate::cli::CertAction;
+pub mod models;
+
 use crate::client::ApiClient;
+use crate::common::SyncResponse;
 use crate::error::CliError;
-use crate::models::{CertGenerateRequest, CertGenerateResponse, SyncResponse};
 use crate::output::{self, Format};
+use clap::Subcommand;
+use models::{CertGenerateRequest, CertGenerateResponse};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct DueForRenewalItem {
     domain: Option<String>,
     expected_renew: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub enum CertAction {
+    /// Generate a TLS certificate via Let's Encrypt
+    Generate {
+        /// Domain name
+        #[arg(long)]
+        domain: String,
+        /// Proxy ID to bind the certificate to
+        #[arg(long)]
+        proxy_id: String,
+        /// Email for Let's Encrypt
+        #[arg(long)]
+        email: Option<String>,
+        /// Use Let's Encrypt staging environment
+        #[arg(long)]
+        staging: bool,
+    },
+    /// Renew all certificates due for renewal
+    RenewAll,
+    /// List certificates due for renewal
+    DueForRenewal,
 }
 
 pub async fn run(

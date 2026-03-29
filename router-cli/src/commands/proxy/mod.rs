@@ -1,8 +1,46 @@
-use crate::cli::ProxyAction;
+pub mod models;
+
 use crate::client::ApiClient;
 use crate::error::CliError;
-use crate::models::{Proxy, ProxyDetail, ProxyInput, ProxyWithDomains};
 use crate::output::{self, Format};
+use clap::Subcommand;
+use models::{Proxy, ProxyDetail, ProxyInput, ProxyWithDomains};
+
+#[derive(Subcommand)]
+pub enum ProxyAction {
+    /// List all proxies
+    List,
+    /// Get a proxy by ID
+    Get { id: String },
+    /// Create a new proxy
+    Create {
+        /// Proxy title
+        #[arg(long)]
+        title: String,
+        /// Listen address (e.g. 0.0.0.0:443)
+        #[arg(long)]
+        listen: String,
+        /// Target address (e.g. 127.0.0.1:8080)
+        #[arg(long, default_value = "")]
+        target: String,
+        /// Enable high-speed mode
+        #[arg(long)]
+        high_speed: bool,
+        /// High-speed target address
+        #[arg(long)]
+        high_speed_addr: Option<String>,
+        /// High-speed gateway node ID
+        #[arg(long)]
+        high_speed_gwid: Option<String>,
+    },
+    /// Delete a proxy
+    Delete {
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
 
 pub async fn run(
     client: &mut ApiClient,

@@ -1,8 +1,50 @@
-use crate::cli::UserAction;
+pub mod models;
+
 use crate::client::ApiClient;
+use crate::common::MessageResponse;
 use crate::error::CliError;
-use crate::models::{CreateUserRequest, MessageResponse, UpdateUserRequest, User};
 use crate::output::{self, Format};
+use clap::Subcommand;
+use models::{CreateUserRequest, UpdateUserRequest, User};
+
+#[derive(Subcommand)]
+pub enum UserAction {
+    /// List all users (admin only)
+    List,
+    /// Get a user by ID
+    Get { id: String },
+    /// Create a new user (admin only)
+    Create {
+        #[arg(long)]
+        username: String,
+        #[arg(long)]
+        email: String,
+        #[arg(long)]
+        password: String,
+        /// Role: admin, staff, or user
+        #[arg(long, default_value = "user")]
+        role: String,
+    },
+    /// Update a user
+    Update {
+        id: String,
+        #[arg(long)]
+        username: Option<String>,
+        #[arg(long)]
+        email: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long)]
+        role: Option<String>,
+    },
+    /// Delete a user
+    Delete {
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
 
 pub async fn run(
     client: &mut ApiClient,
