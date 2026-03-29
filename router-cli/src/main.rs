@@ -3,6 +3,8 @@ mod cli;
 mod client;
 mod commands;
 mod error;
+mod models;
+mod output;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -29,25 +31,47 @@ async fn run() -> Result<(), CliError> {
             commands::init::run(&location)
         }
         Some(Commands::Config { config }) => {
-            let mut client = build_client(&cli)?;
-            let (user, pass) = client_creds(&cli)?;
-            client.authenticate(&user, &pass).await?;
+            let mut client = authed_client(&cli).await?;
             commands::config::run(&mut client, config).await
         }
         Some(Commands::Export { output }) => {
             let output_path = output
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("gateway-config.yaml"));
-            let mut client = build_client(&cli)?;
-            let (user, pass) = client_creds(&cli)?;
-            client.authenticate(&user, &pass).await?;
+            let mut client = authed_client(&cli).await?;
             commands::export::run(&mut client, &output_path).await
+        }
+        Some(Commands::Proxy { action }) => {
+            let mut client = authed_client(&cli).await?;
+            commands::proxy::run(&mut client, action, &cli.format).await
+        }
+        Some(Commands::Domain { action }) => {
+            let mut client = authed_client(&cli).await?;
+            commands::domain::run(&mut client, action, &cli.format).await
+        }
+        Some(Commands::Gwnode { action }) => {
+            let mut client = authed_client(&cli).await?;
+            commands::gwnode::run(&mut client, action, &cli.format).await
+        }
+        Some(Commands::Gateway { action }) => {
+            let mut client = authed_client(&cli).await?;
+            commands::gateway::run(&mut client, action, &cli.format).await
+        }
+        Some(Commands::User { action }) => {
+            let mut client = authed_client(&cli).await?;
+            commands::user::run(&mut client, action, &cli.format).await
+        }
+        Some(Commands::Cert { action }) => {
+            let mut client = authed_client(&cli).await?;
+            commands::cert::run(&mut client, action, &cli.format).await
+        }
+        Some(Commands::Sync { action }) => {
+            let mut client = authed_client(&cli).await?;
+            commands::sync::run(&mut client, action).await
         }
         None => {
             if let Some(config) = &cli.config {
-                let mut client = build_client(&cli)?;
-                let (user, pass) = client_creds(&cli)?;
-                client.authenticate(&user, &pass).await?;
+                let mut client = authed_client(&cli).await?;
                 commands::config::run(&mut client, config).await
             } else {
                 Err(CliError::Config(
@@ -58,11 +82,11 @@ async fn run() -> Result<(), CliError> {
     }
 }
 
-fn build_client(cli: &Cli) -> Result<ApiClient, CliError> {
+async fn authed_client(cli: &Cli) -> Result<ApiClient, CliError> {
     debug!("Using API URL: {}", cli.url);
-    Ok(ApiClient::new(&cli.url, cli.no_cache))
-}
-
-fn client_creds(cli: &Cli) -> Result<(String, String), CliError> {
-    auth::resolve_credentials(cli.osenv, cli.user.as_deref(), cli.pass.as_deref())
+    let mut client = ApiClient::new(&cli.url, cli.no_cache);
+    let (user, pass) =
+        auth::resolve_credentials(cli.osenv, cli.user.as_deref(), cli.pass.as_deref())?;
+    client.authenticate(&user, &pass).await?;
+    Ok(client)
 }

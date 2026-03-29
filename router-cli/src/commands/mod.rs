@@ -1,3 +1,10 @@
+pub mod cert;
 pub mod config;
+pub mod domain;
 pub mod export;
+pub mod gateway;
+pub mod gwnode;
 pub mod init;
+pub mod proxy;
+pub mod sync;
+pub mod user;

@@ -108,6 +108,148 @@ impl ApiClient {
         Ok(format!("Bearer {token}"))
     }
 
+    pub async fn get<T: DeserializeOwned>(&mut self, path: &str) -> Result<T, CliError> {
+        let url = format!("{}{path}", self.base_url);
+        let auth = self.auth_header()?;
+
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", &auth)
+            .send()
+            .await?;
+
+        if resp.status().as_u16() == 401 {
+            self.reauth().await?;
+            let auth = self.auth_header()?;
+            let resp = self
+                .http
+                .get(&url)
+                .header("Authorization", &auth)
+                .send()
+                .await?;
+            return Self::handle_json_response(resp).await;
+        }
+
+        Self::handle_json_response(resp).await
+    }
+
+    pub async fn post_json<B: Serialize, T: DeserializeOwned>(
+        &mut self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, CliError> {
+        let url = format!("{}{path}", self.base_url);
+        let auth = self.auth_header()?;
+
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", &auth)
+            .json(body)
+            .send()
+            .await?;
+
+        if resp.status().as_u16() == 401 {
+            self.reauth().await?;
+            let auth = self.auth_header()?;
+            let resp = self
+                .http
+                .post(&url)
+                .header("Authorization", &auth)
+                .json(body)
+                .send()
+                .await?;
+            return Self::handle_json_response(resp).await;
+        }
+
+        Self::handle_json_response(resp).await
+    }
+
+    pub async fn put_json<B: Serialize, T: DeserializeOwned>(
+        &mut self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, CliError> {
+        let url = format!("{}{path}", self.base_url);
+        let auth = self.auth_header()?;
+
+        let resp = self
+            .http
+            .put(&url)
+            .header("Authorization", &auth)
+            .json(body)
+            .send()
+            .await?;
+
+        if resp.status().as_u16() == 401 {
+            self.reauth().await?;
+            let auth = self.auth_header()?;
+            let resp = self
+                .http
+                .put(&url)
+                .header("Authorization", &auth)
+                .json(body)
+                .send()
+                .await?;
+            return Self::handle_json_response(resp).await;
+        }
+
+        Self::handle_json_response(resp).await
+    }
+
+    pub async fn delete_text(&mut self, path: &str) -> Result<String, CliError> {
+        let url = format!("{}{path}", self.base_url);
+        let auth = self.auth_header()?;
+
+        let resp = self
+            .http
+            .delete(&url)
+            .header("Authorization", &auth)
+            .send()
+            .await?;
+
+        if resp.status().as_u16() == 401 {
+            self.reauth().await?;
+            let auth = self.auth_header()?;
+            let resp = self
+                .http
+                .delete(&url)
+                .header("Authorization", &auth)
+                .send()
+                .await?;
+            return Self::handle_text_response(resp).await;
+        }
+
+        Self::handle_text_response(resp).await
+    }
+
+    pub async fn delete<T: DeserializeOwned>(&mut self, path: &str) -> Result<T, CliError> {
+        let url = format!("{}{path}", self.base_url);
+        let auth = self.auth_header()?;
+
+        let resp = self
+            .http
+            .delete(&url)
+            .header("Authorization", &auth)
+            .send()
+            .await?;
+
+        if resp.status().as_u16() == 401 {
+            self.reauth().await?;
+            let auth = self.auth_header()?;
+            let resp = self
+                .http
+                .delete(&url)
+                .header("Authorization", &auth)
+                .send()
+                .await?;
+            return Self::handle_json_response(resp).await;
+        }
+
+        Self::handle_json_response(resp).await
+    }
+
     pub async fn post_string<T: DeserializeOwned>(
         &mut self,
         path: &str,
