@@ -1,163 +1,176 @@
 # Gateway Router CLI Tool
 
-A command-line interface for interacting with the Mini-Gateway Router API. This tool allows you to upload gateway configurations.
+A command-line interface for managing and monitoring the Mini-Gateway Router. Supports configuration management, full CRUD operations for all resources, and a real-time TUI monitoring dashboard.
 
 ## Installation
 
 ```bash
 # Build the CLI tool
-cargo build --release
+cargo build --release -p router-cli
 # The binary will be available at target/release/router-cli
 ```
 
-## Usage
+## Authentication
 
-### Initialize Configuration
-
-Create a new configuration file with default template:
+All commands (except `init`) require authentication. Provide credentials via:
 
 ```bash
-# Create in current directory
-gwrs init
+# Command-line flags
+gwrs proxy list -u USERNAME -p PASSWORD
 
-# Create in specific directory
-gwrs init /path/to/directory
-```
-
-### Upload Configuration
-
-Upload a YAML configuration file to the router. You can use either the direct flag or the config subcommand:
-
-```bash
-# Using direct flag
-gwrs --config config.yaml -u USERNAME -p PASSWORD
-
-# Using config subcommand
-gwrs config config.yaml -u USERNAME -p PASSWORD
-
-# Using environment variables
+# Environment variables
 export GWRS_USER=admin
 export GWRS_PASS=password
-gwrs --osenv --config config.yaml
-# or
-gwrs config config.yaml --osenv
-
-# Specify custom API URL
-gwrs --config config.yaml -u USERNAME -p PASSWORD --url http://router-api:3000
-# or
-gwrs config config.yaml -u USERNAME -p PASSWORD --url http://router-api:3000
+gwrs proxy list --osenv
 ```
 
-### Export Configuration
-
-Download the current configuration from the router:
-
-```bash
-# Export to default file
-gwrs export -u USERNAME -p PASSWORD
-
-# Export to specific file
-gwrs export --output my-config.yaml -u USERNAME -p PASSWORD
-
-# Using environment variables
-gwrs export --osenv --output current-config.yaml
-```
-
-### Configuration File Format
-
-The configuration file should be in YAML format:
-
-#### Proxy Configuration
-
-Define your gateway routing rules:
-
-```yaml
-proxy:
-  - name: "proxy1"
-    listen: "127.0.0.1:8080"
-    domains:
-      - domain: "example.com"
-        tls: false
-        tls_cert: |
-          -----BEGIN CERTIFICATE-----
-          cert
-          -----END CERTIFICATE-----
-        tls_key: |
-          -----BEGIN PRIVATE KEY-----
-          key
-          -----END PRIVATE KEY-----
-        tls_autron: false              # Enable automatic TLS via Let's Encrypt
-        tls_mode: "staging"            # "staging" or "prod" for Let's Encrypt
-    highspeed:
-      enabled: true
-      target: "gateway1"
-    gateway:
-      - name: "gateway1"
-        domain: "example.com"
-        target: "127.0.0.1:8080"
-        path:
-          - priority: 1
-            pattern: "^(.*)$"
-            target: "/$1"
-          - priority: 2
-            pattern: "^/api/debug/(.*)$"
-            target: "/debug/$1"
-          - priority: 3
-            pattern: "^/health$"
-            target: "/health"
-
-## Environment Variables
-
-- `GWRS_USER`: Username for API authentication
-- `GWRS_PASS`: Password for API authentication
+Tokens are cached to `~/.config/gwrs/token.json` (60 min expiry). Use `--no-cache` to force fresh authentication.
 
 ## Global Options
 
-These options can be used with any command:
-
-- `-u, --user`: Username for API authentication
-- `-p, --pass`: Password for API authentication
-- `--osenv`: Use credentials from environment variables
-- `--url`: API base URL (default: http://localhost:24042)
+| Option | Description |
+|--------|-------------|
+| `-u, --user` | Username for API authentication |
+| `-p, --pass` | Password for API authentication |
+| `--osenv` | Use GWRS_USER/GWRS_PASS environment variables |
+| `--url` | API base URL (default: `http://localhost:24042`) |
+| `--no-cache` | Skip token cache, force fresh login |
+| `--format` | Output format: `table` (default), `json`, `yaml` |
 
 ## Commands
 
-### init [LOCATION]
-Initialize a new configuration file. If LOCATION is not specified, creates in the current directory.
-
-### config CONFIG
-Upload a configuration file to the router. CONFIG is the path to your configuration file.
-
-## Examples
+### Configuration Management
 
 ```bash
-# Initialize new configuration
-gwrs init
-gwrs init /path/to/directory
+# Initialize a new configuration template
+gwrs init [LOCATION]
 
-# Upload configuration (direct flag)
-gwrs --config my-gateway-config.yaml -u admin -p password
+# Upload configuration to the router
+gwrs config <PATH>
 
-# Upload configuration (subcommand)
-gwrs config my-gateway-config.yaml -u admin -p password
+# Export current configuration
+gwrs export [OUTPUT]
+```
 
-# Use environment variables for credentials
-gwrs --osenv --config my-gateway-config.yaml
-# or
-gwrs config my-gateway-config.yaml --osenv
+### Proxy Management
 
-# Specify custom API URL
-gwrs --config my-gateway-config.yaml -u admin -p password --url http://router-api:8080
-# or
-gwrs config my-gateway-config.yaml -u admin -p password --url http://router-api:8080
+```bash
+gwrs proxy list
+gwrs proxy get <ID>
+gwrs proxy create --title "web-proxy" --listen "0.0.0.0:443" [--target "127.0.0.1:8080"] [--high-speed]
+gwrs proxy delete <ID> [-y]
+```
+
+### Proxy Domain Management
+
+```bash
+gwrs domain list [--proxy-id <ID>] [--gwnode-id <ID>]
+gwrs domain get <ID>
+gwrs domain create --proxy-id <ID> [--tls] [--sni "example.com"]
+gwrs domain delete <ID> [-y]
+```
+
+### Gateway Node Management
+
+```bash
+gwrs gwnode list [--proxy-id <ID>]
+gwrs gwnode get <ID>
+gwrs gwnode create --proxy-id <ID> --title "node1" --target "127.0.0.1:3000" [--priority 100]
+gwrs gwnode delete <ID> [-y]
+```
+
+### Gateway Routing Rules
+
+```bash
+gwrs gateway list [--gwnode-id <ID>]
+gwrs gateway get <ID>
+gwrs gateway create --gwnode-id <ID> --pattern "^/api/(.*)$" --target "/v1/$1" --priority 1
+gwrs gateway delete <ID> [-y]
+```
+
+### User Management (Admin)
+
+```bash
+gwrs user list
+gwrs user get <ID>
+gwrs user create --username "staff1" --email "staff@example.com" --password "..." [--role staff]
+gwrs user update <ID> [--username "..."] [--email "..."] [--role admin|staff|user]
+gwrs user delete <ID> [-y]
+```
+
+### Certificate Management
+
+```bash
+gwrs cert generate --domain "example.com" --proxy-id <ID> [--email "admin@example.com"] [--staging]
+gwrs cert renew-all
+gwrs cert due-for-renewal
+```
+
+### Sync
+
+```bash
+gwrs sync proxy
+gwrs sync gateway
+```
+
+### Live Monitoring
+
+```bash
+gwrs monitor
+```
+
+Opens a real-time TUI dashboard showing:
+- Overview panel with aggregate totals and success/error rate
+- Per-second rates (req/s, bytes/s) with min/max/avg
+- Traffic sparklines (requests, bytes_in, bytes_out) over 30 min history
+- Status code distribution bar chart
+- Connection status and uptime
+
+Keybindings:
+| Key | Action |
+|-----|--------|
+| `q` / `Ctrl+C` | Quit |
+| `Tab` | Switch panel focus |
+| `1` | Focus Gateway |
+| `2` | Focus Proxy |
+| `?` | Toggle help overlay |
+| `Esc` | Close help |
+
+## Output Formats
+
+```bash
+# Human-readable table (default)
+gwrs proxy list
+
+# JSON for scripting
+gwrs proxy list --format json
+
+# YAML
+gwrs proxy list --format yaml
+```
+
+## Testing with Mock Server
+
+A mock API server is included for development and testing:
+
+```bash
+cd test-app
+npm install
+node mock-api.js
+# Login: admin / admin
+# SSE stats broadcast every 5s
+```
+
+Then test commands against it:
+
+```bash
+gwrs proxy list -u admin -p admin --url http://localhost:24042
+gwrs monitor -u admin -p admin --url http://localhost:24042
 ```
 
 ## Debug Logging
 
-To enable debug logging, set the `RUST_LOG` environment variable:
-
 ```bash
-export RUST_LOG=info
-# or for more detailed logs
 export RUST_LOG=debug
+gwrs proxy list -u admin -p admin
 ```
