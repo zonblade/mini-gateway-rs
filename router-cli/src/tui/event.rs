@@ -99,10 +99,15 @@ async fn connect_sse(
         let text = String::from_utf8_lossy(&chunk);
         buffer.push_str(&text);
 
-        // Process complete SSE messages
-        while let Some(pos) = buffer.find("\n\n") {
+        // Process complete SSE messages (handle both \r\n\r\n and \n\n)
+        while let Some((pos, sep_len)) = find_message_boundary(&buffer) {
             let message = buffer[..pos].to_string();
-            buffer = buffer[pos + 2..].to_string();
+            buffer = buffer[pos + sep_len..].to_string();
+
+            // Skip comments (ping) and empty messages
+            if message.starts_with(':') || message.is_empty() {
+                continue;
+            }
 
             if let Some(data) = extract_sse_data(&message) {
                 // Try parsing as array first (history batch)
@@ -118,8 +123,18 @@ async fn connect_sse(
     Ok(())
 }
 
+/// Find the next message boundary (\r\n\r\n or \n\n)
+fn find_message_boundary(buffer: &str) -> Option<(usize, usize)> {
+    if let Some(pos) = buffer.find("\r\n\r\n") {
+        Some((pos, 4))
+    } else {
+        buffer.find("\n\n").map(|pos| (pos, 2))
+    }
+}
+
 fn extract_sse_data(message: &str) -> Option<&str> {
     for line in message.lines() {
+        let line = line.trim_start();
         if let Some(data) = line.strip_prefix("data:") {
             return Some(data.trim());
         }
