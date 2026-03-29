@@ -3,7 +3,7 @@ use crate::error::CliError;
 use crate::tui::app::{AppState, Panel};
 use crate::tui::event::{Event, EventHandler};
 use crate::tui::ui;
-use crossterm::event::{KeyCode, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -64,7 +64,7 @@ async fn run_app(
 
         if let Some(event) = events.next().await {
             match event {
-                Event::Key(key) => match key.code {
+                Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                     KeyCode::Char('q') => {
                         app.should_quit = true;
                     }
@@ -81,7 +81,8 @@ async fn run_app(
                     KeyCode::Char('2') => app.focus = Panel::Proxy,
                     _ => {}
                 },
-                Event::Tick => {} // Redraw happens at top of loop
+                Event::Key(_) => {} // Ignore Release/Repeat events
+                Event::Tick => {}   // Redraw happens at top of loop
                 Event::SseData(stats) => {
                     app.push_stats(*stats);
                     app.status_msg = String::new();
