@@ -188,13 +188,18 @@ impl AppState {
             .collect()
     }
 
-    /// Get per-second rates for the latest stats of a given panel.
-    pub fn latest_rates(&self, panel: Panel, interval_secs: f64) -> Option<Rates> {
+    /// Get the latest TargetStats for a panel.
+    pub fn latest_target(&self, panel: Panel) -> Option<&TargetStats> {
         let s = self.latest()?;
-        let t = match panel {
+        Some(match panel {
             Panel::Gateway => &s.gateway,
             Panel::Proxy => &s.proxy,
-        };
+        })
+    }
+
+    /// Get per-second rates for the latest stats of a given panel.
+    pub fn latest_rates(&self, panel: Panel, interval_secs: f64) -> Option<Rates> {
+        let t = self.latest_target(panel)?;
         Some(Rates {
             req_per_sec: t.req as f64 / interval_secs,
             res_per_sec: t.res as f64 / interval_secs,
@@ -202,12 +207,6 @@ impl AppState {
             bytes_out_per_sec: t.bytes_out as f64 / interval_secs,
             failed: t.failed,
             stalled: t.stalled_count,
-            bytes_in_min: t.bytes_in_min,
-            bytes_in_max: t.bytes_in_max,
-            bytes_in_avg: t.bytes_in_avg,
-            bytes_out_min: t.bytes_out_min,
-            bytes_out_max: t.bytes_out_max,
-            bytes_out_avg: t.bytes_out_avg,
         })
     }
 }
@@ -219,12 +218,6 @@ pub struct Rates {
     pub bytes_out_per_sec: f64,
     pub failed: i64,
     pub stalled: i64,
-    pub bytes_in_min: i64,
-    pub bytes_in_max: i64,
-    pub bytes_in_avg: f64,
-    pub bytes_out_min: i64,
-    pub bytes_out_max: i64,
-    pub bytes_out_avg: f64,
 }
 
 pub struct AggregateTotals {

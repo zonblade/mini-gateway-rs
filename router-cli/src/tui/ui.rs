@@ -211,9 +211,12 @@ fn draw_stat_panel(f: &mut Frame, area: Rect, app: &AppState, panel: Panel) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color));
 
-    let lines = match app.latest_rates(panel, INTERVAL_SECS) {
-        Some(rates) => rate_lines(&rates),
-        None => vec![
+    let lines = match (
+        app.latest_rates(panel, INTERVAL_SECS),
+        app.latest_target(panel),
+    ) {
+        (Some(rates), Some(target)) => rate_lines(&rates, target),
+        _ => vec![
             Line::from(""),
             Span::styled(
                 "  Waiting for data...",
@@ -226,7 +229,7 @@ fn draw_stat_panel(f: &mut Frame, area: Rect, app: &AppState, panel: Panel) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn rate_lines(r: &Rates) -> Vec<Line<'static>> {
+fn rate_lines(r: &Rates, t: &crate::tui::app::TargetStats) -> Vec<Line<'static>> {
     let dim = Style::default().fg(Color::DarkGray);
     vec![
         Line::from(vec![
@@ -254,9 +257,9 @@ fn rate_lines(r: &Rates) -> Vec<Line<'static>> {
             Span::styled(
                 format!(
                     "min:{} max:{} avg:{}",
-                    format_bytes(r.bytes_in_min),
-                    format_bytes(r.bytes_in_max),
-                    format_bytes(r.bytes_in_avg as i64),
+                    format_bytes(t.bytes_in_min),
+                    format_bytes(t.bytes_in_max),
+                    format_bytes(t.bytes_in_avg as i64),
                 ),
                 dim,
             ),
@@ -270,9 +273,9 @@ fn rate_lines(r: &Rates) -> Vec<Line<'static>> {
             Span::styled(
                 format!(
                     "min:{} max:{} avg:{}",
-                    format_bytes(r.bytes_out_min),
-                    format_bytes(r.bytes_out_max),
-                    format_bytes(r.bytes_out_avg as i64),
+                    format_bytes(t.bytes_out_min),
+                    format_bytes(t.bytes_out_max),
+                    format_bytes(t.bytes_out_avg as i64),
                 ),
                 dim,
             ),
