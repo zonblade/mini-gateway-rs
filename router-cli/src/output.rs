@@ -18,13 +18,12 @@ pub fn print_yaml<T: Serialize>(value: &T) -> Result<(), CliError> {
     Ok(())
 }
 
-pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
+/// Format a table as a string (for testing) or print to stdout.
+pub fn format_table(headers: &[&str], rows: &[Vec<String>]) -> String {
     if rows.is_empty() {
-        println!("(no results)");
-        return;
+        return "(no results)".to_string();
     }
 
-    // Calculate column widths
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
     for row in rows {
         for (i, cell) in row.iter().enumerate() {
@@ -34,19 +33,18 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
         }
     }
 
-    // Print header
+    let mut lines = Vec::new();
+
     let header_line: Vec<String> = headers
         .iter()
         .enumerate()
         .map(|(i, h)| format!("{:<width$}", h, width = widths[i]))
         .collect();
-    println!("{}", header_line.join("  "));
+    lines.push(header_line.join("  "));
 
-    // Print separator
     let sep: Vec<String> = widths.iter().map(|w| "-".repeat(*w)).collect();
-    println!("{}", sep.join("  "));
+    lines.push(sep.join("  "));
 
-    // Print rows
     for row in rows {
         let line: Vec<String> = row
             .iter()
@@ -56,6 +54,50 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
                 format!("{:<width$}", cell, width = w)
             })
             .collect();
-        println!("{}", line.join("  "));
+        lines.push(line.join("  "));
+    }
+
+    lines.join("\n")
+}
+
+pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
+    println!("{}", format_table(headers, rows));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_table_empty() {
+        let result = format_table(&["ID", "NAME"], &[]);
+        assert_eq!(result, "(no results)");
+    }
+
+    #[test]
+    fn format_table_aligns_columns() {
+        let rows = vec![
+            vec!["1".to_string(), "short".to_string()],
+            vec!["2".to_string(), "a longer name".to_string()],
+        ];
+        let result = format_table(&["ID", "NAME"], &rows);
+        let lines: Vec<&str> = result.lines().collect();
+
+        assert_eq!(lines.len(), 4); // header + separator + 2 rows
+        assert!(lines[0].starts_with("ID"));
+        assert!(lines[0].contains("NAME"));
+        assert!(lines[1].contains("--")); // separator
+        assert!(lines[2].starts_with("1 "));
+        assert!(lines[3].starts_with("2 "));
+    }
+
+    #[test]
+    fn format_table_wide_values_expand_columns() {
+        let rows = vec![vec!["abcdef-1234-5678".to_string(), "x".to_string()]];
+        let result = format_table(&["ID", "V"], &rows);
+        let lines: Vec<&str> = result.lines().collect();
+
+        // ID column should be as wide as the data value
+        assert!(lines[0].len() == lines[2].len());
     }
 }

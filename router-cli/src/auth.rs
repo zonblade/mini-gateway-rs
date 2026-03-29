@@ -83,3 +83,57 @@ pub fn clear_cached_token() {
         let _ = std::fs::remove_file(path);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_credentials_from_args() {
+        let (user, pass) = resolve_credentials(false, Some("admin"), Some("secret")).unwrap();
+        assert_eq!(user, "admin");
+        assert_eq!(pass, "secret");
+    }
+
+    #[test]
+    fn resolve_credentials_missing_user() {
+        let result = resolve_credentials(false, None, Some("secret"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_credentials_missing_pass() {
+        let result = resolve_credentials(false, Some("admin"), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_credentials_missing_both() {
+        let result = resolve_credentials(false, None, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_credentials_from_env() {
+        std::env::set_var("GWRS_USER", "envuser");
+        std::env::set_var("GWRS_PASS", "envpass");
+        let (user, pass) = resolve_credentials(true, None, None).unwrap();
+        assert_eq!(user, "envuser");
+        assert_eq!(pass, "envpass");
+        std::env::remove_var("GWRS_USER");
+        std::env::remove_var("GWRS_PASS");
+    }
+
+    #[test]
+    fn token_cache_serialization() {
+        let cache = TokenCache {
+            token: "test-token".to_string(),
+            expires_at: Utc::now() + chrono::Duration::minutes(55),
+            base_url: "http://localhost:24042".to_string(),
+        };
+        let json = serde_json::to_string(&cache).unwrap();
+        let parsed: TokenCache = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.token, "test-token");
+        assert_eq!(parsed.base_url, "http://localhost:24042");
+    }
+}
