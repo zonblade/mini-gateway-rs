@@ -1,26 +1,45 @@
-use crate::tui::app::{format_bytes_rate, AppState, Panel, Rates};
+use crate::tui::app::{format_bytes, format_bytes_rate, format_count, AppState, Panel, Rates};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Bar, BarChart, BarGroup, Block, Borders, Paragraph, Sparkline};
+use ratatui::widgets::{
+    Bar, BarChart, BarGroup, Block, Borders, Clear, Padding, Paragraph, Sparkline, Wrap,
+};
 use ratatui::Frame;
 
-/// SSE broadcasts every 15 seconds
 const INTERVAL_SECS: f64 = 15.0;
 
 pub fn draw(f: &mut Frame, app: &AppState) {
     let area = f.area();
-    let tall = area.height >= 25;
-    let wide = area.width >= 100;
 
-    // Vertical layout: header, stats, sparklines (if tall), status codes, footer
+    draw_main(f, area, app);
+
+    if app.show_help {
+        draw_help_overlay(f, area);
+    }
+}
+
+fn draw_main(f: &mut Frame, area: Rect, app: &AppState) {
+    let tall = area.height >= 30;
+    let mid = area.height >= 20 && !tall;
+
     let constraints = if tall {
         vec![
             Constraint::Length(1), // header
-            Constraint::Length(6), // stats panels
-            Constraint::Min(4),    // sparkline: bytes_in
-            Constraint::Min(4),    // sparkline: bytes_out
+            Constraint::Length(3), // overview (aggregate totals + error rate)
+            Constraint::Length(6), // stats panels (rates)
+            Constraint::Min(3),    // sparkline: requests
+            Constraint::Min(3),    // sparkline: bytes_in
+            Constraint::Min(3),    // sparkline: bytes_out
             Constraint::Length(5), // status codes bar chart
+            Constraint::Length(1), // footer
+        ]
+    } else if mid {
+        vec![
+            Constraint::Length(1), // header
+            Constraint::Length(3), // overview
+            Constraint::Length(6), // stats panels
+            Constraint::Length(5), // status codes
             Constraint::Length(1), // footer
         ]
     } else {
@@ -37,24 +56,40 @@ pub fn draw(f: &mut Frame, app: &AppState) {
         .constraints(constraints)
         .split(area);
 
-    draw_header(f, chunks[0]);
+    let wide = area.width >= 100;
+    let mut idx = 0;
+
+    draw_header(f, chunks[idx]);
+    idx += 1;
+
+    if tall || mid {
+        draw_overview(f, chunks[idx], app, wide);
+        idx += 1;
+    }
 
     if wide {
-        draw_stats_side_by_side(f, chunks[1], app);
+        draw_stats_side_by_side(f, chunks[idx], app);
     } else {
-        draw_stats_stacked(f, chunks[1], app);
+        draw_stats_stacked(f, chunks[idx], app);
     }
+    idx += 1;
 
     if tall {
-        draw_sparkline(f, chunks[2], app, true);
-        draw_sparkline(f, chunks[3], app, false);
-        draw_status_codes(f, chunks[4], app);
-        draw_footer(f, chunks[5], app);
-    } else {
-        draw_status_codes(f, chunks[2], app);
-        draw_footer(f, chunks[3], app);
+        draw_sparkline_line(f, chunks[idx], app, SparkKind::Requests);
+        idx += 1;
+        draw_sparkline_line(f, chunks[idx], app, SparkKind::BytesIn);
+        idx += 1;
+        draw_sparkline_line(f, chunks[idx], app, SparkKind::BytesOut);
+        idx += 1;
     }
+
+    draw_status_codes(f, chunks[idx], app);
+    idx += 1;
+
+    draw_footer(f, chunks[idx], app);
 }
+
+// -- Header --
 
 fn draw_header(f: &mut Frame, area: Rect) {
     let header = Line::from(vec![
@@ -65,12 +100,86 @@ fn draw_header(f: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "q:quit  tab:switch  1:gw  2:px",
+            "q:quit  tab:switch  1:gw  2:px  ?:help",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
     f.render_widget(Paragraph::new(header), area);
 }
+
+// -- Overview (aggregate totals) --
+
+fn draw_overview(f: &mut Frame, area: Rect, app: &AppState, wide: bool) {
+    let block = Block::default()
+        .title(" Overview ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    let gw = app.aggregate_totals(Panel::Gateway);
+    let px = app.aggregate_totals(Panel::Proxy);
+
+    let dim = Style::default().fg(Color::DarkGray);
+    let line = if wide {
+        Line::from(vec![
+            Span::raw("  GW "),
+            success_badge(gw.success_rate),
+            Span::raw(format!(
+                " req:{} res:{} fail:{} err:{:.1}% in:{} out:{}",
+                format_count(gw.total_req),
+                format_count(gw.total_res),
+                format_count(gw.total_failed),
+                gw.error_rate,
+                format_bytes(gw.total_bytes_in),
+                format_bytes(gw.total_bytes_out),
+            )),
+            Span::styled(format!(" ({} intervals)", gw.intervals), dim),
+            Span::raw("  PX "),
+            success_badge(px.success_rate),
+            Span::raw(format!(
+                " req:{} res:{} fail:{} err:{:.1}%",
+                format_count(px.total_req),
+                format_count(px.total_res),
+                format_count(px.total_failed),
+                px.error_rate,
+            )),
+        ])
+    } else {
+        let focused = app.aggregate_totals(app.focus);
+        let label = match app.focus {
+            Panel::Gateway => "GW",
+            Panel::Proxy => "PX",
+        };
+        Line::from(vec![
+            Span::raw(format!("  {label} ")),
+            success_badge(focused.success_rate),
+            Span::raw(format!(
+                " req:{} res:{} fail:{} err:{:.1}% in:{} out:{}",
+                format_count(focused.total_req),
+                format_count(focused.total_res),
+                format_count(focused.total_failed),
+                focused.error_rate,
+                format_bytes(focused.total_bytes_in),
+                format_bytes(focused.total_bytes_out),
+            )),
+            Span::styled(format!(" ({} intervals)", focused.intervals), dim),
+        ])
+    };
+
+    f.render_widget(Paragraph::new(line).block(block), area);
+}
+
+fn success_badge(rate: f64) -> Span<'static> {
+    let (color, bg) = if rate >= 99.0 {
+        (Color::White, Color::Green)
+    } else if rate >= 95.0 {
+        (Color::Black, Color::Yellow)
+    } else {
+        (Color::White, Color::Red)
+    };
+    Span::styled(format!(" {rate:.1}% "), Style::default().fg(color).bg(bg))
+}
+
+// -- Stats Panels (rates) --
 
 fn draw_stats_side_by_side(f: &mut Frame, area: Rect, app: &AppState) {
     let panels = Layout::default()
@@ -83,7 +192,6 @@ fn draw_stats_side_by_side(f: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn draw_stats_stacked(f: &mut Frame, area: Rect, app: &AppState) {
-    // In narrow mode, show only the focused panel
     draw_stat_panel(f, area, app, app.focus);
 }
 
@@ -107,10 +215,11 @@ fn draw_stat_panel(f: &mut Frame, area: Rect, app: &AppState, panel: Panel) {
         Some(rates) => rate_lines(&rates),
         None => vec![
             Line::from(""),
-            Line::from(Span::styled(
+            Span::styled(
                 "  Waiting for data...",
                 Style::default().fg(Color::DarkGray),
-            )),
+            )
+            .into(),
         ],
     };
 
@@ -132,23 +241,9 @@ fn rate_lines(r: &Rates) -> Vec<Line<'static>> {
                 Style::default().fg(Color::Green),
             ),
             Span::raw("Failed: "),
-            Span::styled(
-                format!("{}", r.failed),
-                if r.failed > 0 {
-                    Style::default().fg(Color::Red)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
+            colored_count(r.failed, Color::Red, Color::Green),
             Span::raw("  Stalled: "),
-            Span::styled(
-                format!("{}", r.stalled),
-                if r.stalled > 0 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
+            colored_count(r.stalled, Color::Yellow, Color::Green),
         ]),
         Line::from(vec![
             Span::raw("  In:  "),
@@ -185,44 +280,54 @@ fn rate_lines(r: &Rates) -> Vec<Line<'static>> {
     ]
 }
 
-fn format_bytes(b: i64) -> String {
-    let abs = b.unsigned_abs();
-    if abs >= 1_073_741_824 {
-        format!("{:.1}GB", b as f64 / 1_073_741_824.0)
-    } else if abs >= 1_048_576 {
-        format!("{:.1}MB", b as f64 / 1_048_576.0)
-    } else if abs >= 1_024 {
-        format!("{:.1}KB", b as f64 / 1_024.0)
-    } else {
-        format!("{b}B")
-    }
+fn colored_count(val: i64, bad_color: Color, good_color: Color) -> Span<'static> {
+    let color = if val > 0 { bad_color } else { good_color };
+    Span::styled(format!("{val}"), Style::default().fg(color))
 }
 
-fn draw_sparkline(f: &mut Frame, area: Rect, app: &AppState, is_bytes_in: bool) {
+// -- Sparklines --
+
+enum SparkKind {
+    Requests,
+    BytesIn,
+    BytesOut,
+}
+
+fn draw_sparkline_line(f: &mut Frame, area: Rect, app: &AppState, kind: SparkKind) {
     let panel = app.focus;
     let label = match panel {
         Panel::Gateway => "Gateway",
         Panel::Proxy => "Proxy",
     };
-    let (direction, color, data) = if is_bytes_in {
-        ("bytes_in", Color::Cyan, app.bytes_in_series(panel))
-    } else {
-        ("bytes_out", Color::Magenta, app.bytes_out_series(panel))
+
+    let (suffix, color, data, rate_str) = match kind {
+        SparkKind::Requests => {
+            let data = app.req_series(panel);
+            let rate = app
+                .latest_rates(panel, INTERVAL_SECS)
+                .map(|r| format!("{:.1} req/s", r.req_per_sec))
+                .unwrap_or_default();
+            ("requests", Color::Green, data, rate)
+        }
+        SparkKind::BytesIn => {
+            let data = app.bytes_in_series(panel);
+            let rate = app
+                .latest_rates(panel, INTERVAL_SECS)
+                .map(|r| format_bytes_rate(r.bytes_in_per_sec))
+                .unwrap_or_default();
+            ("bytes_in", Color::Cyan, data, rate)
+        }
+        SparkKind::BytesOut => {
+            let data = app.bytes_out_series(panel);
+            let rate = app
+                .latest_rates(panel, INTERVAL_SECS)
+                .map(|r| format_bytes_rate(r.bytes_out_per_sec))
+                .unwrap_or_default();
+            ("bytes_out", Color::Magenta, data, rate)
+        }
     };
 
-    // Show current rate in title
-    let current_rate = app
-        .latest_rates(panel, INTERVAL_SECS)
-        .map(|r| {
-            if is_bytes_in {
-                format_bytes_rate(r.bytes_in_per_sec)
-            } else {
-                format_bytes_rate(r.bytes_out_per_sec)
-            }
-        })
-        .unwrap_or_default();
-
-    let title = format!(" {label} {direction}  {current_rate} ");
+    let title = format!(" {label} {suffix}  {rate_str} ");
 
     let spark = Sparkline::default()
         .block(
@@ -236,6 +341,8 @@ fn draw_sparkline(f: &mut Frame, area: Rect, app: &AppState, is_bytes_in: bool) 
 
     f.render_widget(spark, area);
 }
+
+// -- Status Codes --
 
 fn draw_status_codes(f: &mut Frame, area: Rect, app: &AppState) {
     let codes = app.aggregate_status_codes(app.focus);
@@ -285,6 +392,8 @@ fn draw_status_codes(f: &mut Frame, area: Rect, app: &AppState) {
     f.render_widget(chart, area);
 }
 
+// -- Footer --
+
 fn draw_footer(f: &mut Frame, area: Rect, app: &AppState) {
     let (conn_text, conn_style) = if app.connected {
         ("Connected", Style::default().fg(Color::Green))
@@ -294,22 +403,69 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &AppState) {
 
     let ts = app.latest().map(|s| s.ts.as_str()).unwrap_or("-");
     let points = app.history.len();
+    let uptime = app.uptime_str();
 
     let footer = Line::from(vec![
         Span::raw(" "),
         Span::styled(conn_text, conn_style),
         Span::styled(
-            format!("  Last: {ts}  "),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(
-            format!("[{points} pts] "),
+            format!("  Up: {uptime}  Last: {ts}  [{points}/120 pts]  "),
             Style::default().fg(Color::DarkGray),
         ),
         Span::styled(&app.status_msg, Style::default().fg(Color::DarkGray)),
     ]);
 
     f.render_widget(Paragraph::new(footer), area);
+}
+
+// -- Help Overlay --
+
+fn draw_help_overlay(f: &mut Frame, area: Rect) {
+    let width = 40u16.min(area.width.saturating_sub(4));
+    let height = 14u16.min(area.height.saturating_sub(2));
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let popup = Rect::new(x, y, width, height);
+
+    f.render_widget(Clear, popup);
+
+    let help_text = vec![
+        Line::from(Span::styled(
+            "Keybindings",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("  q / Ctrl+C    Quit"),
+        Line::from("  Tab           Switch panel focus"),
+        Line::from("  1             Focus Gateway"),
+        Line::from("  2             Focus Proxy"),
+        Line::from("  ?             Toggle this help"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Info",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("  SSE updates every 15s"),
+        Line::from("  History: 120 pts (30 min)"),
+    ];
+
+    let block = Block::default()
+        .title(" Help ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .padding(Padding::horizontal(1));
+
+    f.render_widget(
+        Paragraph::new(help_text)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
 }
 
 fn status_color(code: &str) -> Color {

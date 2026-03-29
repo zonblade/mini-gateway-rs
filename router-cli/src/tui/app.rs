@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
+use std::time::Instant;
 
 const MAX_HISTORY: usize = 120;
 
@@ -39,6 +40,8 @@ pub struct AppState {
     pub connected: bool,
     pub status_msg: String,
     pub should_quit: bool,
+    pub show_help: bool,
+    pub started_at: Instant,
 }
 
 impl AppState {
@@ -49,6 +52,8 @@ impl AppState {
             connected: false,
             status_msg: "Connecting...".to_string(),
             should_quit: false,
+            show_help: false,
+            started_at: Instant::now(),
         }
     }
 
@@ -68,6 +73,60 @@ impl AppState {
 
     pub fn latest(&self) -> Option<&UnifiedStats> {
         self.history.back()
+    }
+
+    pub fn uptime_str(&self) -> String {
+        let secs = self.started_at.elapsed().as_secs();
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        let s = secs % 60;
+        if h > 0 {
+            format!("{h}h {m:02}m {s:02}s")
+        } else if m > 0 {
+            format!("{m}m {s:02}s")
+        } else {
+            format!("{s}s")
+        }
+    }
+
+    /// Aggregate totals across all history for a panel.
+    pub fn aggregate_totals(&self, panel: Panel) -> AggregateTotals {
+        let mut total_req: i64 = 0;
+        let mut total_res: i64 = 0;
+        let mut total_failed: i64 = 0;
+        let mut total_bytes_in: i64 = 0;
+        let mut total_bytes_out: i64 = 0;
+
+        for stats in &self.history {
+            let t = match panel {
+                Panel::Gateway => &stats.gateway,
+                Panel::Proxy => &stats.proxy,
+            };
+            total_req += t.req;
+            total_res += t.res;
+            total_failed += t.failed;
+            total_bytes_in += t.bytes_in;
+            total_bytes_out += t.bytes_out;
+        }
+
+        let error_rate = if total_req > 0 {
+            (total_failed as f64 / total_req as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        let success_rate = 100.0 - error_rate;
+
+        AggregateTotals {
+            total_req,
+            total_res,
+            total_failed,
+            total_bytes_in,
+            total_bytes_out,
+            error_rate,
+            success_rate,
+            intervals: self.history.len(),
+        }
     }
 
     /// Aggregate status codes across all history points for a given panel.
@@ -115,6 +174,20 @@ impl AppState {
             .collect()
     }
 
+    /// Get req/s history for sparkline.
+    pub fn req_series(&self, panel: Panel) -> Vec<u64> {
+        self.history
+            .iter()
+            .map(|s| {
+                let t = match panel {
+                    Panel::Gateway => &s.gateway,
+                    Panel::Proxy => &s.proxy,
+                };
+                t.req.max(0) as u64
+            })
+            .collect()
+    }
+
     /// Get per-second rates for the latest stats of a given panel.
     pub fn latest_rates(&self, panel: Panel, interval_secs: f64) -> Option<Rates> {
         let s = self.latest()?;
@@ -154,6 +227,17 @@ pub struct Rates {
     pub bytes_out_avg: f64,
 }
 
+pub struct AggregateTotals {
+    pub total_req: i64,
+    pub total_res: i64,
+    pub total_failed: i64,
+    pub total_bytes_in: i64,
+    pub total_bytes_out: i64,
+    pub error_rate: f64,
+    pub success_rate: f64,
+    pub intervals: usize,
+}
+
 pub fn format_bytes_rate(bytes_per_sec: f64) -> String {
     let abs = bytes_per_sec.abs();
     if abs >= 1_073_741_824.0 {
@@ -164,5 +248,28 @@ pub fn format_bytes_rate(bytes_per_sec: f64) -> String {
         format!("{:.1} KB/s", bytes_per_sec / 1_024.0)
     } else {
         format!("{:.0} B/s", bytes_per_sec)
+    }
+}
+
+pub fn format_bytes(b: i64) -> String {
+    let abs = b.unsigned_abs();
+    if abs >= 1_073_741_824 {
+        format!("{:.1} GB", b as f64 / 1_073_741_824.0)
+    } else if abs >= 1_048_576 {
+        format!("{:.1} MB", b as f64 / 1_048_576.0)
+    } else if abs >= 1_024 {
+        format!("{:.1} KB", b as f64 / 1_024.0)
+    } else {
+        format!("{b} B")
+    }
+}
+
+pub fn format_count(n: i64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        format!("{n}")
     }
 }

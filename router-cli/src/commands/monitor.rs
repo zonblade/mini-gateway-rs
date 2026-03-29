@@ -79,6 +79,8 @@ async fn run_app(
                     }
                     KeyCode::Char('1') => app.focus = Panel::Gateway,
                     KeyCode::Char('2') => app.focus = Panel::Proxy,
+                    KeyCode::Char('?') => app.show_help = !app.show_help,
+                    KeyCode::Esc => app.show_help = false,
                     _ => {}
                 },
                 Event::Key(_) => {} // Ignore Release/Repeat events
