@@ -93,6 +93,8 @@ pub enum Commands {
         #[command(subcommand)]
         action: SyncAction,
     },
+    /// Live monitoring dashboard
+    Monitor,
 }
 
 // --- Proxy ---

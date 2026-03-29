@@ -5,6 +5,7 @@ mod commands;
 mod error;
 mod models;
 mod output;
+mod tui;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -68,6 +69,10 @@ async fn run() -> Result<(), CliError> {
         Some(Commands::Sync { action }) => {
             let mut client = authed_client(&cli).await?;
             commands::sync::run(&mut client, action).await
+        }
+        Some(Commands::Monitor) => {
+            let mut client = authed_client(&cli).await?;
+            commands::monitor::run(&mut client, &cli.url).await
         }
         None => {
             if let Some(config) = &cli.config {

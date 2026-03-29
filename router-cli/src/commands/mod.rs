@@ -5,6 +5,7 @@ pub mod export;
 pub mod gateway;
 pub mod gwnode;
 pub mod init;
+pub mod monitor;
 pub mod proxy;
 pub mod sync;
 pub mod user;

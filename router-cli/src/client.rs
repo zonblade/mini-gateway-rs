@@ -100,6 +100,10 @@ impl ApiClient {
         self.login(&user, &pass).await
     }
 
+    pub fn token(&self) -> Option<String> {
+        self.token.clone()
+    }
+
     fn auth_header(&self) -> Result<String, CliError> {
         let token = self
             .token
