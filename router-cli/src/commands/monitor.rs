@@ -21,7 +21,6 @@ pub async fn run(client: &mut ApiClient, base_url: &str) -> Result<(), CliError>
         base_url.trim_end_matches('/')
     );
 
-    // Setup terminal
     enable_raw_mode().map_err(CliError::Io)?;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen).map_err(CliError::Io)?;
@@ -29,7 +28,6 @@ pub async fn run(client: &mut ApiClient, base_url: &str) -> Result<(), CliError>
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(|e| CliError::Io(io::Error::other(e)))?;
 
-    // Setup panic hook to restore terminal
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
@@ -39,7 +37,6 @@ pub async fn run(client: &mut ApiClient, base_url: &str) -> Result<(), CliError>
 
     let result = run_app(&mut terminal, sse_url, token).await;
 
-    // Restore terminal
     disable_raw_mode().map_err(CliError::Io)?;
     crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen).map_err(CliError::Io)?;
     terminal

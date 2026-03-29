@@ -24,7 +24,6 @@ pub async fn run(client: &mut ApiClient, config_path: &Path) -> Result<(), CliEr
     let contents = std::fs::read_to_string(config_path)
         .map_err(|e| CliError::Config(format!("failed to read config file: {e}")))?;
 
-    // Validate YAML format
     serde_yaml::from_str::<serde_yaml::Value>(&contents)?;
 
     let resp: ConfigUploadResponse = client

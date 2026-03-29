@@ -15,21 +15,8 @@ pub async fn run(
             gwnode_id,
         } => list(client, proxy_id.as_deref(), gwnode_id.as_deref(), fmt).await,
         DomainAction::Get { id } => get(client, id, fmt).await,
-        DomainAction::Create {
-            proxy_id,
-            gwnode_id,
-            tls,
-            sni,
-        } => {
-            create(
-                client,
-                proxy_id,
-                gwnode_id.as_deref(),
-                *tls,
-                sni.as_deref(),
-                fmt,
-            )
-            .await
+        DomainAction::Create { proxy_id, tls, sni } => {
+            create(client, proxy_id, *tls, sni.as_deref(), fmt).await
         }
         DomainAction::Delete { id, yes } => delete(client, id, *yes).await,
     }
@@ -103,7 +90,6 @@ async fn get(client: &mut ApiClient, id: &str, fmt: &Format) -> Result<(), CliEr
 async fn create(
     client: &mut ApiClient,
     proxy_id: &str,
-    gwnode_id: Option<&str>,
     tls: bool,
     sni: Option<&str>,
     fmt: &Format,
@@ -121,8 +107,6 @@ async fn create(
         expected_renew: None,
     };
 
-    // The API expects gwnode_id in the body; we set it via proxy_id association
-    let _ = gwnode_id; // gwnode binding is done separately via proxy domain set endpoint
     let result: ProxyDomain = client
         .post_json("/api/v1/settings/proxydomain/set", &input)
         .await?;

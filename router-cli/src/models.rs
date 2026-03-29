@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-// --- Proxy ---
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Proxy {
     pub id: String,
@@ -53,8 +51,6 @@ pub struct ProxyInput {
     pub domains: Vec<ProxyDomain>,
 }
 
-// --- Gateway Node ---
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GatewayNode {
     pub id: String,
@@ -66,8 +62,6 @@ pub struct GatewayNode {
     pub domain_name: Option<String>,
 }
 
-// --- Gateway ---
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Gateway {
     pub id: String,
@@ -76,8 +70,6 @@ pub struct Gateway {
     pub target: String,
     pub priority: i32,
 }
-
-// --- User ---
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -110,8 +102,6 @@ pub struct UpdateUserRequest {
     pub role: Option<String>,
 }
 
-// --- Certificate ---
-
 #[derive(Debug, Serialize)]
 pub struct CertGenerateRequest {
     pub domain: String,
@@ -130,22 +120,16 @@ pub struct CertGenerateResponse {
     pub expected_renew: Option<String>,
 }
 
-// --- Generic message response ---
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MessageResponse {
     pub message: String,
 }
-
-// --- Sync ---
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SyncResponse {
     pub status: String,
     pub message: String,
 }
-
-// --- ID body for delete endpoints that use POST ---
 
 #[derive(Debug, Serialize)]
 pub struct IdBody {

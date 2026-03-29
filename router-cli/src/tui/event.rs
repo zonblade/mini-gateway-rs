@@ -21,7 +21,6 @@ impl EventHandler {
     pub fn new(sse_url: String, auth_token: String) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
 
-        // Keyboard events
         let tx_key = tx.clone();
         tokio::spawn(async move {
             let mut reader = EventStream::new();
@@ -39,7 +38,6 @@ impl EventHandler {
             }
         });
 
-        // Tick timer
         let tx_tick = tx.clone();
         tokio::spawn(async move {
             let mut tick = interval(Duration::from_millis(250));
@@ -51,7 +49,6 @@ impl EventHandler {
             }
         });
 
-        // SSE reader
         let tx_sse = tx.clone();
         tokio::spawn(async move {
             loop {
@@ -61,7 +58,6 @@ impl EventHandler {
                         let _ = tx_sse.send(Event::SseDisconnected(e.to_string()));
                     }
                 }
-                // Reconnect after 5 seconds
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         });
@@ -99,18 +95,15 @@ async fn connect_sse(
         let text = String::from_utf8_lossy(&chunk);
         buffer.push_str(&text);
 
-        // Process complete SSE messages (handle both \r\n\r\n and \n\n)
         while let Some((pos, sep_len)) = find_message_boundary(&buffer) {
             let message = buffer[..pos].to_string();
             buffer = buffer[pos + sep_len..].to_string();
 
-            // Skip comments (ping) and empty messages
             if message.starts_with(':') || message.is_empty() {
                 continue;
             }
 
             if let Some(data) = extract_sse_data(&message) {
-                // Try parsing as array first (history batch)
                 if let Ok(batch) = serde_json::from_str::<Vec<UnifiedStats>>(data) {
                     let _ = tx.send(Event::SseBatch(batch));
                 } else if let Ok(stats) = serde_json::from_str::<UnifiedStats>(data) {
@@ -123,7 +116,6 @@ async fn connect_sse(
     Ok(())
 }
 
-/// Find the next message boundary (\r\n\r\n or \n\n)
 fn find_message_boundary(buffer: &str) -> Option<(usize, usize)> {
     if let Some(pos) = buffer.find("\r\n\r\n") {
         Some((pos, 4))

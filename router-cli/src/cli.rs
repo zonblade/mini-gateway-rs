@@ -97,8 +97,6 @@ pub enum Commands {
     Monitor,
 }
 
-// --- Proxy ---
-
 #[derive(Subcommand)]
 pub enum ProxyAction {
     /// List all proxies
@@ -135,8 +133,6 @@ pub enum ProxyAction {
     },
 }
 
-// --- Domain ---
-
 #[derive(Subcommand)]
 pub enum DomainAction {
     /// List proxy domains
@@ -155,9 +151,6 @@ pub enum DomainAction {
         /// Proxy ID to associate with
         #[arg(long)]
         proxy_id: String,
-        /// Gateway node ID to bind
-        #[arg(long)]
-        gwnode_id: Option<String>,
         /// Enable TLS
         #[arg(long)]
         tls: bool,
@@ -173,8 +166,6 @@ pub enum DomainAction {
         yes: bool,
     },
 }
-
-// --- Gateway Node ---
 
 #[derive(Subcommand)]
 pub enum GwnodeAction {
@@ -210,8 +201,6 @@ pub enum GwnodeAction {
     },
 }
 
-// --- Gateway ---
-
 #[derive(Subcommand)]
 pub enum GatewayAction {
     /// List gateways
@@ -245,8 +234,6 @@ pub enum GatewayAction {
         yes: bool,
     },
 }
-
-// --- User ---
 
 #[derive(Subcommand)]
 pub enum UserAction {
@@ -287,8 +274,6 @@ pub enum UserAction {
     },
 }
 
-// --- Certificate ---
-
 #[derive(Subcommand)]
 pub enum CertAction {
     /// Generate a TLS certificate via Let's Encrypt
@@ -311,8 +296,6 @@ pub enum CertAction {
     /// List certificates due for renewal
     DueForRenewal,
 }
-
-// --- Sync ---
 
 #[derive(Subcommand)]
 pub enum SyncAction {

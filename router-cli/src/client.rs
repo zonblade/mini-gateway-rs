@@ -20,7 +20,6 @@ pub struct ApiClient {
     http: reqwest::Client,
     base_url: String,
     token: Option<String>,
-    /// Credentials for re-auth on 401
     username: Option<String>,
     password: Option<String>,
     no_cache: bool,
@@ -38,7 +37,6 @@ impl ApiClient {
         }
     }
 
-    /// Set credentials and authenticate. Uses cached token if available.
     pub async fn authenticate(&mut self, username: &str, password: &str) -> Result<(), CliError> {
         self.username = Some(username.to_string());
         self.password = Some(password.to_string());
@@ -86,7 +84,6 @@ impl ApiClient {
         Ok(())
     }
 
-    /// Re-authenticate using stored credentials (called on 401).
     async fn reauth(&mut self) -> Result<(), CliError> {
         let (user, pass) = match (&self.username, &self.password) {
             (Some(u), Some(p)) => (u.clone(), p.clone()),

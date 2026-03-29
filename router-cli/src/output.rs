@@ -18,7 +18,6 @@ pub fn print_yaml<T: Serialize>(value: &T) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Format a table as a string (for testing) or print to stdout.
 pub fn format_table(headers: &[&str], rows: &[Vec<String>]) -> String {
     if rows.is_empty() {
         return "(no results)".to_string();
@@ -97,7 +96,6 @@ mod tests {
         let result = format_table(&["ID", "V"], &rows);
         let lines: Vec<&str> = result.lines().collect();
 
-        // ID column should be as wide as the data value
         assert!(lines[0].len() == lines[2].len());
     }
 }
